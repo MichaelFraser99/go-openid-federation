@@ -1,0 +1,4 @@
+github.com/MichaelFraser99/go-jose v0.9.1-0.20250426060539-3cb1fea798c8 h1:GQOQzmfQsI1FWPhRQkvD28j+Am4aO6D4+HnTfGT8c1I=
+github.com/MichaelFraser99/go-jose v0.9.1-0.20250426060539-3cb1fea798c8/go.mod h1:kdRvg7/FPcDnsEz8PyCg5hhcBlLud9F0jB4Xy/u771c=
+github.com/google/go-cmp v0.6.0 h1:ofyhxvXcZhMsU5ulbFiLKl/XBFqE1GSq7atu8tAmTRI=
+github.com/google/go-cmp v0.6.0/go.mod h1:17dUlkBOakJ0+DkrSSNjCkIjxS6bF9zb3elmeNGIjoY=

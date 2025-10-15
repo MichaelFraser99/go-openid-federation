@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"reflect"
+	"strings"
 )
 
 func NewDefault(operatorValue any) (*Default, error) {
@@ -24,6 +25,20 @@ type Default struct {
 
 func (d Default) OperatorValue() any {
 	return d.operatorValue
+}
+
+func (d Default) ToSlice(key string) MetadataPolicyOperator {
+	if reflect.TypeOf(d.operatorValue).Kind() != reflect.Slice {
+		if key == "scope" {
+			return &Default{
+				operatorValue: strings.Split(d.operatorValue.(string), " "),
+			}
+		}
+		return &Default{
+			operatorValue: []any{d.operatorValue},
+		}
+	}
+	return d
 }
 
 func (d Default) String() string {

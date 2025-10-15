@@ -40,6 +40,10 @@ func (s SupersetOf) OperatorValue() any {
 	return s.operatorValue
 }
 
+func (s SupersetOf) ToSlice(key string) MetadataPolicyOperator {
+	return s
+}
+
 func (s SupersetOf) String() string {
 	return "superset_of"
 }

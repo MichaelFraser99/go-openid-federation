@@ -39,6 +39,10 @@ func (o OneOf) OperatorValue() any {
 	return o.operatorValue
 }
 
+func (o OneOf) ToSlice(key string) MetadataPolicyOperator {
+	return o
+}
+
 func (o OneOf) String() string {
 	return "one_of"
 }

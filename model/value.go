@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 )
 
 var (
@@ -24,6 +25,20 @@ func (v Value) OperatorValue() any {
 	return v.operatorValue
 }
 
+func (v Value) ToSlice(key string) MetadataPolicyOperator {
+	if reflect.TypeOf(v.operatorValue).Kind() != reflect.Slice {
+		if key == "scope" {
+			return &Default{
+				operatorValue: strings.Split(v.operatorValue.(string), " "),
+			}
+		}
+		return &Value{
+			operatorValue: []any{v.operatorValue},
+		}
+	}
+	return v
+}
+
 func (v Value) String() string {
 	return "value"
 }
@@ -40,7 +55,7 @@ func (v Value) Resolve(metadataParameterValue any) (any, error) {
 		return v.operatorValue, nil
 	}
 
-	if inputType != reflect.TypeOf(v.operatorValue) {
+	if inputType.Kind() != reflect.TypeOf(v.operatorValue).Kind() {
 		return nil, fmt.Errorf("type mismatch: metadata parameter value is of type %T, but operator value is of type %T", metadataParameterValue, v.operatorValue)
 	}
 	return v.operatorValue, nil

@@ -43,6 +43,10 @@ func (a Add) OperatorValue() any {
 	return a.operatorValue
 }
 
+func (a Add) ToSlice(key string) MetadataPolicyOperator {
+	return a
+}
+
 func (a Add) String() string {
 	return "add"
 }

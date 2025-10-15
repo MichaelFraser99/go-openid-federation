@@ -39,6 +39,10 @@ func (s SubsetOf) OperatorValue() any {
 	return s.operatorValue
 }
 
+func (s SubsetOf) ToSlice(key string) MetadataPolicyOperator {
+	return s
+}
+
 func (s SubsetOf) String() string {
 	return "subset_of"
 }

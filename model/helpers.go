@@ -222,7 +222,9 @@ func ApplyPolicy(subject EntityStatement, policy MetadataPolicy) (*EntityStateme
 				}
 			}
 			for _, operator := range operators.Metadata {
-				operator = operator.ToSlice(k)
+				if k == "scope" {
+					operator = operator.ToSlice(k)
+				}
 				resolved, err := operator.Resolve(existing)
 				if err != nil {
 					return nil, err

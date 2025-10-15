@@ -268,6 +268,10 @@ type MetadataPolicyOperator interface {
 	ResolutionHierarchy() int
 	Merge(valueToMerge any) (MetadataPolicyOperator, error)
 	OperatorValue() any
+
+	// ToSlice transforms the value of the MetadataPolicyOperator into a slice representation.
+	// Used during certain metadata edge case handling
+	ToSlice(key string) MetadataPolicyOperator
 	CheckForConflict(containsFunc func(policyType reflect.Type) (MetadataPolicyOperator, bool)) error
 }
 

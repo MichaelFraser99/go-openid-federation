@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"reflect"
 	"slices"
+	"strings"
 )
 
 func ReMarshalJsonAsEntityMetadata[T any](data any) (*T, error) {
@@ -211,10 +212,23 @@ func ApplyPolicy(subject EntityStatement, policy MetadataPolicy) (*EntityStateme
 
 	if subject.Metadata.OpenIDRelyingPartyMetadata != nil {
 		for k, operators := range policy.OpenIDRelyingPartyMetadata {
+			existing, ok := (*subject.Metadata.OpenIDRelyingPartyMetadata)[k]
+			if k == "scope" {
+				// scope has special behaviour
+				if ok {
+					existing = strings.Split(existing.(string), " ")
+				} else {
+					existing = []string{}
+				}
+			}
 			for _, operator := range operators.Metadata {
-				resolved, err := operator.Resolve((*subject.Metadata.OpenIDRelyingPartyMetadata)[k])
+				operator = operator.ToSlice(k)
+				resolved, err := operator.Resolve(existing)
 				if err != nil {
 					return nil, err
+				}
+				if k == "scope" {
+					resolved = strings.Join(resolved.([]string), " ")
 				}
 				(*subject.Metadata.OpenIDRelyingPartyMetadata)[k] = resolved
 			}

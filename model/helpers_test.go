@@ -414,6 +414,144 @@ func Test_applyPolicy(t *testing.T) {
 				}
 			},
 		},
+		"we correctly handle the scope edge case when applying an array to existing values": {
+			subject: func(t *testing.T) EntityStatement {
+				return EntityStatement{
+					Metadata: &Metadata{
+						OpenIDRelyingPartyMetadata: &OpenIDRelyingPartyMetadata{
+							"client_id": "https://op.umu.se/openid",
+							"scope":     "openid",
+						},
+					},
+				}
+			},
+			policy: func(t *testing.T) MetadataPolicy {
+				addOperator, err := NewAdd([]any{"foo", "bar", "baz"})
+				if err != nil {
+					t.Fatalf("expected no error creating add operator, got %q", err.Error())
+				}
+				policyA := MetadataPolicy{OpenIDRelyingPartyMetadata: map[string]PolicyOperators{"scope": {[]MetadataPolicyOperator{addOperator}}}}
+				es, err := ProcessAndExtractPolicy([]EntityStatement{{}, {MetadataPolicy: &policyA}})
+				if err != nil {
+					t.Fatalf("expected no error, got %q", err.Error())
+				}
+				return *es
+			},
+			verify: func(t *testing.T, result *EntityStatement, err error) {
+				if err != nil {
+					t.Fatalf("expected no error, got %q", err.Error())
+				}
+
+				expected := map[string]any{
+					"client_id": "https://op.umu.se/openid",
+					"scope":     "openid foo bar baz",
+				}
+
+				if diff := cmp.Diff(expected, (map[string]any)(*result.Metadata.OpenIDRelyingPartyMetadata), cmpopts.SortSlices(func(x, y any) bool {
+					if sx, ok := x.(string); ok {
+						if sy, ok := y.(string); ok {
+							return sx < sy
+						}
+					}
+					return fmt.Sprintf("%v", x) < fmt.Sprintf("%v", y)
+				})); diff != "" {
+					t.Errorf("mismatch (-expected +got):\n%s", diff)
+				}
+			},
+		},
+		"we correctly handle the scope edge case when applying an array to no existing values": {
+			subject: func(t *testing.T) EntityStatement {
+				return EntityStatement{
+					Metadata: &Metadata{
+						OpenIDRelyingPartyMetadata: &OpenIDRelyingPartyMetadata{
+							"client_id": "https://op.umu.se/openid",
+						},
+					},
+				}
+			},
+			policy: func(t *testing.T) MetadataPolicy {
+				addOperator, err := NewAdd([]any{"foo", "bar", "baz"})
+				if err != nil {
+					t.Fatalf("expected no error creating add operator, got %q", err.Error())
+				}
+				policyA := MetadataPolicy{OpenIDRelyingPartyMetadata: map[string]PolicyOperators{"scope": {[]MetadataPolicyOperator{addOperator}}}}
+				es, err := ProcessAndExtractPolicy([]EntityStatement{{}, {MetadataPolicy: &policyA}})
+				if err != nil {
+					t.Fatalf("expected no error, got %q", err.Error())
+				}
+				return *es
+			},
+			verify: func(t *testing.T, result *EntityStatement, err error) {
+				if err != nil {
+					t.Fatalf("expected no error, got %q", err.Error())
+				}
+
+				expected := map[string]any{
+					"client_id": "https://op.umu.se/openid",
+					"scope":     "foo bar baz",
+				}
+
+				if diff := cmp.Diff(expected, (map[string]any)(*result.Metadata.OpenIDRelyingPartyMetadata), cmpopts.SortSlices(func(x, y any) bool {
+					if sx, ok := x.(string); ok {
+						if sy, ok := y.(string); ok {
+							return sx < sy
+						}
+					}
+					return fmt.Sprintf("%v", x) < fmt.Sprintf("%v", y)
+				})); diff != "" {
+					t.Errorf("mismatch (-expected +got):\n%s", diff)
+				}
+			},
+		},
+		"we correctly handle the scope edge case when applying an array to no existing values with a mix of metadata policies": {
+			subject: func(t *testing.T) EntityStatement {
+				return EntityStatement{
+					Metadata: &Metadata{
+						OpenIDRelyingPartyMetadata: &OpenIDRelyingPartyMetadata{
+							"client_id": "https://op.umu.se/openid",
+						},
+					},
+				}
+			},
+			policy: func(t *testing.T) MetadataPolicy {
+				valueOperator, err := NewValue("foo bar baz bong")
+				if err != nil {
+					t.Fatalf("expected no error creating value operator, got %q", err.Error())
+				}
+				addOperator, err := NewAdd([]any{"foo", "bar", "baz"})
+				if err != nil {
+					t.Fatalf("expected no error creating add operator, got %q", err.Error())
+				}
+				policyA := MetadataPolicy{OpenIDRelyingPartyMetadata: map[string]PolicyOperators{"scope": {[]MetadataPolicyOperator{valueOperator}}}}
+				policyB := MetadataPolicy{OpenIDRelyingPartyMetadata: map[string]PolicyOperators{"scope": {[]MetadataPolicyOperator{addOperator}}}}
+				es, err := ProcessAndExtractPolicy([]EntityStatement{{}, {MetadataPolicy: &policyB}, {MetadataPolicy: &policyA}})
+				if err != nil {
+					t.Fatalf("expected no error, got %q", err.Error())
+				}
+				return *es
+			},
+			verify: func(t *testing.T, result *EntityStatement, err error) {
+				if err != nil {
+					t.Fatalf("expected no error, got %q", err.Error())
+				}
+
+				expected := map[string]any{
+					"client_id": "https://op.umu.se/openid",
+					"scope":     "foo bar baz",
+				}
+
+				if diff := cmp.Diff(expected, (map[string]any)(*result.Metadata.OpenIDRelyingPartyMetadata), cmpopts.SortSlices(func(x, y any) bool {
+					if sx, ok := x.(string); ok {
+						if sy, ok := y.(string); ok {
+							return sx < sy
+						}
+					}
+					return fmt.Sprintf("%v", x) < fmt.Sprintf("%v", y)
+				})); diff != "" {
+					t.Errorf("mismatch (-expected +got):\n%s", diff)
+				}
+			},
+		},
 	}
 
 	for name, tt := range tests {

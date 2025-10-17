@@ -518,13 +518,18 @@ func Test_applyPolicy(t *testing.T) {
 				if err != nil {
 					t.Fatalf("expected no error creating value operator, got %q", err.Error())
 				}
+				valueOperator2, err := NewValue([]any{"foo", "bar", "baz", "bong"})
+				if err != nil {
+					t.Fatalf("expected no error creating value operator, got %q", err.Error())
+				}
 				addOperator, err := NewAdd([]any{"foo", "bar", "baz"})
 				if err != nil {
 					t.Fatalf("expected no error creating add operator, got %q", err.Error())
 				}
 				policyA := MetadataPolicy{OpenIDRelyingPartyMetadata: map[string]PolicyOperators{"scope": {[]MetadataPolicyOperator{valueOperator}}}}
-				policyB := MetadataPolicy{OpenIDRelyingPartyMetadata: map[string]PolicyOperators{"scope": {[]MetadataPolicyOperator{addOperator}}}}
-				es, err := ProcessAndExtractPolicy([]EntityStatement{{}, {MetadataPolicy: &policyB}, {MetadataPolicy: &policyA}})
+				policyB := MetadataPolicy{OpenIDRelyingPartyMetadata: map[string]PolicyOperators{"scope": {[]MetadataPolicyOperator{valueOperator2}}}}
+				policyC := MetadataPolicy{OpenIDRelyingPartyMetadata: map[string]PolicyOperators{"scope": {[]MetadataPolicyOperator{addOperator}}}}
+				es, err := ProcessAndExtractPolicy([]EntityStatement{{}, {MetadataPolicy: &policyC}, {MetadataPolicy: &policyB}, {MetadataPolicy: &policyA}})
 				if err != nil {
 					t.Fatalf("expected no error, got %q", err.Error())
 				}

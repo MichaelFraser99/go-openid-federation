@@ -31,7 +31,7 @@ func (d Default) ToSlice(key string) MetadataPolicyOperator {
 	if reflect.TypeOf(d.operatorValue).Kind() != reflect.Slice {
 		if key == "scope" {
 			return &Default{
-				operatorValue: strings.Split(d.operatorValue.(string), " "),
+				operatorValue: ConvertStringsToAnySlice(strings.Split(d.operatorValue.(string), " ")),
 			}
 		}
 		return &Default{
@@ -62,9 +62,8 @@ func (d Default) ResolutionHierarchy() int {
 func (d Default) Merge(valueToMerge any) (MetadataPolicyOperator, error) {
 	if reflect.DeepEqual(d.operatorValue, valueToMerge) {
 		return d, nil
-	} else {
-		return nil, fmt.Errorf("merging %v and %v not possible", d.operatorValue, valueToMerge)
 	}
+	return nil, fmt.Errorf("merging %v and %v not possible", d.operatorValue, valueToMerge)
 }
 
 func (d Default) CheckForConflict(containsFunc func(policyType reflect.Type) (MetadataPolicyOperator, bool)) error {

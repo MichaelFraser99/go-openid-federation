@@ -28,8 +28,8 @@ func (v Value) OperatorValue() any {
 func (v Value) ToSlice(key string) MetadataPolicyOperator {
 	if reflect.TypeOf(v.operatorValue).Kind() != reflect.Slice {
 		if key == "scope" {
-			return &Default{
-				operatorValue: strings.Split(v.operatorValue.(string), " "),
+			return &Value{
+				operatorValue: ConvertStringsToAnySlice(strings.Split(v.operatorValue.(string), " ")),
 			}
 		}
 		return &Value{

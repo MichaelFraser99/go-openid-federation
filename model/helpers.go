@@ -85,53 +85,39 @@ func ProcessAndExtractPolicy(trustChain []EntityStatement) (*MetadataPolicy, err
 			continue
 		}
 
-		if metadataPolicy.FederationMetadata != nil {
-			if finalisedPolicy.MetadataPolicy.FederationMetadata == nil {
-				finalisedPolicy.MetadataPolicy.FederationMetadata = metadataPolicy.FederationMetadata
-			} else {
-				for k, policies := range finalisedPolicy.MetadataPolicy.FederationMetadata {
-					mergedPolicies, err := MergePolicyOperators(metadataPolicy.FederationMetadata[k], policies)
-					if err != nil {
-						return nil, err
-					}
-					finalisedPolicy.MetadataPolicy.FederationMetadata[k] = PolicyOperators{Metadata: mergedPolicies}
-				}
-			}
+		var err error
+		if finalisedPolicy.MetadataPolicy.FederationMetadata, err = applyPolicy(finalisedPolicy.MetadataPolicy.FederationMetadata, metadataPolicy.FederationMetadata); err != nil {
+			return nil, err
 		}
-
-		if metadataPolicy.OpenIDConnectOpenIDProviderMetadata != nil {
-			if finalisedPolicy.MetadataPolicy.OpenIDConnectOpenIDProviderMetadata == nil {
-				finalisedPolicy.MetadataPolicy.OpenIDConnectOpenIDProviderMetadata = metadataPolicy.OpenIDConnectOpenIDProviderMetadata
-			} else {
-				for k, policies := range finalisedPolicy.MetadataPolicy.OpenIDConnectOpenIDProviderMetadata {
-					mergedPolicies, err := MergePolicyOperators(metadataPolicy.OpenIDConnectOpenIDProviderMetadata[k], policies)
-					if err != nil {
-						return nil, err
-					}
-					finalisedPolicy.MetadataPolicy.OpenIDConnectOpenIDProviderMetadata[k] = PolicyOperators{Metadata: mergedPolicies}
-				}
-			}
+		if finalisedPolicy.MetadataPolicy.OpenIDConnectOpenIDProviderMetadata, err = applyPolicy(finalisedPolicy.MetadataPolicy.OpenIDConnectOpenIDProviderMetadata, metadataPolicy.OpenIDConnectOpenIDProviderMetadata); err != nil {
+			return nil, err
 		}
-
-		if metadataPolicy.OpenIDRelyingPartyMetadata != nil {
-			if finalisedPolicy.MetadataPolicy.OpenIDRelyingPartyMetadata == nil {
-				finalisedPolicy.MetadataPolicy.OpenIDRelyingPartyMetadata = metadataPolicy.OpenIDRelyingPartyMetadata
-			} else {
-				for k, policies := range finalisedPolicy.MetadataPolicy.OpenIDRelyingPartyMetadata {
-					mergedPolicies, err := MergePolicyOperators(metadataPolicy.OpenIDRelyingPartyMetadata[k], policies)
-					if err != nil {
-						return nil, err
-					}
-					finalisedPolicy.MetadataPolicy.OpenIDRelyingPartyMetadata[k] = PolicyOperators{Metadata: mergedPolicies}
-				}
-			}
+		if finalisedPolicy.MetadataPolicy.OpenIDRelyingPartyMetadata, err = applyPolicy(finalisedPolicy.MetadataPolicy.OpenIDRelyingPartyMetadata, metadataPolicy.OpenIDRelyingPartyMetadata); err != nil {
+			return nil, err
 		}
 	}
 	return finalisedPolicy.MetadataPolicy, nil
 }
 
+func applyPolicy(existing, policy map[string]PolicyOperators) (map[string]PolicyOperators, error) {
+	if policy != nil {
+		if existing == nil {
+			existing = policy
+		} else {
+			for k, policies := range existing {
+				mergedPolicies, err := MergePolicyOperators(k, policy[k], policies)
+				if err != nil {
+					return nil, err
+				}
+				existing[k] = PolicyOperators{Metadata: mergedPolicies}
+			}
+		}
+	}
+	return existing, nil
+}
+
 // MergePolicyOperators takes in two PolicyOperator values and returns the result of merging the two
-func MergePolicyOperators(policySetA, policySetB PolicyOperators) ([]MetadataPolicyOperator, error) {
+func MergePolicyOperators(claimName string, policySetA, policySetB PolicyOperators) ([]MetadataPolicyOperator, error) {
 	if len(policySetA.Metadata) == 0 && len(policySetB.Metadata) == 0 {
 		return nil, nil
 	} else if len(policySetA.Metadata) == 0 {
@@ -154,6 +140,11 @@ func MergePolicyOperators(policySetA, policySetB PolicyOperators) ([]MetadataPol
 				mergedPolicies = append(mergedPolicies, structuredA[next.ResolutionHierarchy()])
 				continue
 			} else {
+				if claimName == "scope" {
+					structuredA[next.ResolutionHierarchy()] = structuredA[next.ResolutionHierarchy()].ToSlice(claimName)
+					structuredB[next.ResolutionHierarchy()] = structuredB[next.ResolutionHierarchy()].ToSlice(claimName)
+				}
+
 				m, err := structuredA[next.ResolutionHierarchy()].Merge(structuredB[next.ResolutionHierarchy()].OperatorValue())
 				if err != nil {
 					return nil, err
@@ -216,9 +207,9 @@ func ApplyPolicy(subject EntityStatement, policy MetadataPolicy) (*EntityStateme
 			if k == "scope" {
 				// scope has special behaviour
 				if ok {
-					existing = strings.Split(existing.(string), " ")
+					existing = ConvertStringsToAnySlice(strings.Split(existing.(string), " "))
 				} else {
-					existing = []string{}
+					existing = []any{}
 				}
 			}
 			for _, operator := range operators.Metadata {
@@ -230,7 +221,20 @@ func ApplyPolicy(subject EntityStatement, policy MetadataPolicy) (*EntityStateme
 					return nil, err
 				}
 				if k == "scope" {
-					resolved = strings.Join(resolved.([]string), " ")
+					if resolvedSlice, ok := resolved.([]string); ok {
+						resolved = strings.Join(resolvedSlice, " ")
+					} else if resolvedAny, ok := resolved.([]any); ok {
+						stringSlice := make([]string, len(resolvedAny))
+						for i, v := range resolvedAny {
+							stringSlice[i], ok = v.(string)
+							if !ok {
+								return nil, fmt.Errorf("all scope values must be strings")
+							}
+						}
+						resolved = strings.Join(stringSlice, " ")
+					} else {
+						return nil, fmt.Errorf("scope must be a string or array of strings")
+					}
 				}
 				(*subject.Metadata.OpenIDRelyingPartyMetadata)[k] = resolved
 			}
@@ -259,4 +263,12 @@ func CalculateChainExpiration(chain []EntityStatement) int64 {
 		}
 	}
 	return exp
+}
+
+func ConvertStringsToAnySlice(input []string) []any {
+	result := make([]any, len(input))
+	for i, v := range input {
+		result[i] = v
+	}
+	return result
 }

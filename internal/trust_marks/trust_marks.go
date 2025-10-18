@@ -19,8 +19,9 @@ func Status(ctx context.Context, l *slog.Logger, trustMark string, configuration
 		logging.LogInfo(l, ctx, "error determining trust mark status", slog.String("error", err.Error()))
 		return nil, err
 	}
+	logging.LogInfo(l, ctx, "trust mark status determined", slog.String("status", *status))
 
-	return &model.TrustMarkStatusResponse{Active: *status}, nil
+	return &model.TrustMarkStatusResponse{Status: *status}, nil
 }
 
 func List(ctx context.Context, l *slog.Logger, trustMarkIdentifier string, subjectEntityIdentifier *model.EntityIdentifier, configuration model.ServerConfiguration) ([]model.EntityIdentifier, error) {

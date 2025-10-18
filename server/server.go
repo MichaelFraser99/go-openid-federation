@@ -3,11 +3,12 @@ package server
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"net/http"
+
 	"github.com/MichaelFraser99/go-openid-federation/ferrors"
 	"github.com/MichaelFraser99/go-openid-federation/internal/logging"
 	"github.com/MichaelFraser99/go-openid-federation/model"
-	"log/slog"
-	"net/http"
 )
 
 type Server struct {
@@ -60,6 +61,9 @@ func (s *Server) Configure(h *http.ServeMux) {
 
 		if s.configuration.Extensions.ExtendedListing.Enabled {
 			h.HandleFunc("GET /extended-list", func(w http.ResponseWriter, r *http.Request) { s.ExtendedList(w, r)() })
+		}
+		if s.configuration.Extensions.SubordinateStatus.Enabled {
+			h.HandleFunc("GET /subordinate-status", func(w http.ResponseWriter, r *http.Request) { s.SubordinateStatus(w, r)() })
 		}
 	}
 	if s.configuration.TrustMarkRetriever != nil {
@@ -115,4 +119,12 @@ func (s *Server) RespondWithEntityStatement(w http.ResponseWriter, data []byte) 
 
 func (s *Server) RespondWithResolveResponse(w http.ResponseWriter, data []byte) ResponseFunc {
 	return s.respondWith(w, http.StatusOK, "application/resolve-response+jwt", data)
+}
+
+func (s *Server) RespondWithTrustMarkStatusResponse(w http.ResponseWriter, data []byte) ResponseFunc {
+	return s.respondWith(w, http.StatusOK, "application/trust-mark-status-response+jwt", data)
+}
+
+func (s *Server) RespondWithSubordinateStatementResponse(w http.ResponseWriter, data []byte) ResponseFunc {
+	return s.respondWith(w, http.StatusOK, "application/entity-events-statement+jwt", data)
 }

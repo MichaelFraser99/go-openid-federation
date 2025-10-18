@@ -84,7 +84,7 @@ type TrustMarkIssuerRetriever interface {
 }
 
 type TrustMarkRetriever interface {
-	GetTrustMarkStatus(trustMark string) (*bool, error)
+	GetTrustMarkStatus(trustMark string) (*string, error)
 	IssueTrustMark(trustMarkIdentifier string, entityIdentifier EntityIdentifier) (*string, error)
 	ListTrustMarks(trustMarkIdentifier string, identifier *EntityIdentifier) ([]EntityIdentifier, error)
 }
@@ -93,8 +93,19 @@ type ExtendedListingRetriever interface {
 	GetExtendedSubordinates(from *EntityIdentifier, size int, claims []string) (*ExtendedListingResponse, error)
 }
 
+type SubordinateStatusRetriever interface {
+	GetSubordinateStatus(sub *EntityIdentifier) (*SubordinateStatusResponse, error)
+}
+
 type Extensions struct {
-	ExtendedListing ExtendedListingConfiguration
+	ExtendedListing   ExtendedListingConfiguration
+	SubordinateStatus SubordinateStatusConfiguration
+}
+
+type SubordinateStatusConfiguration struct {
+	Enabled           bool
+	ResponseLifetime  *time.Duration
+	MetadataRetriever SubordinateStatusRetriever
 }
 
 type ExtendedListingConfiguration struct {
@@ -134,6 +145,16 @@ type SignerConfiguration struct {
 type ExtendedListingResponse struct {
 	ImmediateSubordinateEntities []map[string]any  `json:"immediate_subordinate_entities"`
 	NextEntityID                 *EntityIdentifier `json:"next_entity_id,omitempty"`
+}
+
+type SubordinateStatusResponse struct {
+	Events []SubordinateStatusEvent `json:"federation_registration_events"`
+}
+
+type SubordinateStatusEvent struct {
+	Iat              int64   `json:"iat"`
+	Event            string  `json:"event"`
+	EventDescription *string `json:"event_description,omitempty"`
 }
 
 type EntityStatement struct { //todo: allow for additional claims to be set - think profiles
@@ -444,7 +465,7 @@ type ResolveResponse struct {
 }
 
 type TrustMarkStatusResponse struct {
-	Active bool `json:"active"`
+	Status string `json:"status"`
 }
 
 func Pointer[T any](v T) *T {

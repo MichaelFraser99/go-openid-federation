@@ -11,6 +11,8 @@ import (
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 	"github.com/MichaelFraser99/go-openid-federation/model_test"
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 
 	"io"
 	"log/slog"
@@ -94,6 +96,42 @@ func (r TestExtendedRetriever) GetExtendedSubordinates(from *model.EntityIdentif
 	}
 
 	return &response, nil
+}
+
+type TestSubordinateStatusRetriever struct{}
+
+func (t TestSubordinateStatusRetriever) GetSubordinateStatus(sub *model.EntityIdentifier) (*model.SubordinateStatusResponse, error) {
+	identifiers := map[string]model.SubordinateStatusResponse{
+		"https://federation.com/no-events": {Events: make([]model.SubordinateStatusEvent, 0)},
+		"https://federation.com/one-event": {Events: []model.SubordinateStatusEvent{{
+			Iat:   time.Now().Add(-24 * time.Hour).UTC().Unix(),
+			Event: "registration",
+		}}},
+		"https://federation.com/lifecycle": {Events: []model.SubordinateStatusEvent{
+			{
+				Iat:   time.Now().Add(-24 * time.Hour).UTC().Unix(),
+				Event: "registration",
+			},
+			{
+				Iat:   time.Now().Add(-12 * time.Hour).UTC().Unix(),
+				Event: "metadata_update",
+			},
+			{
+				Iat:              time.Now().Add(-6 * time.Hour).UTC().Unix(),
+				Event:            "suspension",
+				EventDescription: model.Pointer("suspicious activity detected"),
+			},
+			{
+				Iat:   time.Now().Add(-1 * time.Hour).UTC().Unix(),
+				Event: "revocation",
+			},
+		}},
+	}
+
+	if response, ok := identifiers[string(*sub)]; ok {
+		return &response, nil
+	}
+	return nil, fmt.Errorf("unknown entity identifier: %s", *sub)
 }
 
 func TestServer_HandleWellKnown(t *testing.T) {
@@ -528,6 +566,216 @@ func TestServer_ExtendedList(t *testing.T) {
 
 			tt.validate(t, resp, err)
 		})
+	}
+}
+
+func TestServer_SubordinateStatus(t *testing.T) {
+	tests := map[string]struct {
+		sub      string
+		validate func(t *testing.T, response *http.Response, err error)
+	}{
+		"we can retrieve the status of an entity with one event": {
+			sub: "https://federation.com/one-event",
+			validate: func(t *testing.T, response *http.Response, err error) {
+				if err != nil {
+					t.Fatalf("expected no error, got %q", err.Error())
+				}
+				if response == nil {
+					t.Fatal("expected result to be non-nil")
+				}
+				defer response.Body.Close()
+				responseBytes, err := io.ReadAll(response.Body)
+				if err != nil {
+					t.Fatalf("failed to read response body: %v", err)
+				}
+				if response.StatusCode != http.StatusOK {
+					t.Fatalf("expected status code 200, got %d (response: %s)", response.StatusCode, responseBytes)
+				}
+				if response.Header.Get("Content-Type") != "application/entity-events-statement+jwt" {
+					t.Errorf("expected content type application/entity-events-statement+jwt, got %s", response.Header.Get("Content-Type"))
+				}
+				validateSubordinateStatusJWT(t, responseBytes, "https://federation.com/one-event", []map[string]any{
+					{"event": "registration"},
+				})
+			},
+		},
+		"we can retrieve the status of an entity with no events": {
+			sub: "https://federation.com/no-events",
+			validate: func(t *testing.T, response *http.Response, err error) {
+				if err != nil {
+					t.Fatalf("expected no error, got %q", err.Error())
+				}
+				if response == nil {
+					t.Fatal("expected result to be non-nil")
+				}
+				defer response.Body.Close()
+				responseBytes, err := io.ReadAll(response.Body)
+				if err != nil {
+					t.Fatalf("failed to read response body: %v", err)
+				}
+				if response.StatusCode != http.StatusOK {
+					t.Fatalf("expected status code 200, got %d (response: %s)", response.StatusCode, responseBytes)
+				}
+				if response.Header.Get("Content-Type") != "application/entity-events-statement+jwt" {
+					t.Errorf("expected content type application/entity-events-statement+jwt, got %s", response.Header.Get("Content-Type"))
+				}
+				validateSubordinateStatusJWT(t, responseBytes, "https://federation.com/no-events", []map[string]any{})
+			},
+		},
+		"we can retrieve the status of an entity with a full lifecycle": {
+			sub: "https://federation.com/lifecycle",
+			validate: func(t *testing.T, response *http.Response, err error) {
+				if err != nil {
+					t.Fatalf("expected no error, got %q", err.Error())
+				}
+				if response == nil {
+					t.Fatal("expected result to be non-nil")
+				}
+				defer response.Body.Close()
+				responseBytes, err := io.ReadAll(response.Body)
+				if err != nil {
+					t.Fatalf("failed to read response body: %v", err)
+				}
+				if response.StatusCode != http.StatusOK {
+					t.Fatalf("expected status code 200, got %d (response: %s)", response.StatusCode, responseBytes)
+				}
+				if response.Header.Get("Content-Type") != "application/entity-events-statement+jwt" {
+					t.Errorf("expected content type application/entity-events-statement+jwt, got %s", response.Header.Get("Content-Type"))
+				}
+				validateSubordinateStatusJWT(t, responseBytes, "https://federation.com/lifecycle", []map[string]any{
+					{"event": "registration"},
+					{"event": "metadata_update"},
+					{"event": "suspension", "event_description": "suspicious activity detected"},
+					{"event": "revocation"},
+				})
+			},
+		},
+		"we get an error when requesting status for an unknown entity": {
+			sub: "https://federation.com/unknown",
+			validate: func(t *testing.T, response *http.Response, err error) {
+				if err != nil {
+					t.Fatalf("expected no error, got %q", err.Error())
+				}
+				if response == nil {
+					t.Fatal("expected result to be non-nil")
+				}
+				validateErrorResponse(t, response, err, http.StatusNotFound, "not_found", "unknown entity identifier")
+			},
+		},
+	}
+
+	for name, tt := range tests {
+		signer, err := jws.GetSigner(josemodel.ES256, nil)
+		if err != nil {
+			t.Fatalf("expected no error creating signer, got %q", err.Error())
+		}
+		signerPublicJWK, err := jwk.PublicJwk(signer.Public())
+		if err != nil {
+			t.Fatalf("expected no error creating public JWK, got %q", err.Error())
+		}
+		t.Run(name, func(t *testing.T) {
+			server := NewServer(model.ServerConfiguration{
+				EntityIdentifier:          "https://some-trust-source.com",
+				IntermediateConfiguration: &model.IntermediateConfiguration{},
+				Extensions: model.Extensions{
+					SubordinateStatus: model.SubordinateStatusConfiguration{
+						Enabled:           true,
+						ResponseLifetime:  model.Pointer(1 * time.Hour),
+						MetadataRetriever: TestSubordinateStatusRetriever{},
+					},
+				},
+				SignerConfiguration: model.SignerConfiguration{
+					Signer:    signer,
+					KeyID:     (*signerPublicJWK)["kid"].(string),
+					Algorithm: "ES256",
+				},
+			})
+			server.WithLogger(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+			m := http.NewServeMux()
+			server.Configure(m)
+			s := httptest.NewServer(m)
+			testClient := s.Client()
+
+			req, err := http.NewRequest("GET", fmt.Sprintf("%s/subordinate-status?sub=%s", s.URL, tt.sub), nil)
+			if err != nil {
+				t.Fatalf("expected no error creating request, got %q", err.Error())
+			}
+
+			resp, err := testClient.Do(req)
+
+			tt.validate(t, resp, err)
+		})
+	}
+}
+
+func validateSubordinateStatusJWT(t *testing.T, responseBytes []byte, expectedSub string, expectedEvents []map[string]any) {
+	parts := strings.Split(string(responseBytes), ".")
+	if len(parts) != 3 {
+		t.Fatalf("expected 3 parts, got %d", len(parts))
+	}
+
+	head, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		t.Fatalf("expected no error decoding header, got %q", err.Error())
+	}
+	body, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatalf("expected no error decoding body, got %q", err.Error())
+	}
+
+	var parsedHead, parsedBody map[string]any
+	if err = json.Unmarshal(head, &parsedHead); err != nil {
+		t.Fatalf("expected no error parsing head, got %q", err.Error())
+	}
+
+	if err = json.Unmarshal(body, &parsedBody); err != nil {
+		t.Fatalf("expected no error parsing body, got %q", err.Error())
+	}
+
+	if diff := cmp.Diff(map[string]any{
+		"alg": "ES256",
+		"typ": "entity-events-statement+jwt",
+	}, parsedHead, cmpopts.IgnoreMapEntries(func(k string, v any) bool {
+		return k == "kid"
+	})); diff != "" {
+		t.Errorf("mismatch (-expected +got):\n%s", diff)
+	}
+
+	if diff := cmp.Diff(map[string]any{
+		"federation_registration_events": expectedEvents,
+		"iss":                            "https://some-trust-source.com",
+		"sub":                            expectedSub,
+	}, parsedBody, cmpopts.IgnoreMapEntries(func(k string, v any) bool {
+		return k == "iat" || k == "exp" || k == "federation_registration_events"
+	})); diff != "" {
+		t.Errorf("mismatch (-expected +got):\n%s", diff)
+	}
+
+	if _, ok := parsedBody["exp"]; !ok {
+		t.Errorf("expected exp field, got none")
+	}
+	if _, ok := parsedBody["iat"]; !ok {
+		t.Errorf("expected iat field, got none")
+	}
+
+	events := parsedBody["federation_registration_events"].([]any)
+	if len(events) != len(expectedEvents) {
+		t.Fatalf("expected %d events, got %d", len(expectedEvents), len(events))
+	}
+
+	for i, event := range events {
+		eventMap := event.(map[string]any)
+		if _, ok := eventMap["iat"]; !ok {
+			t.Errorf("expected event to have an iat field, got none")
+		}
+		if eventMap["event"] != expectedEvents[i]["event"] {
+			t.Errorf("expected event type %q, got %q", expectedEvents[i]["event"], eventMap["event"])
+		}
+		if desc, ok := expectedEvents[i]["event_description"]; ok {
+			if eventMap["event_description"] != desc {
+				t.Errorf("expected event description %q, got %q", desc, eventMap["event_description"])
+			}
+		}
 	}
 }
 

@@ -1,6 +1,7 @@
 package subordinate_statement
 
 import (
+	"context"
 	"crypto"
 	"encoding/base64"
 	"encoding/json"
@@ -18,8 +19,8 @@ import (
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
-func Retrieve(httpClient *http.Client, issuer model.EntityStatement, subject model.EntityIdentifier) (*string, *model.EntityStatement, error) {
-	if httpClient == nil {
+func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityStatement, subject model.EntityIdentifier) (*string, *model.EntityStatement, error) {
+	if cfg.HttpClient == nil {
 		return nil, nil, fmt.Errorf("no http client present")
 	}
 	if issuer.Iss != issuer.Sub {
@@ -29,7 +30,7 @@ func Retrieve(httpClient *http.Client, issuer model.EntityStatement, subject mod
 		return nil, nil, fmt.Errorf("issuer entity statement does not list a federation fetch endpoint within it's federation metadata")
 	}
 
-	request, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%ssub=%s", func() string {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%ssub=%s", func() string {
 		trimmedString := strings.TrimSuffix((*issuer.Metadata.FederationMetadata)["federation_fetch_endpoint"].(string), "/")
 		if strings.Contains(trimmedString, "?") {
 			return trimmedString + "&"
@@ -42,7 +43,7 @@ func Retrieve(httpClient *http.Client, issuer model.EntityStatement, subject mod
 	}
 	request.Header.Set("Accept", "application/entity-statement+jwt")
 
-	response, err := httpClient.Do(request)
+	response, err := cfg.HttpClient.Do(request)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -154,7 +155,7 @@ func Validate(issuer model.EntityStatement, subordinateStatementJwt string) (*mo
 
 // todo: check this conforms to the errors listed in openid federation (spoiler alert - it doesn't)
 // New takes a given subject Entity Identifier, set of authority hint Entity Identifiers, populated Entity Statement, and key material (with associated key ID and algorithm) and produces a signed Entity Configuration
-func New(subjectIdentifier model.EntityIdentifier, subordinateRetriever func() (*model.SubordinateConfiguration, *model.SignerConfiguration, error), configuration model.ServerConfiguration) (*string, error) {
+func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordinateRetriever func() (*model.SubordinateConfiguration, *model.SignerConfiguration, error), configuration model.ServerConfiguration) (*string, error) {
 	if configuration.IntermediateConfiguration == nil {
 		return nil, fmt.Errorf("no intermediate configuration provided")
 	}
@@ -164,7 +165,7 @@ func New(subjectIdentifier model.EntityIdentifier, subordinateRetriever func() (
 		return nil, err
 	}
 	if subjectSubordinateConfiguration == nil {
-		return nil, fmt.Errorf("unknown entity identifier")
+		return nil, model.NewNotFoundError("unknown entity identifier")
 	}
 
 	if len(subjectSubordinateConfiguration.JWKs.Keys) == 0 {

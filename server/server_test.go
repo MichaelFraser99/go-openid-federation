@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto"
 	"encoding/base64"
 	"encoding/json"
@@ -28,8 +29,9 @@ import (
 )
 
 var (
-	_ model.Retriever                = TestRetriever{}
-	_ model.ExtendedListingRetriever = TestExtendedRetriever{}
+	_ model.Retriever                  = TestRetriever{}
+	_ model.ExtendedListingRetriever   = TestExtendedRetriever{}
+	_ model.SubordinateStatusRetriever = TestSubordinateStatusRetriever{}
 )
 
 type TestRetriever struct {
@@ -40,20 +42,20 @@ func (t *TestRetriever) Configure(configuration map[string]*model.SubordinateCon
 	t.configuration = configuration
 }
 
-func (t TestRetriever) GetSubordinate(identifier model.EntityIdentifier) (*model.SubordinateConfiguration, error) {
+func (t TestRetriever) GetSubordinate(ctx context.Context, identifier model.EntityIdentifier) (*model.SubordinateConfiguration, error) {
 	if val, ok := t.configuration[string(identifier)]; ok {
 		return val, nil
 	} else {
-		return nil, fmt.Errorf("subordinate configuration not found: %s", identifier)
+		return nil, model.NewNotFoundError(fmt.Sprintf("subordinate cfg not found: %s", identifier))
 	}
 }
 
-func (t TestRetriever) GetSubordinates() (map[model.EntityIdentifier]*model.SubordinateConfiguration, error) {
+func (t TestRetriever) GetSubordinates(ctx context.Context) (map[model.EntityIdentifier]*model.SubordinateConfiguration, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (t TestRetriever) GetSubordinateSigners() ([]model.SignerConfiguration, error) {
+func (t TestRetriever) GetSubordinateSigners(ctx context.Context) ([]model.SignerConfiguration, error) {
 	var response []model.SignerConfiguration
 	for _, val := range t.configuration {
 		if val.SignerConfiguration != nil {
@@ -65,7 +67,7 @@ func (t TestRetriever) GetSubordinateSigners() ([]model.SignerConfiguration, err
 
 type TestExtendedRetriever struct{}
 
-func (r TestExtendedRetriever) GetExtendedSubordinates(from *model.EntityIdentifier, size int, claims []string) (*model.ExtendedListingResponse, error) {
+func (r TestExtendedRetriever) GetExtendedSubordinates(ctx context.Context, from *model.EntityIdentifier, size int, claims []string) (*model.ExtendedListingResponse, error) {
 	identifiers := []string{
 		"https://a-some-fourth-federation.com/some-path",
 		"https://b-some-other-federation.com/some-path",
@@ -100,7 +102,7 @@ func (r TestExtendedRetriever) GetExtendedSubordinates(from *model.EntityIdentif
 
 type TestSubordinateStatusRetriever struct{}
 
-func (t TestSubordinateStatusRetriever) GetSubordinateStatus(sub *model.EntityIdentifier) (*model.SubordinateStatusResponse, error) {
+func (t TestSubordinateStatusRetriever) GetSubordinateStatus(ctx context.Context, sub model.EntityIdentifier) (*model.SubordinateStatusResponse, error) {
 	identifiers := map[string]model.SubordinateStatusResponse{
 		"https://federation.com/no-events": {Events: make([]model.SubordinateStatusEvent, 0)},
 		"https://federation.com/one-event": {Events: []model.SubordinateStatusEvent{{
@@ -128,10 +130,10 @@ func (t TestSubordinateStatusRetriever) GetSubordinateStatus(sub *model.EntityId
 		}},
 	}
 
-	if response, ok := identifiers[string(*sub)]; ok {
+	if response, ok := identifiers[string(sub)]; ok {
 		return &response, nil
 	}
-	return nil, fmt.Errorf("unknown entity identifier: %s", *sub)
+	return nil, model.NewNotFoundError(fmt.Sprintf("unknown entity identifier: %s", sub))
 }
 
 func TestServer_HandleWellKnown(t *testing.T) {
@@ -659,7 +661,7 @@ func TestServer_SubordinateStatus(t *testing.T) {
 				if response == nil {
 					t.Fatal("expected result to be non-nil")
 				}
-				validateErrorResponse(t, response, err, http.StatusNotFound, "not_found", "unknown entity identifier")
+				validateErrorResponse(t, response, err, http.StatusNotFound, "not_found", "unknown entity identifier: https://federation.com/unknown")
 			},
 		},
 	}
@@ -688,6 +690,9 @@ func TestServer_SubordinateStatus(t *testing.T) {
 					Signer:    signer,
 					KeyID:     (*signerPublicJWK)["kid"].(string),
 					Algorithm: "ES256",
+				},
+				Configuration: model.Configuration{
+					Logger: slog.New(slog.NewJSONHandler(os.Stdout, nil)),
 				},
 			})
 			server.WithLogger(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
@@ -813,6 +818,8 @@ func validateFetchResponse(t *testing.T, response *http.Response, err error, exp
 	if err != nil {
 		t.Fatalf("expected no error decoding body, got %q", err.Error())
 	}
+
+	t.Log(string(body))
 
 	var parsedHead, parsedBody map[string]any
 	if err = json.Unmarshal(head, &parsedHead); err != nil {

@@ -542,7 +542,7 @@ func Test_applyPolicy(t *testing.T) {
 
 				expected := map[string]any{
 					"client_id": "https://op.umu.se/openid",
-					"scope":     "foo bar baz",
+					"scope":     "foo bar baz bong",
 				}
 
 				if diff := cmp.Diff(expected, (map[string]any)(*result.Metadata.OpenIDRelyingPartyMetadata), cmpopts.SortSlices(func(x, y any) bool {
@@ -566,6 +566,381 @@ func Test_applyPolicy(t *testing.T) {
 				t.Fatalf("expected no error, got %q", err.Error())
 			}
 			tt.verify(t, result, err)
+		})
+	}
+}
+
+func TestReMarshalJsonAsEntityMetadata(t *testing.T) {
+	type TestStruct struct {
+		Name  string `json:"name"`
+		Value int    `json:"value"`
+	}
+
+	tests := map[string]struct {
+		data     any
+		validate func(t *testing.T, result *TestStruct, err error)
+	}{
+		"marshals and unmarshals valid struct": {
+			data: map[string]any{
+				"name":  "test",
+				"value": 123,
+			},
+			validate: func(t *testing.T, result *TestStruct, err error) {
+				if err != nil {
+					t.Fatalf("expected no error, got %q", err.Error())
+				}
+				if result == nil {
+					t.Fatal("expected non-nil result")
+				}
+				if result.Name != "test" {
+					t.Errorf("expected name 'test', got %q", result.Name)
+				}
+				if result.Value != 123 {
+					t.Errorf("expected value 123, got %d", result.Value)
+				}
+			},
+		},
+		"handles empty object": {
+			data: map[string]any{},
+			validate: func(t *testing.T, result *TestStruct, err error) {
+				if err != nil {
+					t.Fatalf("expected no error, got %q", err.Error())
+				}
+				if result == nil {
+					t.Fatal("expected non-nil result")
+				}
+				if result.Name != "" {
+					t.Errorf("expected empty name, got %q", result.Name)
+				}
+				if result.Value != 0 {
+					t.Errorf("expected value 0, got %d", result.Value)
+				}
+			},
+		},
+		"returns error for invalid data type": {
+			data: "test",
+			validate: func(t *testing.T, result *TestStruct, err error) {
+				if err == nil {
+					t.Fatal("expected error for string data, got nil")
+				}
+			},
+		},
+		"handles nested structures": {
+			data: map[string]any{
+				"name":  "nested",
+				"value": 456,
+			},
+			validate: func(t *testing.T, result *TestStruct, err error) {
+				if err != nil {
+					t.Fatalf("expected no error, got %q", err.Error())
+				}
+				if result.Name != "nested" {
+					t.Errorf("expected name 'nested', got %q", result.Name)
+				}
+				if result.Value != 456 {
+					t.Errorf("expected value 456, got %d", result.Value)
+				}
+			},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			result, err := ReMarshalJsonAsEntityMetadata[TestStruct](tt.data)
+			tt.validate(t, result, err)
+		})
+	}
+}
+
+func TestVerifyFederationEndpoint(t *testing.T) {
+	tests := map[string]struct {
+		endpoint any
+		validate func(t *testing.T, err error)
+	}{
+		"valid https endpoint": {
+			endpoint: "https://example.com/endpoint",
+			validate: func(t *testing.T, err error) {
+				if err != nil {
+					t.Errorf("expected no error for valid https endpoint, got %q", err.Error())
+				}
+			},
+		},
+		"valid https endpoint with port": {
+			endpoint: "https://example.com:8443/endpoint",
+			validate: func(t *testing.T, err error) {
+				if err != nil {
+					t.Errorf("expected no error for valid https endpoint with port, got %q", err.Error())
+				}
+			},
+		},
+		"valid https endpoint with query parameters": {
+			endpoint: "https://example.com/endpoint?param=value",
+			validate: func(t *testing.T, err error) {
+				if err != nil {
+					t.Errorf("expected no error for valid https endpoint with query params, got %q", err.Error())
+				}
+			},
+		},
+		"valid https endpoint with path": {
+			endpoint: "https://example.com/path/to/endpoint",
+			validate: func(t *testing.T, err error) {
+				if err != nil {
+					t.Errorf("expected no error for valid https endpoint with path, got %q", err.Error())
+				}
+			},
+		},
+		"nil endpoint is valid": {
+			endpoint: nil,
+			validate: func(t *testing.T, err error) {
+				if err != nil {
+					t.Errorf("expected no error for nil endpoint, got %q", err.Error())
+				}
+			},
+		},
+		"invalid endpoint - not a string": {
+			endpoint: 123,
+			validate: func(t *testing.T, err error) {
+				if err == nil {
+					t.Error("expected error for non-string endpoint, got nil")
+				}
+			},
+		},
+		"invalid endpoint - http scheme": {
+			endpoint: "http://example.com/endpoint",
+			validate: func(t *testing.T, err error) {
+				if err == nil {
+					t.Error("expected error for http scheme, got nil")
+				}
+			},
+		},
+		"invalid endpoint - contains fragment": {
+			endpoint: "https://example.com/endpoint#fragment",
+			validate: func(t *testing.T, err error) {
+				if err == nil {
+					t.Error("expected error for endpoint with fragment, got nil")
+				}
+			},
+		},
+		"invalid endpoint - malformed URL": {
+			endpoint: "not a valid url",
+			validate: func(t *testing.T, err error) {
+				if err == nil {
+					t.Error("expected error for malformed URL, got nil")
+				}
+			},
+		},
+		"invalid endpoint - ftp scheme": {
+			endpoint: "ftp://example.com/endpoint",
+			validate: func(t *testing.T, err error) {
+				if err == nil {
+					t.Error("expected error for ftp scheme, got nil")
+				}
+			},
+		},
+		"invalid endpoint - empty string": {
+			endpoint: "",
+			validate: func(t *testing.T, err error) {
+				if err == nil {
+					t.Error("expected error for empty string endpoint, got nil")
+				}
+			},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := VerifyFederationEndpoint(tt.endpoint)
+			tt.validate(t, err)
+		})
+	}
+}
+
+func TestConvertStringsToAnySlice(t *testing.T) {
+	tests := map[string]struct {
+		input    []string
+		validate func(t *testing.T, result []any)
+	}{
+		"converts empty slice": {
+			input: []string{},
+			validate: func(t *testing.T, result []any) {
+				if len(result) != 0 {
+					t.Errorf("expected empty slice, got length %d", len(result))
+				}
+			},
+		},
+		"converts single element": {
+			input: []string{"foo"},
+			validate: func(t *testing.T, result []any) {
+				if len(result) != 1 {
+					t.Fatalf("expected slice of length 1, got %d", len(result))
+				}
+				if result[0] != "foo" {
+					t.Errorf("expected 'foo', got %v", result[0])
+				}
+			},
+		},
+		"converts multiple elements": {
+			input: []string{"foo", "bar", "baz"},
+			validate: func(t *testing.T, result []any) {
+				if len(result) != 3 {
+					t.Fatalf("expected slice of length 3, got %d", len(result))
+				}
+				expected := []string{"foo", "bar", "baz"}
+				for i, exp := range expected {
+					if result[i] != exp {
+						t.Errorf("expected %q at index %d, got %v", exp, i, result[i])
+					}
+				}
+			},
+		},
+		"converts strings with special characters": {
+			input: []string{"hello world", "test@example.com", "path/to/resource"},
+			validate: func(t *testing.T, result []any) {
+				if len(result) != 3 {
+					t.Fatalf("expected slice of length 3, got %d", len(result))
+				}
+				expected := []string{"hello world", "test@example.com", "path/to/resource"}
+				for i, exp := range expected {
+					if result[i] != exp {
+						t.Errorf("expected %q at index %d, got %v", exp, i, result[i])
+					}
+				}
+			},
+		},
+		"converts strings with unicode": {
+			input: []string{"こんにちは", "emoji:😀", "special:™"},
+			validate: func(t *testing.T, result []any) {
+				if len(result) != 3 {
+					t.Fatalf("expected slice of length 3, got %d", len(result))
+				}
+				expected := []string{"こんにちは", "emoji:😀", "special:™"}
+				for i, exp := range expected {
+					if result[i] != exp {
+						t.Errorf("expected %q at index %d, got %v", exp, i, result[i])
+					}
+				}
+			},
+		},
+		"converts empty strings": {
+			input: []string{"", "", ""},
+			validate: func(t *testing.T, result []any) {
+				if len(result) != 3 {
+					t.Fatalf("expected slice of length 3, got %d", len(result))
+				}
+				for i, v := range result {
+					if v != "" {
+						t.Errorf("expected empty string at index %d, got %v", i, v)
+					}
+				}
+			},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			result := ConvertStringsToAnySlice(tt.input)
+			tt.validate(t, result)
+		})
+	}
+}
+
+func TestCalculateChainExpiration(t *testing.T) {
+	now := time.Now().UTC().Unix()
+	future1 := now + 3600  // 1 hour from now
+	future2 := now + 7200  // 2 hours from now
+	future3 := now + 10800 // 3 hours from now
+
+	tests := map[string]struct {
+		chain    []EntityStatement
+		validate func(t *testing.T, result int64)
+	}{
+		"returns expiration from single statement chain": {
+			chain: []EntityStatement{
+				{Exp: future1},
+			},
+			validate: func(t *testing.T, result int64) {
+				if result != future1 {
+					t.Errorf("expected expiration %d, got %d", future1, result)
+				}
+			},
+		},
+		"returns minimum expiration from chain with multiple statements": {
+			chain: []EntityStatement{
+				{Exp: future3},
+				{Exp: future1},
+				{Exp: future2},
+			},
+			validate: func(t *testing.T, result int64) {
+				if result != future1 {
+					t.Errorf("expected minimum expiration %d, got %d", future1, result)
+				}
+			},
+		},
+		"returns minimum when first statement has minimum": {
+			chain: []EntityStatement{
+				{Exp: future1},
+				{Exp: future2},
+				{Exp: future3},
+			},
+			validate: func(t *testing.T, result int64) {
+				if result != future1 {
+					t.Errorf("expected minimum expiration %d, got %d", future1, result)
+				}
+			},
+		},
+		"returns minimum when last statement has minimum": {
+			chain: []EntityStatement{
+				{Exp: future3},
+				{Exp: future2},
+				{Exp: future1},
+			},
+			validate: func(t *testing.T, result int64) {
+				if result != future1 {
+					t.Errorf("expected minimum expiration %d, got %d", future1, result)
+				}
+			},
+		},
+		"handles chain with same expiration": {
+			chain: []EntityStatement{
+				{Exp: future2},
+				{Exp: future2},
+				{Exp: future2},
+			},
+			validate: func(t *testing.T, result int64) {
+				if result != future2 {
+					t.Errorf("expected expiration %d, got %d", future2, result)
+				}
+			},
+		},
+		"handles chain with expired statements": {
+			chain: []EntityStatement{
+				{Exp: now - 3600}, // Expired 1 hour ago
+				{Exp: future1},
+				{Exp: future2},
+			},
+			validate: func(t *testing.T, result int64) {
+				if result != now-3600 {
+					t.Errorf("expected minimum expiration %d, got %d", now-3600, result)
+				}
+			},
+		},
+		"handles chain with two statements": {
+			chain: []EntityStatement{
+				{Exp: future2},
+				{Exp: future1},
+			},
+			validate: func(t *testing.T, result int64) {
+				if result != future1 {
+					t.Errorf("expected minimum expiration %d, got %d", future1, result)
+				}
+			},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			result := CalculateChainExpiration(tt.chain)
+			tt.validate(t, result)
 		})
 	}
 }

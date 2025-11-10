@@ -3,6 +3,8 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"os"
 
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jws"
@@ -95,7 +97,7 @@ func TestServer_Fetch(t *testing.T) {
 				}
 			},
 			validate: func(t *testing.T, response *http.Response, err error) {
-				validateErrorResponse(t, response, err, http.StatusNotFound, "not_found", "unknown subject")
+				validateErrorResponse(t, response, err, http.StatusBadRequest, "invalid_request", "malformed 'sub' parameter")
 			},
 		},
 		"entity trying to issue statement for itself returns an error": {
@@ -112,7 +114,7 @@ func TestServer_Fetch(t *testing.T) {
 		},
 		"entity not found returns an error": {
 			iss:        "https://some-trust-anchor.com/",
-			requestSub: "https://non-existent-entity.com/", // Entity that doesn't exist in configuration
+			requestSub: "https://non-existent-entity.com/", // Entity that doesn't exist in cfg
 			configuration: func() *model.IntermediateConfiguration {
 				return &model.IntermediateConfiguration{
 					SubordinateCacheTime: 5 * time.Minute,
@@ -149,6 +151,9 @@ func TestServer_Fetch(t *testing.T) {
 				IntermediateConfiguration: tt.configuration(),
 				EntityConfiguration: model.EntityStatement{
 					Iss: model.EntityIdentifier(tt.iss),
+				},
+				Configuration: model.Configuration{
+					Logger: slog.New(slog.NewJSONHandler(os.Stdout, nil)),
 				},
 			}
 			server := NewServer(serverConfig)

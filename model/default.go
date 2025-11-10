@@ -10,6 +10,19 @@ func NewDefault(operatorValue any) (*Default, error) {
 	if operatorValue == nil {
 		return nil, fmt.Errorf("operator value cannot be nil")
 	}
+
+	if reflect.TypeOf(operatorValue).Kind() == reflect.Slice {
+		sliceValue := reflect.ValueOf(operatorValue)
+		anySlice := make([]any, sliceValue.Len())
+
+		for i := 0; i < sliceValue.Len(); i++ {
+			anySlice[i] = sliceValue.Index(i).Interface()
+		}
+
+		anySlice = DeduplicateSlice(anySlice)
+		operatorValue = anySlice
+	}
+
 	return &Default{
 		operatorValue: operatorValue,
 	}, nil

@@ -272,3 +272,44 @@ func ConvertStringsToAnySlice(input []string) []any {
 	}
 	return result
 }
+
+// DeduplicateSlice removes duplicate values from a slice, preserving order.
+// Works with all data types including strings, numbers, booleans, and maps.
+func DeduplicateSlice(input []any) []any {
+	if len(input) == 0 {
+		return input
+	}
+
+	seen := make(map[string]bool)
+	result := make([]any, 0, len(input))
+
+	hashElement := func(element any) string {
+		switch e := element.(type) {
+		case map[string]any:
+			// For maps, create a stable hash by sorting keys
+			keys := make([]string, 0, len(e))
+			for k := range e {
+				keys = append(keys, k)
+			}
+			slices.Sort(keys)
+			sortedMap := make([]string, 0, len(e)*2)
+			for _, k := range keys {
+				sortedMap = append(sortedMap, k, fmt.Sprintf("%v", e[k]))
+			}
+			return fmt.Sprintf("%v", sortedMap)
+		default:
+			// For primitive types (string, int, float, bool, etc.)
+			return fmt.Sprintf("%#v", element)
+		}
+	}
+
+	for _, elem := range input {
+		hash := hashElement(elem)
+		if !seen[hash] {
+			seen[hash] = true
+			result = append(result, elem)
+		}
+	}
+
+	return result
+}

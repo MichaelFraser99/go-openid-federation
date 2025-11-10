@@ -27,6 +27,8 @@ func NewSupersetOf(operatorValue any) (*SupersetOf, error) {
 		anySlice[i] = sliceValue.Index(i).Interface()
 	}
 
+	anySlice = DeduplicateSlice(anySlice)
+
 	return &SupersetOf{
 		operatorValue: anySlice,
 	}, nil

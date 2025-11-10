@@ -114,18 +114,18 @@ func TestBuildTrustChain(t *testing.T) {
 	taServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.well-known/openid-federation" {
 			w.Header().Set("Content-Type", "application/entity-statement+jwt")
-			w.Write([]byte(createEntityStatement(t, trustAnchorID, trustAnchorID, []model.EntityIdentifier{}, trustAnchorKey, true)))
+			w.Write([]byte(createEntityStatement(t, trustAnchorID, trustAnchorID, []model.EntityIdentifier{}, trustAnchorKey, true))) //nolint:errcheck
 		}
 		if r.URL.Path == "/fetch" {
 			w.Header().Set("Content-Type", "application/entity-statement+jwt")
-			w.Write([]byte(createSubordinateStatement(t, trustAnchorID, leafID, trustAnchorKey, leafKey.Public())))
+			w.Write([]byte(createSubordinateStatement(t, trustAnchorID, leafID, trustAnchorKey, leafKey.Public()))) //nolint:errcheck
 		}
 	}))
 
 	leafServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.well-known/openid-federation" {
 			w.Header().Set("Content-Type", "application/entity-statement+jwt")
-			w.Write([]byte(createEntityStatement(t, leafID, leafID, []model.EntityIdentifier{trustAnchorID}, leafKey, false)))
+			w.Write([]byte(createEntityStatement(t, leafID, leafID, []model.EntityIdentifier{trustAnchorID}, leafKey, false))) //nolint:errcheck
 		}
 	}))
 

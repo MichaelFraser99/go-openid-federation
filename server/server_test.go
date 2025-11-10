@@ -202,7 +202,7 @@ func TestServer_HandleWellKnown(t *testing.T) {
 					t.Fatalf("expected content type 'application/entity-statement+jwt', got %q", response.Header.Get("Content-Type"))
 				}
 
-				defer response.Body.Close()
+				defer response.Body.Close() //nolint:errcheck
 				responseBytes, err := io.ReadAll(response.Body)
 				if err != nil {
 					t.Fatalf("failed to read response body: %v", err)
@@ -324,7 +324,7 @@ func TestServer_List(t *testing.T) {
 				if response.StatusCode != http.StatusOK {
 					t.Fatalf("expected status code 200, got %d", response.StatusCode)
 				}
-				defer response.Body.Close()
+				defer response.Body.Close() //nolint:errcheck
 				responseBytes, err := io.ReadAll(response.Body)
 				if err != nil {
 					t.Fatalf("failed to read response body: %v", err)
@@ -391,7 +391,7 @@ func TestServer_ExtendedList(t *testing.T) {
 				if response == nil {
 					t.Fatal("expected result to be non-nil")
 				}
-				defer response.Body.Close()
+				defer response.Body.Close() //nolint:errcheck
 				responseBytes, err := io.ReadAll(response.Body)
 				if err != nil {
 					t.Fatalf("failed to read response body: %v", err)
@@ -413,7 +413,7 @@ func TestServer_ExtendedList(t *testing.T) {
 				if response == nil {
 					t.Fatal("expected result to be non-nil")
 				}
-				defer response.Body.Close()
+				defer response.Body.Close() //nolint:errcheck
 				responseBytes, err := io.ReadAll(response.Body)
 				if err != nil {
 					t.Fatalf("failed to read response body: %v", err)
@@ -435,7 +435,7 @@ func TestServer_ExtendedList(t *testing.T) {
 				if response == nil {
 					t.Fatal("expected result to be non-nil")
 				}
-				defer response.Body.Close()
+				defer response.Body.Close() //nolint:errcheck
 				responseBytes, err := io.ReadAll(response.Body)
 				if err != nil {
 					t.Fatalf("failed to read response body: %v", err)
@@ -457,7 +457,7 @@ func TestServer_ExtendedList(t *testing.T) {
 				if response == nil {
 					t.Fatal("expected result to be non-nil")
 				}
-				defer response.Body.Close()
+				defer response.Body.Close() //nolint:errcheck
 				responseBytes, err := io.ReadAll(response.Body)
 				if err != nil {
 					t.Fatalf("failed to read response body: %v", err)
@@ -479,7 +479,7 @@ func TestServer_ExtendedList(t *testing.T) {
 				if response == nil {
 					t.Fatal("expected result to be non-nil")
 				}
-				defer response.Body.Close()
+				defer response.Body.Close() //nolint:errcheck
 				responseBytes, err := io.ReadAll(response.Body)
 				if err != nil {
 					t.Fatalf("failed to read response body: %v", err)
@@ -585,7 +585,7 @@ func TestServer_SubordinateStatus(t *testing.T) {
 				if response == nil {
 					t.Fatal("expected result to be non-nil")
 				}
-				defer response.Body.Close()
+				defer response.Body.Close() //nolint:errcheck
 				responseBytes, err := io.ReadAll(response.Body)
 				if err != nil {
 					t.Fatalf("failed to read response body: %v", err)
@@ -610,7 +610,7 @@ func TestServer_SubordinateStatus(t *testing.T) {
 				if response == nil {
 					t.Fatal("expected result to be non-nil")
 				}
-				defer response.Body.Close()
+				defer response.Body.Close() //nolint:errcheck
 				responseBytes, err := io.ReadAll(response.Body)
 				if err != nil {
 					t.Fatalf("failed to read response body: %v", err)
@@ -633,7 +633,7 @@ func TestServer_SubordinateStatus(t *testing.T) {
 				if response == nil {
 					t.Fatal("expected result to be non-nil")
 				}
-				defer response.Body.Close()
+				defer response.Body.Close() //nolint:errcheck
 				responseBytes, err := io.ReadAll(response.Body)
 				if err != nil {
 					t.Fatalf("failed to read response body: %v", err)
@@ -794,8 +794,7 @@ func validateFetchResponse(t *testing.T, response *http.Response, err error, exp
 	if response.StatusCode != expectedStatusCode {
 		t.Errorf("expected status code %d, got %d", expectedStatusCode, response.StatusCode)
 	}
-	defer response.Body.Close()
-
+	defer response.Body.Close() //nolint:errcheck
 	if response.Header["Content-Type"][0] != "application/resolve-response+jwt" {
 		t.Errorf("expected response type 'application/resolve-response+jwt', got %s", response.Header["Content-Type"][0])
 	}
@@ -846,7 +845,7 @@ func validateErrorResponse(t *testing.T, response *http.Response, err error, exp
 	if response == nil {
 		t.Fatal("expected response to be non-nil")
 	}
-	defer response.Body.Close()
+	defer response.Body.Close() //nolint:errcheck
 
 	responseBytes, err := io.ReadAll(response.Body)
 	if err != nil {

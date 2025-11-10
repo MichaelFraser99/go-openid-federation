@@ -36,7 +36,7 @@ func Retrieve(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 	if err != nil {
 		return nil, nil, err
 	}
-	defer response.Body.Close()
+	defer response.Body.Close() //nolint:errcheck
 
 	if response.StatusCode != http.StatusOK {
 		return nil, nil, fmt.Errorf("non-200 response from %q's entity configuration: %s", entityIdentifier, response.Status)

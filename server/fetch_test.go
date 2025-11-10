@@ -65,7 +65,7 @@ func TestServer_Fetch(t *testing.T) {
 				if response == nil {
 					t.Fatal("expected result to be non-nil")
 				}
-				defer response.Body.Close()
+				defer response.Body.Close() //nolint:errcheck
 				responseBytes, err := io.ReadAll(response.Body)
 				if err != nil {
 					t.Fatalf("failed to read response body: %v", err)

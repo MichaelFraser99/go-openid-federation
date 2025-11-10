@@ -144,10 +144,10 @@ func TestList(t *testing.T) {
 	entityID2 := model.EntityIdentifier("https://example.com/entity2")
 
 	tests := map[string]struct {
-		setupConfig           func() model.ServerConfiguration
-		trustMarkIdentifier   string
+		setupConfig             func() model.ServerConfiguration
+		trustMarkIdentifier     string
 		subjectEntityIdentifier *model.EntityIdentifier
-		validate              func(t *testing.T, result []model.EntityIdentifier, err error)
+		validate                func(t *testing.T, result []model.EntityIdentifier, err error)
 	}{
 		"returns list of entities with trust mark": {
 			setupConfig: func() model.ServerConfiguration {
@@ -271,10 +271,10 @@ func TestIssue(t *testing.T) {
 	entityID := model.EntityIdentifier("https://example.com/entity")
 
 	tests := map[string]struct {
-		setupConfig         func() model.ServerConfiguration
-		trustMarkIdentifier string
+		setupConfig             func() model.ServerConfiguration
+		trustMarkIdentifier     string
 		subjectEntityIdentifier model.EntityIdentifier
-		validate            func(t *testing.T, result *string, err error)
+		validate                func(t *testing.T, result *string, err error)
 	}{
 		"issues trust mark successfully": {
 			setupConfig: func() model.ServerConfiguration {
@@ -441,11 +441,11 @@ func createTrustMarkJWT(t *testing.T, issuer, trustMarkType, sub string, private
 	t.Helper()
 
 	body := map[string]any{
-		"iss":              issuer,
-		"sub":              sub,
-		"trust_mark_type":  trustMarkType,
-		"iat":              int64(1234567890),
-		"exp":              int64(9999999999),
+		"iss":             issuer,
+		"sub":             sub,
+		"trust_mark_type": trustMarkType,
+		"iat":             int64(1234567890),
+		"exp":             int64(9999999999),
 	}
 	head := map[string]any{
 		"kid": "test-key",
@@ -504,7 +504,7 @@ func TestFilterByTrusted(t *testing.T) {
 	issuer1Server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.well-known/openid-federation" {
 			w.Header().Set("Content-Type", "application/entity-statement+jwt")
-			w.Write([]byte(createIssuerEntityConfiguration(t, issuer1ID, issuer1Key)))
+			w.Write([]byte(createIssuerEntityConfiguration(t, issuer1ID, issuer1Key))) //nolint:errcheck
 		}
 	}))
 	defer issuer1Server.Close()
@@ -514,7 +514,7 @@ func TestFilterByTrusted(t *testing.T) {
 	issuer2Server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.well-known/openid-federation" {
 			w.Header().Set("Content-Type", "application/entity-statement+jwt")
-			w.Write([]byte(createIssuerEntityConfiguration(t, issuer2ID, issuer2Key)))
+			w.Write([]byte(createIssuerEntityConfiguration(t, issuer2ID, issuer2Key))) //nolint:errcheck
 		}
 	}))
 	defer issuer2Server.Close()
@@ -526,8 +526,8 @@ func TestFilterByTrusted(t *testing.T) {
 	subjectID := "https://subject.example.com"
 
 	tests := map[string]struct {
-		setupTest             func() (*model.ResolveResponse, model.EntityStatement, model.Configuration)
-		validate              func(t *testing.T, resolved *model.ResolveResponse, err error)
+		setupTest func() (*model.ResolveResponse, model.EntityStatement, model.Configuration)
+		validate  func(t *testing.T, resolved *model.ResolveResponse, err error)
 	}{
 		"filters out untrusted trust marks": {
 			setupTest: func() (*model.ResolveResponse, model.EntityStatement, model.Configuration) {

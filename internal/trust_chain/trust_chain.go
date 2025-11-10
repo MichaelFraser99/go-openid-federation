@@ -77,7 +77,7 @@ func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 
 	if len(toCheck) == 0 {
 		cfg.LogInfo(ctx, "dead end in path traversal - no paths to check", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Any("checked", checked), slog.Any("path", path), slog.Any("signed_path", signedPath))
-		return signedPath[:len(signedPath)-1], path[:len(path)-1], model.NewInvalidTrustAnchorError(fmt.Sprintf("unable to build trust chain from specified 'sub' to specified 'trust_anchor'"))
+		return signedPath[:len(signedPath)-1], path[:len(path)-1], model.NewInvalidTrustAnchorError("unable to build trust chain from specified 'sub' to specified 'trust_anchor'")
 	}
 
 	for _, trustIssuer := range toCheck {
@@ -88,7 +88,7 @@ func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 		}
 	}
 	cfg.LogInfo(ctx, "dead end in path traversal - all options checked", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Any("checked", checked), slog.Any("path", path), slog.Any("signed_path", signedPath))
-	return signedPath[:len(signedPath)-1], path[:len(path)-1], model.NewInvalidTrustAnchorError(fmt.Sprintf("unable to build trust chain from specified 'sub' to specified 'trust_anchor'"))
+	return signedPath[:len(signedPath)-1], path[:len(path)-1], model.NewInvalidTrustAnchorError("unable to build trust chain from specified 'sub' to specified 'trust_anchor'")
 }
 
 func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityIdentifier model.EntityIdentifier, trustChain []string) (*model.ResolveResponse, error) {
@@ -200,7 +200,7 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 	applied, err := model.ApplyPolicy(processedChain[0], *finalisedPolicy)
 	if err != nil {
 		cfg.LogInfo(ctx, "failed to apply policy", slog.Any("metadata", processedChain[0]), slog.Any("policy", *finalisedPolicy), slog.String("error", err.Error()))
-		return nil, model.NewInvalidMetadataError(fmt.Sprintf("unresolvable metadata policy encountered"))
+		return nil, model.NewInvalidMetadataError("unresolvable metadata policy encountered")
 	}
 	result.Metadata = applied.Metadata
 

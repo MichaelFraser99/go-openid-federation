@@ -143,6 +143,10 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, au
 	}, &josemodel.JoseOptions{
 		UseTokenProvidedKeys: false,
 	})
+	if err != nil {
+		cfg.LogError(ctx, "failed to validate trust mark", slog.String("error", err.Error()), slog.String("trust_mark", trustMark))
+		return nil, fmt.Errorf("failed to validate trust mark: %v", err)
+	}
 
 	if typ, ok := head["typ"].(string); !ok {
 		return nil, fmt.Errorf("missing or invalid required field 'typ'")

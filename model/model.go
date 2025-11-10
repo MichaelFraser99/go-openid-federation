@@ -1,17 +1,38 @@
 package model
 
 import (
+	"context"
 	"crypto"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"reflect"
+	"slices"
 	"time"
 
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 )
 
+type Configuration struct {
+	HttpClient *http.Client
+	Logger     *slog.Logger
+}
+
+func (cfg *Configuration) LogInfo(ctx context.Context, msg string, args ...any) {
+	if cfg.Logger != nil {
+		cfg.Logger.InfoContext(ctx, msg, args...)
+	}
+}
+
+func (cfg *Configuration) LogError(ctx context.Context, msg string, args ...any) {
+	if cfg.Logger != nil {
+		cfg.Logger.ErrorContext(ctx, msg, args...)
+	}
+}
+
 type ServerConfiguration struct {
+	Configuration
 	SignerConfiguration         SignerConfiguration
 	EntityIdentifier            EntityIdentifier
 	AuthorityHints              []EntityIdentifier
@@ -19,28 +40,31 @@ type ServerConfiguration struct {
 	EntityConfiguration         EntityStatement
 	EntityConfigurationLifetime time.Duration
 	IntermediateConfiguration   *IntermediateConfiguration
-	HttpClient                  *http.Client
 	Extensions                  Extensions
 	MetadataRetriever           Retriever
 	TrustMarkIssuerRetriever    TrustMarkIssuerRetriever
 	TrustMarkRetriever          TrustMarkRetriever
 }
 
-func (s *ServerConfiguration) GetSubordinates() (map[EntityIdentifier]*SubordinateConfiguration, error) {
-	if s.MetadataRetriever != nil {
-		return s.MetadataRetriever.GetSubordinates()
-	}
-	return s.IntermediateConfiguration.subordinates, nil
+type ClientConfiguration struct {
+	Configuration
 }
 
-func (s *ServerConfiguration) GetSubordinateJWKs() ([]SignerConfiguration, error) {
-	if s.MetadataRetriever != nil {
-		return s.MetadataRetriever.GetSubordinateSigners()
+func (cfg *ServerConfiguration) GetSubordinates(ctx context.Context) (map[EntityIdentifier]*SubordinateConfiguration, error) {
+	if cfg.MetadataRetriever != nil {
+		return cfg.MetadataRetriever.GetSubordinates(ctx)
+	}
+	return cfg.IntermediateConfiguration.subordinates, nil
+}
+
+func (cfg *ServerConfiguration) GetSubordinateJWKs(ctx context.Context) ([]SignerConfiguration, error) {
+	if cfg.MetadataRetriever != nil {
+		return cfg.MetadataRetriever.GetSubordinateSigners(ctx)
 	}
 
 	var signers []SignerConfiguration
 
-	subordinates, err := s.GetSubordinates()
+	subordinates, err := cfg.GetSubordinates(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -52,49 +76,49 @@ func (s *ServerConfiguration) GetSubordinateJWKs() ([]SignerConfiguration, error
 	return signers, nil
 }
 
-func (s *ServerConfiguration) GetSubordinate(identifier EntityIdentifier) (*SubordinateConfiguration, error) {
-	if s.IntermediateConfiguration.subordinates == nil {
-		s.IntermediateConfiguration.subordinates = map[EntityIdentifier]*SubordinateConfiguration{}
+func (cfg *ServerConfiguration) GetSubordinate(ctx context.Context, identifier EntityIdentifier) (*SubordinateConfiguration, error) {
+	if cfg.IntermediateConfiguration.subordinates == nil {
+		cfg.IntermediateConfiguration.subordinates = map[EntityIdentifier]*SubordinateConfiguration{}
 	}
 
-	if s.IntermediateConfiguration.subordinates[identifier] != nil && time.Now().UTC().Before(time.Unix(s.IntermediateConfiguration.subordinates[identifier].CachedAt, 0).Add(s.IntermediateConfiguration.SubordinateCacheTime).UTC()) {
-		return s.IntermediateConfiguration.subordinates[identifier], nil
-	} else if s.MetadataRetriever != nil {
-		entity, err := s.MetadataRetriever.GetSubordinate(identifier)
+	if cfg.IntermediateConfiguration.subordinates[identifier] != nil && time.Now().UTC().Before(time.Unix(cfg.IntermediateConfiguration.subordinates[identifier].CachedAt, 0).Add(cfg.IntermediateConfiguration.SubordinateCacheTime).UTC()) {
+		return cfg.IntermediateConfiguration.subordinates[identifier], nil
+	} else if cfg.MetadataRetriever != nil {
+		entity, err := cfg.MetadataRetriever.GetSubordinate(ctx, identifier)
 		if err != nil {
 			return nil, err
 		} else {
-			s.IntermediateConfiguration.subordinates[identifier] = entity
-			s.IntermediateConfiguration.subordinates[identifier].CachedAt = time.Now().UTC().Unix()
+			cfg.IntermediateConfiguration.subordinates[identifier] = entity
+			cfg.IntermediateConfiguration.subordinates[identifier].CachedAt = time.Now().UTC().Unix()
 		}
-		return s.IntermediateConfiguration.subordinates[identifier], nil
+		return cfg.IntermediateConfiguration.subordinates[identifier], nil
 	} else {
 		return nil, fmt.Errorf("subordinate entity %s not found", identifier)
 	}
 }
 
 type Retriever interface {
-	GetSubordinate(identifier EntityIdentifier) (*SubordinateConfiguration, error)
-	GetSubordinates() (map[EntityIdentifier]*SubordinateConfiguration, error)
-	GetSubordinateSigners() ([]SignerConfiguration, error)
+	GetSubordinate(ctx context.Context, identifier EntityIdentifier) (*SubordinateConfiguration, error)
+	GetSubordinates(ctx context.Context) (map[EntityIdentifier]*SubordinateConfiguration, error)
+	GetSubordinateSigners(ctx context.Context) ([]SignerConfiguration, error)
 }
 
 type TrustMarkIssuerRetriever interface {
-	ListTrustMarkIssuers() (map[string][]EntityIdentifier, error)
+	ListTrustMarkIssuers(ctx context.Context) (map[string][]EntityIdentifier, error)
 }
 
 type TrustMarkRetriever interface {
-	GetTrustMarkStatus(trustMark string) (*string, error)
-	IssueTrustMark(trustMarkIdentifier string, entityIdentifier EntityIdentifier) (*string, error)
-	ListTrustMarks(trustMarkIdentifier string, identifier *EntityIdentifier) ([]EntityIdentifier, error)
+	GetTrustMarkStatus(ctx context.Context, trustMark string) (*string, error)
+	IssueTrustMark(ctx context.Context, trustMarkIdentifier string, entityIdentifier EntityIdentifier) (*string, error)
+	ListTrustMarks(ctx context.Context, trustMarkIdentifier string, identifier *EntityIdentifier) ([]EntityIdentifier, error)
 }
 
 type ExtendedListingRetriever interface {
-	GetExtendedSubordinates(from *EntityIdentifier, size int, claims []string) (*ExtendedListingResponse, error)
+	GetExtendedSubordinates(ctx context.Context, from *EntityIdentifier, size int, claims []string) (*ExtendedListingResponse, error)
 }
 
 type SubordinateStatusRetriever interface {
-	GetSubordinateStatus(sub *EntityIdentifier) (*SubordinateStatusResponse, error)
+	GetSubordinateStatus(ctx context.Context, sub EntityIdentifier) (*SubordinateStatusResponse, error)
 }
 
 type Extensions struct {
@@ -118,6 +142,10 @@ type IntermediateConfiguration struct {
 	subordinates                 map[EntityIdentifier]*SubordinateConfiguration
 	SubordinateStatementLifetime time.Duration
 	SubordinateCacheTime         time.Duration
+}
+
+func (i *IntermediateConfiguration) FlushCache() {
+	i.subordinates = map[EntityIdentifier]*SubordinateConfiguration{}
 }
 
 func (i *IntermediateConfiguration) AddSubordinate(identifier EntityIdentifier, subordinateConfiguration *SubordinateConfiguration) {
@@ -455,13 +483,13 @@ func marshalMetadataToMap(in map[string]any) map[string]any {
 }
 
 type ResolveResponse struct {
-	Iss        EntityIdentifier `json:"iss"`
-	Sub        EntityIdentifier `json:"sub"`
-	Iat        int64            `json:"iat"`
-	Exp        int64            `json:"exp"`
-	Metadata   *Metadata        `json:"metadata,omitempty"`
-	TrustMarks any              `json:"trust_marks,omitempty"` //todo
-	TrustChain []string         `json:"trust_chain,omitempty"`
+	Iss        EntityIdentifier  `json:"iss"`
+	Sub        EntityIdentifier  `json:"sub"`
+	Iat        int64             `json:"iat"`
+	Exp        int64             `json:"exp"`
+	Metadata   *Metadata         `json:"metadata,omitempty"`
+	TrustMarks []TrustMarkHolder `json:"trust_marks,omitempty"`
+	TrustChain []string          `json:"trust_chain,omitempty"`
 }
 
 type TrustMarkStatusResponse struct {
@@ -470,4 +498,75 @@ type TrustMarkStatusResponse struct {
 
 func Pointer[T any](v T) *T {
 	return &v
+}
+
+type TrustMark struct {
+	Issuer           string         `json:"iss"`
+	Sub              string         `json:"sub"`
+	Type             string         `json:"trust_mark_type"`
+	IssuedAt         int64          `json:"iat"`
+	LogoURI          *string        `json:"logo_uri,omitempty"`
+	Expiry           *int64         `json:"exp,omitempty"`
+	Ref              *string        `json:"ref,omitempty"`
+	DelegationJWT    *string        `json:"delegation,omitempty"`
+	AdditionalClaims map[string]any `json:"-"`
+}
+
+func (t *TrustMark) UnmarshalJSON(data []byte) error {
+	var jsonMap map[string]any
+	if err := json.Unmarshal(data, &jsonMap); err != nil {
+		return err
+	}
+
+	if iss, ok := jsonMap["iss"].(string); !ok {
+		return fmt.Errorf("missing or invalid required field 'iss'")
+	} else {
+		t.Issuer = iss
+	}
+
+	if sub, ok := jsonMap["sub"].(string); !ok {
+		return fmt.Errorf("missing or invalid required field 'sub'")
+	} else {
+		t.Sub = sub
+	}
+
+	if trustMarkType, ok := jsonMap["trust_mark_type"].(string); !ok {
+		return fmt.Errorf("missing or invalid required field 'trust_mark_type'")
+	} else {
+		t.Type = trustMarkType
+	}
+
+	if iat, ok := jsonMap["iat"].(float64); !ok {
+		return fmt.Errorf("missing or invalid required field 'iat'")
+	} else {
+		t.IssuedAt = int64(iat)
+	}
+
+	if logoURI, ok := jsonMap["logo_uri"].(string); ok {
+		t.LogoURI = &logoURI
+	}
+
+	if exp, ok := jsonMap["exp"].(float64); ok {
+		expInt := int64(exp)
+		t.Expiry = &expInt
+	}
+
+	if ref, ok := jsonMap["ref"].(string); ok {
+		t.Ref = &ref
+	}
+
+	if delegation, ok := jsonMap["delegation"].(string); ok {
+		t.DelegationJWT = &delegation
+	}
+
+	t.AdditionalClaims = make(map[string]any)
+	knownFields := []string{"iss", "sub", "trust_mark_type", "iat", "logo_uri", "exp", "ref", "delegation"}
+
+	for key, value := range jsonMap {
+		if !slices.Contains(knownFields, key) {
+			t.AdditionalClaims[key] = value
+		}
+	}
+
+	return nil
 }

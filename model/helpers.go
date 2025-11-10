@@ -203,16 +203,16 @@ func ApplyPolicy(subject EntityStatement, policy MetadataPolicy) (*EntityStateme
 
 	if subject.Metadata.OpenIDRelyingPartyMetadata != nil {
 		for k, operators := range policy.OpenIDRelyingPartyMetadata {
-			existing, ok := (*subject.Metadata.OpenIDRelyingPartyMetadata)[k]
-			if k == "scope" {
-				// scope has special behaviour
-				if ok {
-					existing = ConvertStringsToAnySlice(strings.Split(existing.(string), " "))
-				} else {
-					existing = []any{}
-				}
-			}
 			for _, operator := range operators.Metadata {
+				existing, ok := (*subject.Metadata.OpenIDRelyingPartyMetadata)[k]
+				if k == "scope" {
+					// scope has special behaviour
+					if ok {
+						existing = ConvertStringsToAnySlice(strings.Split(existing.(string), " "))
+					} else {
+						existing = []any{}
+					}
+				}
 				if k == "scope" {
 					operator = operator.ToSlice(k)
 				}

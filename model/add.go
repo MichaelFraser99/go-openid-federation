@@ -27,6 +27,8 @@ func NewAdd(operatorValue any) (*Add, error) {
 		anySlice[i] = sliceValue.Index(i).Interface()
 	}
 
+	anySlice = DeduplicateSlice(anySlice)
+
 	return &Add{
 		operatorValue: anySlice,
 	}, nil

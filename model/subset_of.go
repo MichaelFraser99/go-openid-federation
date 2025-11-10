@@ -26,6 +26,8 @@ func NewSubsetOf(operatorValue any) (*SubsetOf, error) {
 		anySlice[i] = sliceValue.Index(i).Interface()
 	}
 
+	anySlice = DeduplicateSlice(anySlice)
+
 	return &SubsetOf{
 		operatorValue: anySlice,
 	}, nil

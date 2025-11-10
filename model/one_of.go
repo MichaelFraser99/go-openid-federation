@@ -22,6 +22,8 @@ func NewOneOf(operatorValue any) (*OneOf, error) {
 		anySlice[i] = sliceValue.Index(i).Interface()
 	}
 
+	anySlice = DeduplicateSlice(anySlice)
+
 	return &OneOf{
 		operatorValue: anySlice,
 	}, nil

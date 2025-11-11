@@ -12,16 +12,11 @@ import (
 
 type Server struct {
 	cfg model.ServerConfiguration
-	l   *slog.Logger
 }
 
 func NewServer(configuration model.ServerConfiguration) *Server {
 	configuration.EntityConfiguration.JWKs.Opts.EnforceUniqueKIDs = true
 	return &Server{cfg: configuration}
-}
-
-func (s *Server) WithLogger(l *slog.Logger) {
-	s.l = l
 }
 
 // SetEntityIdentifier

@@ -226,7 +226,6 @@ func TestServer_Resolve(t *testing.T) {
 				},
 			}
 			server := NewServer(serverConfig)
-			server.WithLogger(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 			m := http.NewServeMux()
 			server.Configure(m)
 			s := httptest.NewTLSServer(m)

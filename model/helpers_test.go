@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -942,5 +943,174 @@ func TestCalculateChainExpiration(t *testing.T) {
 			result := CalculateChainExpiration(tt.chain)
 			tt.validate(t, result)
 		})
+	}
+}
+
+func TestApplyPolicyMergesNewPolicies(t *testing.T) {
+	existingValueOp, _ := NewValue("existing-value")
+	existing := map[string]PolicyOperators{
+		"existing_claim": {
+			Metadata: []MetadataPolicyOperator{existingValueOp},
+		},
+	}
+
+	newValueOp, _ := NewValue("new-value")
+	newAddOp, _ := NewAdd([]string{"scope1", "scope2"})
+	policy := map[string]PolicyOperators{
+		"new_claim": {
+			Metadata: []MetadataPolicyOperator{newValueOp},
+		},
+		"another_new_claim": {
+			Metadata: []MetadataPolicyOperator{newAddOp},
+		},
+	}
+
+	result, err := applyPolicy(existing, policy)
+	if err != nil {
+		t.Fatalf("applyPolicy failed: %v", err)
+	}
+
+	if _, ok := result["existing_claim"]; !ok {
+		t.Error("existing_claim should still be present")
+	}
+
+	if _, ok := result["new_claim"]; !ok {
+		t.Error("new_claim should be added from policy")
+	}
+
+	if _, ok := result["another_new_claim"]; !ok {
+		t.Error("another_new_claim should be added from policy")
+	}
+
+	if len(result) != 3 {
+		t.Errorf("expected 3 claims in result, got %d", len(result))
+	}
+}
+
+func TestApplyPolicyMergesExistingAndNewPolicies(t *testing.T) {
+	existingValueOp, _ := NewValue([]string{"val1", "val2"})
+	existing := map[string]PolicyOperators{
+		"claim_a": {
+			Metadata: []MetadataPolicyOperator{existingValueOp},
+		},
+	}
+
+	policyValueOp, _ := NewValue([]string{"val1", "val2"})
+	policyAddOp, _ := NewAdd([]string{"new1", "new2"})
+	policy := map[string]PolicyOperators{
+		"claim_a": {
+			Metadata: []MetadataPolicyOperator{policyValueOp},
+		},
+		"claim_b": {
+			Metadata: []MetadataPolicyOperator{policyAddOp},
+		},
+	}
+
+	result, err := applyPolicy(existing, policy)
+	if err != nil {
+		t.Fatalf("applyPolicy failed: %v", err)
+	}
+
+	if len(result) != 2 {
+		t.Errorf("expected 2 claims in result, got %d", len(result))
+	}
+
+	if _, ok := result["claim_a"]; !ok {
+		t.Error("claim_a should be present")
+	}
+
+	if _, ok := result["claim_b"]; !ok {
+		t.Error("claim_b should be present (added from policy)")
+	}
+}
+
+func TestApplyPolicyWithNilExisting(t *testing.T) {
+	valueOp, _ := NewValue("test-value")
+	addOp, _ := NewAdd([]string{"a", "b"})
+
+	policy := map[string]PolicyOperators{
+		"claim1": {
+			Metadata: []MetadataPolicyOperator{valueOp},
+		},
+		"claim2": {
+			Metadata: []MetadataPolicyOperator{addOp},
+		},
+	}
+
+	result, err := applyPolicy(nil, policy)
+	if err != nil {
+		t.Fatalf("applyPolicy failed: %v", err)
+	}
+
+	if len(result) != 2 {
+		t.Errorf("expected 2 claims in result, got %d", len(result))
+	}
+
+	if !reflect.DeepEqual(result, policy) {
+		t.Error("result should equal policy when existing is nil")
+	}
+}
+
+func TestProcessAndExtractPolicyMergesAllLevels(t *testing.T) {
+	leaf := EntityStatement{
+		Sub: EntityIdentifier("https://leaf.example.com"),
+		Iss: EntityIdentifier("https://leaf.example.com"),
+	}
+
+	intermediateAddOp, _ := NewAdd([]string{"scope1"})
+	intermediate := EntityStatement{
+		Sub: EntityIdentifier("https://leaf.example.com"),
+		Iss: EntityIdentifier("https://intermediate.example.com"),
+		MetadataPolicy: &MetadataPolicy{
+			OpenIDRelyingPartyMetadata: map[string]PolicyOperators{
+				"scope": {
+					Metadata: []MetadataPolicyOperator{intermediateAddOp},
+				},
+			},
+		},
+	}
+
+	taValueOp, _ := NewValue("required_value")
+	taAddOp, _ := NewAdd([]string{"scope2"})
+	trustAnchor := EntityStatement{
+		Sub: EntityIdentifier("https://intermediate.example.com"),
+		Iss: EntityIdentifier("https://trust-anchor.example.com"),
+		MetadataPolicy: &MetadataPolicy{
+			OpenIDRelyingPartyMetadata: map[string]PolicyOperators{
+				"client_name": {
+					Metadata: []MetadataPolicyOperator{taValueOp},
+				},
+				"scope": {
+					Metadata: []MetadataPolicyOperator{taAddOp},
+				},
+			},
+		},
+	}
+
+	trustChain := []EntityStatement{leaf, intermediate, trustAnchor}
+
+	result, err := ProcessAndExtractPolicy(trustChain)
+	if err != nil {
+		t.Fatalf("ProcessAndExtractPolicy failed: %v", err)
+	}
+
+	if result == nil {
+		t.Fatal("result should not be nil")
+	}
+
+	if result.OpenIDRelyingPartyMetadata == nil {
+		t.Fatal("OpenIDRelyingPartyMetadata should not be nil")
+	}
+
+	if _, ok := result.OpenIDRelyingPartyMetadata["scope"]; !ok {
+		t.Error("scope policy should be present")
+	}
+
+	if _, ok := result.OpenIDRelyingPartyMetadata["client_name"]; !ok {
+		t.Error("client_name policy from trust anchor should be present")
+	}
+
+	if len(result.OpenIDRelyingPartyMetadata) != 2 {
+		t.Errorf("expected 2 policies in OpenIDRelyingPartyMetadata, got %d", len(result.OpenIDRelyingPartyMetadata))
 	}
 }

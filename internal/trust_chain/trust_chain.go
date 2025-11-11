@@ -92,34 +92,46 @@ func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 }
 
 func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityIdentifier model.EntityIdentifier, trustChain []string) (*model.ResolveResponse, error) {
+	cfg.LogInfo(ctx, "resolving metadata from trust chain", slog.String("issuer", string(issuerEntityIdentifier)), slog.Int("chain_length", len(trustChain)))
+
 	if len(trustChain) == 0 {
+		cfg.LogInfo(ctx, "trust chain validation failed: empty chain", slog.String("issuer", string(issuerEntityIdentifier)))
 		return nil, fmt.Errorf("trust chain must have at least 1 entry")
 	}
 
 	_, sub, iss, err := entity_statement.ExtractDetails(trustChain[len(trustChain)-1])
 	if err != nil {
+		cfg.LogInfo(ctx, "failed to extract details from final chain entry", slog.String("error", err.Error()))
 		return nil, fmt.Errorf("final entry in chain malformed: %s", err.Error())
 	}
 	parsedSub, err := model.ValidateEntityIdentifier(*sub)
 	if err != nil {
+		cfg.LogInfo(ctx, "invalid sub claim in final chain entry", slog.String("sub", *sub), slog.String("error", err.Error()))
 		return nil, fmt.Errorf("error validating `sub` claim of final chain entry: %s", err.Error())
 	}
 	parsedIss, err := model.ValidateEntityIdentifier(*iss)
 	if err != nil {
+		cfg.LogInfo(ctx, "invalid iss claim in final chain entry", slog.String("iss", *iss), slog.String("error", err.Error()))
 		return nil, fmt.Errorf("error validating `iss` claim of final chain entry: %s", err.Error())
 	}
+
+	cfg.LogInfo(ctx, "extracted chain endpoints", slog.String("sub", string(*parsedSub)), slog.String("iss", string(*parsedIss)))
 
 	var processedChain []model.EntityStatement
 
 	if *parsedSub == *parsedIss {
+		cfg.LogInfo(ctx, "processing self-signed entity configuration", slog.String("entity", string(*parsedSub)))
 		response, err := entity_configuration.Validate(ctx, *parsedSub, trustChain[len(trustChain)-1])
 		if err != nil {
+			cfg.LogInfo(ctx, "failed to validate self-signed entity configuration", slog.String("entity", string(*parsedSub)), slog.String("error", err.Error()))
 			return nil, fmt.Errorf("error validating entity configuration in final chain entry: %s", err.Error())
 		}
 		processedChain = append(processedChain, *response)
 	} else {
+		cfg.LogInfo(ctx, "retrieving subject entity configuration", slog.String("subject", string(*parsedSub)))
 		signedEntityConfiguration, entityConfiguration, err := entity_configuration.Retrieve(ctx, cfg, *parsedSub)
 		if err != nil {
+			cfg.LogInfo(ctx, "failed to retrieve subject entity configuration", slog.String("subject", string(*parsedSub)), slog.String("error", err.Error()))
 			return nil, err
 		}
 		trustChain = append(trustChain, *signedEntityConfiguration)
@@ -127,6 +139,7 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 	}
 
 	if len(trustChain) == 1 {
+		cfg.LogInfo(ctx, "trust chain has single entry, returning metadata directly", slog.String("subject", string(processedChain[0].Sub)), slog.Int("trust_marks_count", len(processedChain[0].TrustMarks)))
 		return &model.ResolveResponse{
 			Iss:        issuerEntityIdentifier,
 			Sub:        processedChain[0].Sub,
@@ -138,32 +151,42 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 		}, nil
 	}
 
+	cfg.LogInfo(ctx, "processing multi-level trust chain", slog.Int("chain_length", len(trustChain)))
+
 	for i := len(trustChain) - 2; i >= 1; i-- {
 		previousStatement := processedChain[len(trustChain)-(i+2)]
 
+		cfg.LogInfo(ctx, "validating chain step", slog.Int("step", i), slog.String("issuer", string(previousStatement.Iss)))
 		nextStep, err := subordinate_statement.Validate(previousStatement, trustChain[i])
 		if err != nil {
+			cfg.LogInfo(ctx, "failed to validate chain step", slog.Int("step", i), slog.String("error", err.Error()))
 			return nil, fmt.Errorf("error validating step in provided trust chain: %s", err.Error())
 		}
 		processedChain = append(processedChain, *nextStep)
 	}
 
+	cfg.LogInfo(ctx, "validating subject entity configuration", slog.String("subject", string(processedChain[len(processedChain)-1].Sub)))
 	subjectEntityConfiguration, err := entity_configuration.Validate(ctx, processedChain[len(processedChain)-1].Sub, trustChain[0])
 	if err != nil {
+		cfg.LogInfo(ctx, "failed to validate subject entity configuration", slog.String("error", err.Error()))
 		return nil, fmt.Errorf("error parsing trust chain subject entity configuration: %s", err.Error())
 	}
 	processedChain = append(processedChain, *subjectEntityConfiguration)
 
 	slices.Reverse(processedChain)
+	cfg.LogInfo(ctx, "chain processing completed, reversed chain", slog.Int("chain_length", len(processedChain)))
 
 	subjectKid, _, _, err := entity_statement.ExtractDetails(trustChain[0])
 	if err != nil {
+		cfg.LogInfo(ctx, "failed to extract subject kid", slog.String("error", err.Error()))
 		return nil, fmt.Errorf("subject entry in chain malformed: %s", err.Error())
 	}
 
+	cfg.LogInfo(ctx, "verifying subject key in subordinate statement", slog.String("kid", *subjectKid))
 	found := false
 	for _, issuerKey := range processedChain[1].JWKs.Keys {
 		if issuerKid, ok := issuerKey["kid"]; !ok {
+			cfg.LogInfo(ctx, "subordinate statement contains key without kid claim")
 			return nil, fmt.Errorf("one or more keys in trust chain missing required 'kid' claim")
 		} else if issuerKid == *subjectKid {
 			found = true
@@ -171,11 +194,15 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 		}
 	}
 	if !found {
+		cfg.LogInfo(ctx, "subject key not found in subordinate statement", slog.String("kid", *subjectKid))
 		return nil, fmt.Errorf("subordinate statment for subject entity does not contain the key used to sign the subject entity's Entity Configuration")
 	}
+	cfg.LogInfo(ctx, "subject key verified in subordinate statement", slog.String("kid", *subjectKid))
 
 	exp := model.CalculateChainExpiration(processedChain)
+	cfg.LogInfo(ctx, "checking chain expiration", slog.Int64("exp", exp), slog.Int64("now", time.Now().UTC().Unix()))
 	if time.Now().UTC().Equal(time.Unix(exp, 0)) || time.Now().UTC().After(time.Unix(exp, 0)) {
+		cfg.LogInfo(ctx, "trust chain has expired", slog.Int64("exp", exp))
 		return nil, fmt.Errorf("trust chain expired")
 	}
 
@@ -187,22 +214,29 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 		TrustChain: trustChain,
 	}
 
+	cfg.LogInfo(ctx, "processing and extracting metadata policy from chain", slog.Int("chain_length", len(processedChain)))
 	finalisedPolicy, err := model.ProcessAndExtractPolicy(processedChain)
 	if err != nil {
+		cfg.LogInfo(ctx, "failed to process and extract policy", slog.String("error", err.Error()))
 		return nil, fmt.Errorf("failed to process and extract policy: %s", err.Error())
 	}
 
 	if finalisedPolicy == nil {
+		cfg.LogInfo(ctx, "no policy to apply, returning metadata directly", slog.String("subject", string(processedChain[0].Sub)), slog.Int("trust_marks_count", len(processedChain[0].TrustMarks)))
 		result.Metadata = processedChain[0].Metadata
+		result.TrustMarks = processedChain[0].TrustMarks
 		return result, nil
 	}
 
+	cfg.LogInfo(ctx, "applying policy to subject metadata", slog.String("subject", string(processedChain[0].Sub)))
 	applied, err := model.ApplyPolicy(processedChain[0], *finalisedPolicy)
 	if err != nil {
 		cfg.LogInfo(ctx, "failed to apply policy", slog.Any("metadata", processedChain[0]), slog.Any("policy", *finalisedPolicy), slog.String("error", err.Error()))
 		return nil, model.NewInvalidMetadataError("unresolvable metadata policy encountered")
 	}
 	result.Metadata = applied.Metadata
+	result.TrustMarks = processedChain[0].TrustMarks
 
+	cfg.LogInfo(ctx, "metadata resolution completed successfully", slog.String("subject", string(result.Sub)), slog.Int("trust_marks_count", len(result.TrustMarks)), slog.Int64("exp", result.Exp))
 	return result, nil
 }

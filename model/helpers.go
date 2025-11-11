@@ -105,11 +105,19 @@ func applyPolicy(existing, policy map[string]PolicyOperators) (map[string]Policy
 			existing = policy
 		} else {
 			for k, policies := range existing {
-				mergedPolicies, err := MergePolicyOperators(k, policy[k], policies)
-				if err != nil {
-					return nil, err
+				if policyOp, found := policy[k]; found {
+					mergedPolicies, err := MergePolicyOperators(k, policyOp, policies)
+					if err != nil {
+						return nil, err
+					}
+					existing[k] = PolicyOperators{Metadata: mergedPolicies}
 				}
-				existing[k] = PolicyOperators{Metadata: mergedPolicies}
+			}
+
+			for k, policyOp := range policy {
+				if _, found := existing[k]; !found {
+					existing[k] = policyOp
+				}
 			}
 		}
 	}
@@ -196,7 +204,11 @@ func ApplyPolicy(subject EntityStatement, policy MetadataPolicy) (*EntityStateme
 				if err != nil {
 					return nil, err
 				}
-				(*subject.Metadata.FederationMetadata)[k] = resolved
+				if resolved == nil {
+					delete(*subject.Metadata.FederationMetadata, k)
+				} else {
+					(*subject.Metadata.FederationMetadata)[k] = resolved
+				}
 			}
 		}
 	}
@@ -236,7 +248,11 @@ func ApplyPolicy(subject EntityStatement, policy MetadataPolicy) (*EntityStateme
 						return nil, fmt.Errorf("scope must be a string or array of strings")
 					}
 				}
-				(*subject.Metadata.OpenIDRelyingPartyMetadata)[k] = resolved
+				if resolved == nil {
+					delete(*subject.Metadata.OpenIDRelyingPartyMetadata, k)
+				} else {
+					(*subject.Metadata.OpenIDRelyingPartyMetadata)[k] = resolved
+				}
 			}
 		}
 	}
@@ -248,7 +264,11 @@ func ApplyPolicy(subject EntityStatement, policy MetadataPolicy) (*EntityStateme
 				if err != nil {
 					return nil, err
 				}
-				(*subject.Metadata.OpenIDConnectOpenIDProviderMetadata)[k] = resolved
+				if resolved == nil {
+					delete(*subject.Metadata.OpenIDConnectOpenIDProviderMetadata, k)
+				} else {
+					(*subject.Metadata.OpenIDConnectOpenIDProviderMetadata)[k] = resolved
+				}
 			}
 		}
 	}

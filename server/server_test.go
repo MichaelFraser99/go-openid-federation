@@ -548,7 +548,6 @@ func TestServer_ExtendedList(t *testing.T) {
 					Algorithm: "ES256",
 				},
 			})
-			server.WithLogger(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 			m := http.NewServeMux()
 			server.Configure(m)
 			s := httptest.NewServer(m)
@@ -695,7 +694,6 @@ func TestServer_SubordinateStatus(t *testing.T) {
 					Logger: slog.New(slog.NewJSONHandler(os.Stdout, nil)),
 				},
 			})
-			server.WithLogger(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 			m := http.NewServeMux()
 			server.Configure(m)
 			s := httptest.NewServer(m)

@@ -27,6 +27,8 @@ func NewSupersetOf(operatorValue any) (*SupersetOf, error) {
 		anySlice[i] = sliceValue.Index(i).Interface()
 	}
 
+	anySlice = DeduplicateSlice(anySlice)
+
 	return &SupersetOf{
 		operatorValue: anySlice,
 	}, nil
@@ -38,6 +40,10 @@ type SupersetOf struct {
 
 func (s SupersetOf) OperatorValue() any {
 	return s.operatorValue
+}
+
+func (s SupersetOf) ToSlice(key string) MetadataPolicyOperator {
+	return s
 }
 
 func (s SupersetOf) String() string {

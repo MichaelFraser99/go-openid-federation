@@ -3,7 +3,6 @@ package model
 import (
 	"maps"
 	"reflect"
-	"slices"
 	"testing"
 )
 
@@ -52,8 +51,10 @@ func TestDefault_Resolve(t *testing.T) {
 				if result == nil {
 					t.Fatal("expected result to be non-nil")
 				}
-				if !slices.Equal(result.([]bool), []bool{true, false, true}) {
-					t.Errorf("expected result to be '[]bool{true, false, true}', got %q", result)
+				// After deduplication, []bool{true, false, true} becomes []any{true, false}
+				expected := []any{true, false}
+				if !reflect.DeepEqual(result, expected) {
+					t.Errorf("expected result to be %v, got %v", expected, result)
 				}
 			},
 		},
@@ -213,13 +214,15 @@ func TestDefault_Merge(t *testing.T) {
 		},
 		"MergePolicyOperators succeeds with deeply equal slices": {
 			operatorValue: []int{1, 2, 3},
-			valueToMerge:  []int{1, 2, 3},
+			valueToMerge:  []any{1, 2, 3}, // After deduplication, must use []any for comparison
 			validate: func(t *testing.T, result MetadataPolicyOperator, err error) {
 				if err != nil {
 					t.Fatalf("expected no error, got %q", err.Error())
 				}
-				if !reflect.DeepEqual(result.OperatorValue(), []int{1, 2, 3}) {
-					t.Errorf("expected result to be []int{1, 2, 3}, got %v", result)
+				// After deduplication, slices become []any
+				expected := []any{1, 2, 3}
+				if !reflect.DeepEqual(result.OperatorValue(), expected) {
+					t.Errorf("expected result to be %v, got %v", expected, result.OperatorValue())
 				}
 			},
 		},

@@ -3,12 +3,26 @@ package model
 import (
 	"fmt"
 	"reflect"
+	"strings"
 )
 
 func NewDefault(operatorValue any) (*Default, error) {
 	if operatorValue == nil {
 		return nil, fmt.Errorf("operator value cannot be nil")
 	}
+
+	if reflect.TypeOf(operatorValue).Kind() == reflect.Slice {
+		sliceValue := reflect.ValueOf(operatorValue)
+		anySlice := make([]any, sliceValue.Len())
+
+		for i := 0; i < sliceValue.Len(); i++ {
+			anySlice[i] = sliceValue.Index(i).Interface()
+		}
+
+		anySlice = DeduplicateSlice(anySlice)
+		operatorValue = anySlice
+	}
+
 	return &Default{
 		operatorValue: operatorValue,
 	}, nil
@@ -24,6 +38,20 @@ type Default struct {
 
 func (d Default) OperatorValue() any {
 	return d.operatorValue
+}
+
+func (d Default) ToSlice(key string) MetadataPolicyOperator {
+	if reflect.TypeOf(d.operatorValue).Kind() != reflect.Slice {
+		if key == "scope" {
+			return &Default{
+				operatorValue: ConvertStringsToAnySlice(strings.Split(d.operatorValue.(string), " ")),
+			}
+		}
+		return &Default{
+			operatorValue: []any{d.operatorValue},
+		}
+	}
+	return d
 }
 
 func (d Default) String() string {
@@ -47,9 +75,8 @@ func (d Default) ResolutionHierarchy() int {
 func (d Default) Merge(valueToMerge any) (MetadataPolicyOperator, error) {
 	if reflect.DeepEqual(d.operatorValue, valueToMerge) {
 		return d, nil
-	} else {
-		return nil, fmt.Errorf("merging %v and %v not possible", d.operatorValue, valueToMerge)
 	}
+	return nil, fmt.Errorf("merging %v and %v not possible", d.operatorValue, valueToMerge)
 }
 
 func (d Default) CheckForConflict(containsFunc func(policyType reflect.Type) (MetadataPolicyOperator, bool)) error {

@@ -4,31 +4,54 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"time"
 
-	"github.com/MichaelFraser99/go-openid-federation/ferrors"
-	"github.com/MichaelFraser99/go-openid-federation/internal/logging"
+	"github.com/MichaelFraser99/go-jose/jwt"
+	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/internal/trust_marks"
+	"github.com/MichaelFraser99/go-openid-federation/model"
 )
+
+const trustMarkStatusUnavailableError = "unable to list trust mark status at this time"
 
 func (s *Server) TrustMarkStatus(w http.ResponseWriter, r *http.Request) ResponseFunc {
 	ctx := r.Context()
 	trustMark := r.URL.Query().Get("trust_mark")
 
 	if trustMark == "" {
-		return s.RespondWithError(ctx, w, ferrors.NewError(ferrors.InvalidRequestError, "request missing required parameter 'trust_mark'"))
+		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("request missing required parameter 'trust_mark'"))
 	}
 
-	status, err := trust_marks.Status(ctx, s.l, trustMark, s.configuration)
+	status, err := trust_marks.Status(ctx, s.cfg, trustMark)
 	if err != nil {
-		logging.LogInfo(s.l, ctx, "error determining trust mark status", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, ferrors.EntityNotFoundError())
+		s.cfg.LogInfo(ctx, "error determining trust mark status", slog.String("error", err.Error()))
+		return s.RespondWithError(ctx, w, err)
 	}
 
 	statusBytes, err := json.Marshal(status)
 	if err != nil {
-		logging.LogInfo(s.l, ctx, "error marshalling trust mark status", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, ferrors.EntityNotFoundError())
+		s.cfg.LogInfo(ctx, "error marshalling trust mark status", slog.String("error", err.Error()))
+		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(trustMarkStatusUnavailableError))
 	}
 
-	return s.RespondWithJSON(w, statusBytes)
+	var statusMap map[string]any
+	if err = json.Unmarshal(statusBytes, &statusMap); err != nil {
+		s.cfg.LogInfo(ctx, "error unmarshalling subordinate status response", slog.String("error", err.Error()))
+		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(trustMarkStatusUnavailableError))
+	}
+	statusMap["iss"] = s.cfg.EntityIdentifier
+	statusMap["iat"] = time.Now().UTC().Unix()
+	statusMap["trust_mark"] = trustMark
+
+	token, err := jwt.New(s.cfg.SignerConfiguration.Signer, map[string]any{
+		"kid": s.cfg.SignerConfiguration.KeyID,
+		"typ": "trust-mark-status-response+jwt",
+		"alg": s.cfg.SignerConfiguration.Algorithm,
+	}, statusMap, jwt.Opts{Algorithm: josemodel.GetAlgorithm(s.cfg.SignerConfiguration.Algorithm)})
+	if err != nil {
+		s.cfg.LogInfo(ctx, "error creating resolve response", slog.String("error", err.Error()))
+		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(trustMarkStatusUnavailableError))
+	}
+
+	return s.RespondWithTrustMarkStatusResponse(w, []byte(*token))
 }

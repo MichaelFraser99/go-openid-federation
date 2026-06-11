@@ -27,6 +27,8 @@ func NewAdd(operatorValue any) (*Add, error) {
 		anySlice[i] = sliceValue.Index(i).Interface()
 	}
 
+	anySlice = DeduplicateSlice(anySlice)
+
 	return &Add{
 		operatorValue: anySlice,
 	}, nil
@@ -41,6 +43,10 @@ type Add struct {
 
 func (a Add) OperatorValue() any {
 	return a.operatorValue
+}
+
+func (a Add) ToSlice(key string) MetadataPolicyOperator {
+	return a
 }
 
 func (a Add) String() string {

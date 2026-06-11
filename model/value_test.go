@@ -2,7 +2,6 @@ package model
 
 import (
 	"reflect"
-	"slices"
 	"testing"
 )
 
@@ -126,11 +125,23 @@ func TestValue_Resolve(t *testing.T) {
 				if result == nil {
 					t.Fatal("expected result to be non-nil")
 				}
-				if len(result.([]string)) != 2 {
-					t.Errorf("expected result to be length 2, got %d", len(result.([]string)))
+				// After deduplication, result is []any
+				resultSlice, ok := result.([]any)
+				if !ok {
+					t.Fatalf("expected result to be []any, got %T", result)
+				}
+				if len(resultSlice) != 2 {
+					t.Errorf("expected result to be length 2, got %d", len(resultSlice))
 				}
 				for _, v := range []string{"foo-bar", "bar-baz"} {
-					if !slices.Contains(result.([]string), v) {
+					found := false
+					for _, item := range resultSlice {
+						if item == v {
+							found = true
+							break
+						}
+					}
+					if !found {
 						t.Errorf("expected result to contain '%s', got %q", v, result)
 					}
 				}
@@ -147,11 +158,23 @@ func TestValue_Resolve(t *testing.T) {
 					t.Fatal("expected result to be non-nil")
 				}
 
-				if len(result.([]string)) != 2 {
-					t.Errorf("expected result to be length 2, got %d", len(result.([]string)))
+				// After deduplication, result is []any
+				resultSlice, ok := result.([]any)
+				if !ok {
+					t.Fatalf("expected result to be []any, got %T", result)
+				}
+				if len(resultSlice) != 2 {
+					t.Errorf("expected result to be length 2, got %d", len(resultSlice))
 				}
 				for _, v := range []string{"foo-bar", "bar-baz"} {
-					if !slices.Contains(result.([]string), v) {
+					found := false
+					for _, item := range resultSlice {
+						if item == v {
+							found = true
+							break
+						}
+					}
+					if !found {
 						t.Errorf("expected result to contain '%s', got %q", v, result)
 					}
 				}
@@ -168,11 +191,23 @@ func TestValue_Resolve(t *testing.T) {
 					t.Fatal("expected result to be non-nil")
 				}
 
-				if len(result.([]string)) != 3 {
-					t.Errorf("expected result to be length 3, got %d", len(result.([]string)))
+				// After deduplication, result is []any
+				resultSlice, ok := result.([]any)
+				if !ok {
+					t.Fatalf("expected result to be []any, got %T", result)
+				}
+				if len(resultSlice) != 3 {
+					t.Errorf("expected result to be length 3, got %d", len(resultSlice))
 				}
 				for _, v := range []string{"foo-bar", "bar-baz", "baz-bin"} {
-					if !slices.Contains(result.([]string), v) {
+					found := false
+					for _, item := range resultSlice {
+						if item == v {
+							found = true
+							break
+						}
+					}
+					if !found {
 						t.Errorf("expected result to contain '%s', got %q", v, result)
 					}
 				}
@@ -222,7 +257,12 @@ func TestValue_Resolve(t *testing.T) {
 				if err != nil {
 					t.Fatalf("expected no error, got %q", err.Error())
 				}
-				if len(result.([]string)) != 0 {
+				// After deduplication, result is []any
+				resultSlice, ok := result.([]any)
+				if !ok {
+					t.Fatalf("expected result to be []any, got %T", result)
+				}
+				if len(resultSlice) != 0 {
 					t.Errorf("expected result to be an empty slice, got %v", result)
 				}
 			},
@@ -394,13 +434,15 @@ func TestValue_Merge(t *testing.T) {
 		},
 		"MergePolicyOperators succeeds with deeply equal slices": {
 			operatorValue: []int{1, 2, 3},
-			valueToMerge:  []int{1, 2, 3},
+			valueToMerge:  []any{1, 2, 3}, // After deduplication, must use []any for comparison
 			validate: func(t *testing.T, result MetadataPolicyOperator, err error) {
 				if err != nil {
 					t.Fatalf("expected no error, got %q", err.Error())
 				}
-				if !reflect.DeepEqual(result.OperatorValue(), []int{1, 2, 3}) {
-					t.Errorf("expected result to be []int{1, 2, 3}, got %v", result)
+				// After deduplication, slices become []any
+				expected := []any{1, 2, 3}
+				if !reflect.DeepEqual(result.OperatorValue(), expected) {
+					t.Errorf("expected result to be %v, got %v", expected, result.OperatorValue())
 				}
 			},
 		},

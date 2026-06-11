@@ -26,6 +26,8 @@ func NewSubsetOf(operatorValue any) (*SubsetOf, error) {
 		anySlice[i] = sliceValue.Index(i).Interface()
 	}
 
+	anySlice = DeduplicateSlice(anySlice)
+
 	return &SubsetOf{
 		operatorValue: anySlice,
 	}, nil
@@ -37,6 +39,10 @@ type SubsetOf struct {
 
 func (s SubsetOf) OperatorValue() any {
 	return s.operatorValue
+}
+
+func (s SubsetOf) ToSlice(key string) MetadataPolicyOperator {
+	return s
 }
 
 func (s SubsetOf) String() string {

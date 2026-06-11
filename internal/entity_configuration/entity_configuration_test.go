@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"slices"
 	"strings"
 	"testing"
@@ -23,14 +22,15 @@ func TestRetrieve(t *testing.T) {
 	testServer := server_test.TestServer(t)
 	testHttpClient := testServer.Client()
 	testServerURL := testServer.URL
+	cfg := model.Configuration{
+		HttpClient: testHttpClient,
+	}
 
 	tests := map[string]struct {
-		httpClient       *http.Client
 		entityIdentifier model.EntityIdentifier
 		validate         func(t *testing.T, result *model.EntityStatement, signedResult *string, err error)
 	}{
 		"we can retrieve and validate an entity identifier": {
-			httpClient:       testHttpClient,
 			entityIdentifier: model.EntityIdentifier(fmt.Sprintf("%s/leaf", testServerURL)),
 			validate: func(t *testing.T, result *model.EntityStatement, signedResult *string, err error) {
 				if err != nil {
@@ -69,7 +69,7 @@ func TestRetrieve(t *testing.T) {
 				if result.Metadata.OpenIDConnectOpenIDProviderMetadata == nil {
 					t.Fatal("expected result.Metadata.OpenIDConnectOpenIDProviderMetadata to be non-nil")
 				}
-				parsedSignedResult, err := Validate(result.Sub, *signedResult)
+				parsedSignedResult, err := Validate(t.Context(), result.Sub, *signedResult)
 				if err != nil {
 					t.Fatalf("expected no error parsing signed response, got %q", err.Error())
 				}
@@ -90,7 +90,7 @@ func TestRetrieve(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			signedResult, result, err := Retrieve(tt.httpClient, tt.entityIdentifier)
+			signedResult, result, err := Retrieve(t.Context(), cfg, tt.entityIdentifier)
 			tt.validate(t, result, signedResult, err)
 		})
 	}
@@ -188,7 +188,7 @@ func TestNew(t *testing.T) {
 				if result == nil {
 					t.Fatal("expected result to be non-nil")
 				}
-				_, err = Validate(expectedIdentifier, *result)
+				_, err = Validate(t.Context(), expectedIdentifier, *result)
 				if err != nil {
 					t.Fatalf("expected no error validating entity identifier, got %q", err.Error())
 				}
@@ -332,7 +332,7 @@ func TestNew(t *testing.T) {
 				if result == nil {
 					t.Fatal("expected result to be non-nil")
 				}
-				_, err = Validate(expectedIdentifier, *result)
+				_, err = Validate(t.Context(), expectedIdentifier, *result)
 				if err != nil {
 					t.Fatalf("expected no error validating entity identifier, got %q", err.Error())
 				}
@@ -402,7 +402,7 @@ func TestNew(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			result, err := New(tt.serverConfiguration())
+			result, err := New(t.Context(), tt.serverConfiguration())
 			tt.validate(t, tt.serverConfiguration().EntityIdentifier, result, err)
 		})
 	}

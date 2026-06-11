@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 )
 
 var (
@@ -11,6 +12,18 @@ var (
 )
 
 func NewValue(operatorValue any) (*Value, error) {
+	if operatorValue != nil && reflect.TypeOf(operatorValue).Kind() == reflect.Slice {
+		sliceValue := reflect.ValueOf(operatorValue)
+		anySlice := make([]any, sliceValue.Len())
+
+		for i := 0; i < sliceValue.Len(); i++ {
+			anySlice[i] = sliceValue.Index(i).Interface()
+		}
+
+		anySlice = DeduplicateSlice(anySlice)
+		operatorValue = anySlice
+	}
+
 	return &Value{
 		operatorValue: operatorValue,
 	}, nil
@@ -22,6 +35,20 @@ type Value struct {
 
 func (v Value) OperatorValue() any {
 	return v.operatorValue
+}
+
+func (v Value) ToSlice(key string) MetadataPolicyOperator {
+	if reflect.TypeOf(v.operatorValue).Kind() != reflect.Slice {
+		if key == "scope" {
+			return &Value{
+				operatorValue: ConvertStringsToAnySlice(strings.Split(v.operatorValue.(string), " ")),
+			}
+		}
+		return &Value{
+			operatorValue: []any{v.operatorValue},
+		}
+	}
+	return v
 }
 
 func (v Value) String() string {
@@ -40,7 +67,7 @@ func (v Value) Resolve(metadataParameterValue any) (any, error) {
 		return v.operatorValue, nil
 	}
 
-	if inputType != reflect.TypeOf(v.operatorValue) {
+	if inputType.Kind() != reflect.TypeOf(v.operatorValue).Kind() {
 		return nil, fmt.Errorf("type mismatch: metadata parameter value is of type %T, but operator value is of type %T", metadataParameterValue, v.operatorValue)
 	}
 	return v.operatorValue, nil

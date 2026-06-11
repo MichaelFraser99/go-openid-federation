@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"reflect"
 	"slices"
+	"strings"
 )
 
 func ReMarshalJsonAsEntityMetadata[T any](data any) (*T, error) {
@@ -84,53 +85,47 @@ func ProcessAndExtractPolicy(trustChain []EntityStatement) (*MetadataPolicy, err
 			continue
 		}
 
-		if metadataPolicy.FederationMetadata != nil {
-			if finalisedPolicy.MetadataPolicy.FederationMetadata == nil {
-				finalisedPolicy.MetadataPolicy.FederationMetadata = metadataPolicy.FederationMetadata
-			} else {
-				for k, policies := range finalisedPolicy.MetadataPolicy.FederationMetadata {
-					mergedPolicies, err := MergePolicyOperators(metadataPolicy.FederationMetadata[k], policies)
-					if err != nil {
-						return nil, err
-					}
-					finalisedPolicy.MetadataPolicy.FederationMetadata[k] = PolicyOperators{Metadata: mergedPolicies}
-				}
-			}
+		var err error
+		if finalisedPolicy.MetadataPolicy.FederationMetadata, err = applyPolicy(finalisedPolicy.MetadataPolicy.FederationMetadata, metadataPolicy.FederationMetadata); err != nil {
+			return nil, err
 		}
-
-		if metadataPolicy.OpenIDConnectOpenIDProviderMetadata != nil {
-			if finalisedPolicy.MetadataPolicy.OpenIDConnectOpenIDProviderMetadata == nil {
-				finalisedPolicy.MetadataPolicy.OpenIDConnectOpenIDProviderMetadata = metadataPolicy.OpenIDConnectOpenIDProviderMetadata
-			} else {
-				for k, policies := range finalisedPolicy.MetadataPolicy.OpenIDConnectOpenIDProviderMetadata {
-					mergedPolicies, err := MergePolicyOperators(metadataPolicy.OpenIDConnectOpenIDProviderMetadata[k], policies)
-					if err != nil {
-						return nil, err
-					}
-					finalisedPolicy.MetadataPolicy.OpenIDConnectOpenIDProviderMetadata[k] = PolicyOperators{Metadata: mergedPolicies}
-				}
-			}
+		if finalisedPolicy.MetadataPolicy.OpenIDConnectOpenIDProviderMetadata, err = applyPolicy(finalisedPolicy.MetadataPolicy.OpenIDConnectOpenIDProviderMetadata, metadataPolicy.OpenIDConnectOpenIDProviderMetadata); err != nil {
+			return nil, err
 		}
-
-		if metadataPolicy.OpenIDRelyingPartyMetadata != nil {
-			if finalisedPolicy.MetadataPolicy.OpenIDRelyingPartyMetadata == nil {
-				finalisedPolicy.MetadataPolicy.OpenIDRelyingPartyMetadata = metadataPolicy.OpenIDRelyingPartyMetadata
-			} else {
-				for k, policies := range finalisedPolicy.MetadataPolicy.OpenIDRelyingPartyMetadata {
-					mergedPolicies, err := MergePolicyOperators(metadataPolicy.OpenIDRelyingPartyMetadata[k], policies)
-					if err != nil {
-						return nil, err
-					}
-					finalisedPolicy.MetadataPolicy.OpenIDRelyingPartyMetadata[k] = PolicyOperators{Metadata: mergedPolicies}
-				}
-			}
+		if finalisedPolicy.MetadataPolicy.OpenIDRelyingPartyMetadata, err = applyPolicy(finalisedPolicy.MetadataPolicy.OpenIDRelyingPartyMetadata, metadataPolicy.OpenIDRelyingPartyMetadata); err != nil {
+			return nil, err
 		}
 	}
 	return finalisedPolicy.MetadataPolicy, nil
 }
 
+func applyPolicy(existing, policy map[string]PolicyOperators) (map[string]PolicyOperators, error) {
+	if policy != nil {
+		if existing == nil {
+			existing = policy
+		} else {
+			for k, policies := range existing {
+				if policyOp, found := policy[k]; found {
+					mergedPolicies, err := MergePolicyOperators(k, policyOp, policies)
+					if err != nil {
+						return nil, err
+					}
+					existing[k] = PolicyOperators{Metadata: mergedPolicies}
+				}
+			}
+
+			for k, policyOp := range policy {
+				if _, found := existing[k]; !found {
+					existing[k] = policyOp
+				}
+			}
+		}
+	}
+	return existing, nil
+}
+
 // MergePolicyOperators takes in two PolicyOperator values and returns the result of merging the two
-func MergePolicyOperators(policySetA, policySetB PolicyOperators) ([]MetadataPolicyOperator, error) {
+func MergePolicyOperators(claimName string, policySetA, policySetB PolicyOperators) ([]MetadataPolicyOperator, error) {
 	if len(policySetA.Metadata) == 0 && len(policySetB.Metadata) == 0 {
 		return nil, nil
 	} else if len(policySetA.Metadata) == 0 {
@@ -153,6 +148,11 @@ func MergePolicyOperators(policySetA, policySetB PolicyOperators) ([]MetadataPol
 				mergedPolicies = append(mergedPolicies, structuredA[next.ResolutionHierarchy()])
 				continue
 			} else {
+				if claimName == "scope" {
+					structuredA[next.ResolutionHierarchy()] = structuredA[next.ResolutionHierarchy()].ToSlice(claimName)
+					structuredB[next.ResolutionHierarchy()] = structuredB[next.ResolutionHierarchy()].ToSlice(claimName)
+				}
+
 				m, err := structuredA[next.ResolutionHierarchy()].Merge(structuredB[next.ResolutionHierarchy()].OperatorValue())
 				if err != nil {
 					return nil, err
@@ -204,7 +204,11 @@ func ApplyPolicy(subject EntityStatement, policy MetadataPolicy) (*EntityStateme
 				if err != nil {
 					return nil, err
 				}
-				(*subject.Metadata.FederationMetadata)[k] = resolved
+				if resolved == nil {
+					delete(*subject.Metadata.FederationMetadata, k)
+				} else {
+					(*subject.Metadata.FederationMetadata)[k] = resolved
+				}
 			}
 		}
 	}
@@ -212,11 +216,43 @@ func ApplyPolicy(subject EntityStatement, policy MetadataPolicy) (*EntityStateme
 	if subject.Metadata.OpenIDRelyingPartyMetadata != nil {
 		for k, operators := range policy.OpenIDRelyingPartyMetadata {
 			for _, operator := range operators.Metadata {
-				resolved, err := operator.Resolve((*subject.Metadata.OpenIDRelyingPartyMetadata)[k])
+				existing, ok := (*subject.Metadata.OpenIDRelyingPartyMetadata)[k]
+				if k == "scope" {
+					// scope has special behaviour
+					if ok {
+						existing = ConvertStringsToAnySlice(strings.Split(existing.(string), " "))
+					} else {
+						existing = []any{}
+					}
+				}
+				if k == "scope" {
+					operator = operator.ToSlice(k)
+				}
+				resolved, err := operator.Resolve(existing)
 				if err != nil {
 					return nil, err
 				}
-				(*subject.Metadata.OpenIDRelyingPartyMetadata)[k] = resolved
+				if k == "scope" {
+					if resolvedSlice, ok := resolved.([]string); ok {
+						resolved = strings.Join(resolvedSlice, " ")
+					} else if resolvedAny, ok := resolved.([]any); ok {
+						stringSlice := make([]string, len(resolvedAny))
+						for i, v := range resolvedAny {
+							stringSlice[i], ok = v.(string)
+							if !ok {
+								return nil, fmt.Errorf("all scope values must be strings")
+							}
+						}
+						resolved = strings.Join(stringSlice, " ")
+					} else {
+						return nil, fmt.Errorf("scope must be a string or array of strings")
+					}
+				}
+				if resolved == nil {
+					delete(*subject.Metadata.OpenIDRelyingPartyMetadata, k)
+				} else {
+					(*subject.Metadata.OpenIDRelyingPartyMetadata)[k] = resolved
+				}
 			}
 		}
 	}
@@ -228,7 +264,11 @@ func ApplyPolicy(subject EntityStatement, policy MetadataPolicy) (*EntityStateme
 				if err != nil {
 					return nil, err
 				}
-				(*subject.Metadata.OpenIDConnectOpenIDProviderMetadata)[k] = resolved
+				if resolved == nil {
+					delete(*subject.Metadata.OpenIDConnectOpenIDProviderMetadata, k)
+				} else {
+					(*subject.Metadata.OpenIDConnectOpenIDProviderMetadata)[k] = resolved
+				}
 			}
 		}
 	}
@@ -243,4 +283,53 @@ func CalculateChainExpiration(chain []EntityStatement) int64 {
 		}
 	}
 	return exp
+}
+
+func ConvertStringsToAnySlice(input []string) []any {
+	result := make([]any, len(input))
+	for i, v := range input {
+		result[i] = v
+	}
+	return result
+}
+
+// DeduplicateSlice removes duplicate values from a slice, preserving order.
+// Works with all data types including strings, numbers, booleans, and maps.
+func DeduplicateSlice(input []any) []any {
+	if len(input) == 0 {
+		return input
+	}
+
+	seen := make(map[string]bool)
+	result := make([]any, 0, len(input))
+
+	hashElement := func(element any) string {
+		switch e := element.(type) {
+		case map[string]any:
+			// For maps, create a stable hash by sorting keys
+			keys := make([]string, 0, len(e))
+			for k := range e {
+				keys = append(keys, k)
+			}
+			slices.Sort(keys)
+			sortedMap := make([]string, 0, len(e)*2)
+			for _, k := range keys {
+				sortedMap = append(sortedMap, k, fmt.Sprintf("%v", e[k]))
+			}
+			return fmt.Sprintf("%v", sortedMap)
+		default:
+			// For primitive types (string, int, float, bool, etc.)
+			return fmt.Sprintf("%#v", element)
+		}
+	}
+
+	for _, elem := range input {
+		hash := hashElement(elem)
+		if !seen[hash] {
+			seen[hash] = true
+			result = append(result, elem)
+		}
+	}
+
+	return result
 }

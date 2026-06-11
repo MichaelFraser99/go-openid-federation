@@ -22,6 +22,8 @@ func NewOneOf(operatorValue any) (*OneOf, error) {
 		anySlice[i] = sliceValue.Index(i).Interface()
 	}
 
+	anySlice = DeduplicateSlice(anySlice)
+
 	return &OneOf{
 		operatorValue: anySlice,
 	}, nil
@@ -37,6 +39,10 @@ type OneOf struct {
 
 func (o OneOf) OperatorValue() any {
 	return o.operatorValue
+}
+
+func (o OneOf) ToSlice(key string) MetadataPolicyOperator {
+	return o
 }
 
 func (o OneOf) String() string {

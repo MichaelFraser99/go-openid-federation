@@ -35,6 +35,10 @@ func (s Essential) OperatorValue() any {
 	return s.operatorValue
 }
 
+func (s Essential) ToSlice(key string) MetadataPolicyOperator {
+	return s
+}
+
 func (s Essential) String() string {
 	return "essential"
 }

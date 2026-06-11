@@ -5,11 +5,11 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/MichaelFraser99/go-openid-federation/ferrors"
-	"github.com/MichaelFraser99/go-openid-federation/internal/logging"
 	"github.com/MichaelFraser99/go-openid-federation/internal/trust_marks"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
+
+const trustMarkListingUnavailableError = "unable to list trust marked entities at this time"
 
 func (s *Server) TrustMarkList(w http.ResponseWriter, r *http.Request) ResponseFunc {
 	ctx := r.Context()
@@ -22,25 +22,25 @@ func (s *Server) TrustMarkList(w http.ResponseWriter, r *http.Request) ResponseF
 	if sub != "" {
 		parsedSub, err = model.ValidateEntityIdentifier(sub)
 		if err != nil {
-			logging.LogInfo(s.l, ctx, "invalid 'sub' parameter", slog.String("error", err.Error()))
-			return s.RespondWithError(ctx, w, ferrors.SubjectNotFoundError())
+			s.cfg.LogInfo(ctx, "invalid 'sub' parameter", slog.String("error", err.Error()))
+			return s.RespondWithError(ctx, w, model.NewInvalidRequestError("malformed 'sub' parameter"))
 		}
 	}
 
 	if trustMarkType == "" {
-		return s.RespondWithError(ctx, w, ferrors.NewError(ferrors.InvalidRequestError, "request missing required parameter 'trust_mark_type'"))
+		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("request missing required parameter 'trust_mark_type'"))
 	}
 
-	status, err := trust_marks.List(ctx, s.l, trustMarkType, parsedSub, s.configuration)
+	status, err := trust_marks.List(ctx, s.cfg, trustMarkType, parsedSub)
 	if err != nil {
-		logging.LogInfo(s.l, ctx, "error listing trust marks", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, ferrors.EntityNotFoundError())
+		s.cfg.LogInfo(ctx, "error listing trust marks", slog.String("error", err.Error()))
+		return s.RespondWithError(ctx, w, err)
 	}
 
 	statusBytes, err := json.Marshal(status)
 	if err != nil {
-		logging.LogInfo(s.l, ctx, "error marshalling trust mark status", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, ferrors.EntityNotFoundError())
+		s.cfg.LogInfo(ctx, "error marshalling trust mark status", slog.String("error", err.Error()))
+		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(trustMarkListingUnavailableError))
 	}
 
 	return s.RespondWithJSON(w, statusBytes)

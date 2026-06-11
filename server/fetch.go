@@ -1,12 +1,11 @@
 package server
 
 import (
-	"github.com/MichaelFraser99/go-openid-federation/ferrors"
-	"github.com/MichaelFraser99/go-openid-federation/internal/logging"
-	"github.com/MichaelFraser99/go-openid-federation/internal/subordinate_statement"
-	"github.com/MichaelFraser99/go-openid-federation/model"
 	"log/slog"
 	"net/http"
+
+	"github.com/MichaelFraser99/go-openid-federation/internal/subordinate_statement"
+	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
 func (s *Server) Fetch(w http.ResponseWriter, r *http.Request) ResponseFunc {
@@ -14,23 +13,25 @@ func (s *Server) Fetch(w http.ResponseWriter, r *http.Request) ResponseFunc {
 	sub := r.URL.Query().Get("sub")
 
 	if sub == "" {
-		return s.RespondWithError(ctx, w, ferrors.NewError(ferrors.InvalidRequestError, "request missing required parameter 'sub'"))
+		s.cfg.LogInfo(ctx, "no sub query parameter found")
+		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("request missing required parameter 'sub'"))
 	}
 
 	parsedSub, err := model.ValidateEntityIdentifier(sub)
 	if err != nil {
-		logging.LogInfo(s.l, ctx, "invalid 'sub' parameter", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, ferrors.SubjectNotFoundError())
+		s.cfg.LogInfo(ctx, "invalid 'sub' parameter", slog.String("error", err.Error()))
+		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("malformed 'sub' parameter"))
 	}
 
-	if *parsedSub == s.configuration.EntityConfiguration.Iss {
-		return s.RespondWithError(ctx, w, ferrors.NewError(ferrors.InvalidRequestError, "an entity cannot issue a subordinate statement for itself"))
+	if *parsedSub == s.cfg.EntityConfiguration.Iss {
+		s.cfg.LogInfo(ctx, "provided 'sub' parameter matches server entity identifier")
+		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("an entity cannot issue a subordinate statement for itself"))
 	}
 
-	token, err := subordinate_statement.New(*parsedSub, s.getSignerForIdentifier(*parsedSub), s.configuration)
+	token, err := subordinate_statement.New(ctx, *parsedSub, s.loadSubordinate(ctx, *parsedSub), s.cfg)
 	if err != nil {
-		logging.LogInfo(s.l, ctx, "error creating subordinate statement", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, ferrors.EntityNotFoundError())
+		s.cfg.LogInfo(ctx, "error creating subordinate statement", slog.String("error", err.Error()))
+		return s.RespondWithError(ctx, w, err)
 	}
 
 	return s.RespondWithEntityStatement(w, []byte(*token))

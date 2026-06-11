@@ -2,16 +2,18 @@ package server
 
 import (
 	"encoding/json"
-	"github.com/MichaelFraser99/go-jose/jwt"
-	josemodel "github.com/MichaelFraser99/go-jose/model"
-	"github.com/MichaelFraser99/go-openid-federation/ferrors"
-	"github.com/MichaelFraser99/go-openid-federation/internal/logging"
-	"github.com/MichaelFraser99/go-openid-federation/internal/trust_chain"
-	"github.com/MichaelFraser99/go-openid-federation/model"
 	"log/slog"
 	"net/http"
 	"slices"
+
+	"github.com/MichaelFraser99/go-jose/jwt"
+	josemodel "github.com/MichaelFraser99/go-jose/model"
+	"github.com/MichaelFraser99/go-openid-federation/internal/trust_chain"
+	"github.com/MichaelFraser99/go-openid-federation/internal/trust_marks"
+	"github.com/MichaelFraser99/go-openid-federation/model"
 )
+
+const resolveUnavailableError = "unable to resolve entities at this time"
 
 //todo: consider how we can allow consumers to define their own metadata types
 //todo: resolve tests
@@ -22,39 +24,44 @@ func (s *Server) Resolve(w http.ResponseWriter, r *http.Request) ResponseFunc {
 	trustAnchor := r.URL.Query().Get("trust_anchor")
 	entityTypes := r.URL.Query()["entity_type"]
 
-	logging.LogInfo(s.l, ctx, "received resolve request", slog.String("sub", sub), slog.String("trust_anchor", trustAnchor))
+	s.cfg.LogInfo(ctx, "received resolve request", slog.String("sub", sub), slog.String("trust_anchor", trustAnchor))
 
 	if sub == "" {
-		logging.LogInfo(s.l, ctx, "received resolve request with missing parameter 'sub'")
-		return s.RespondWithError(ctx, w, ferrors.NewError(ferrors.InvalidRequestError, "missing 'sub' parameter"))
+		s.cfg.LogInfo(ctx, "received resolve request with missing parameter 'sub'")
+		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("request missing required parameter 'sub'"))
 	}
 	if trustAnchor == "" {
-		logging.LogInfo(s.l, ctx, "received resolve request with missing parameter 'trust_anchor'")
-		return s.RespondWithError(ctx, w, ferrors.NewError(ferrors.InvalidRequestError, "missing 'trust_anchor' parameter"))
+		s.cfg.LogInfo(ctx, "received resolve request with missing parameter 'trust_anchor'")
+		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("missing required parameter 'trust_anchor'"))
 	}
 
 	parsedSub, err := model.ValidateEntityIdentifier(sub)
 	if err != nil {
-		logging.LogInfo(s.l, ctx, "invalid 'sub' parameter", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, ferrors.SubjectNotFoundError())
+		s.cfg.LogInfo(ctx, "invalid 'sub' parameter", slog.String("error", err.Error()))
+		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("malformed 'sub' parameter"))
 	}
 
 	parsedTrustAnchor, err := model.ValidateEntityIdentifier(trustAnchor)
 	if err != nil {
-		logging.LogInfo(s.l, ctx, "invalid 'trust_anchor' parameter", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, ferrors.TrustAnchorNotFoundError())
+		s.cfg.LogInfo(ctx, "invalid 'trust_anchor' parameter", slog.String("error", err.Error()))
+		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("malformed 'trust_anchor' parameter"))
 	}
 
-	trustChain, _, _, err := trust_chain.BuildTrustChain(ctx, s.l, s.configuration.HttpClient, *parsedSub, *parsedTrustAnchor)
+	trustChain, parsedTrustChain, _, err := trust_chain.BuildTrustChain(ctx, s.cfg.Configuration, *parsedSub, *parsedTrustAnchor)
 	if err != nil {
-		logging.LogInfo(s.l, ctx, "error building trust chain", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, ferrors.EntityNotFoundError())
+		s.cfg.LogInfo(ctx, "error building trust chain", slog.String("error", err.Error()))
+		return s.RespondWithError(ctx, w, err)
 	}
 
-	resolved, err := trust_chain.ResolveMetadata(s.configuration.EntityIdentifier, trustChain)
+	resolved, err := trust_chain.ResolveMetadata(ctx, s.cfg.Configuration, s.cfg.EntityIdentifier, trustChain)
 	if err != nil {
-		logging.LogInfo(s.l, ctx, "error resolving trust chain", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, ferrors.EntityNotFoundError())
+		s.cfg.LogInfo(ctx, "error resolving trust chain", slog.String("error", err.Error()))
+		return s.RespondWithError(ctx, w, err)
+	}
+
+	if err = trust_marks.FilterByTrusted(ctx, s.cfg.Configuration, resolved, parsedTrustChain[len(parsedTrustChain)-1]); err != nil {
+		s.cfg.LogInfo(ctx, "error filtering trust marks", slog.String("error", err.Error()))
+		return s.RespondWithError(ctx, w, err)
 	}
 
 	if len(entityTypes) > 0 {
@@ -71,24 +78,24 @@ func (s *Server) Resolve(w http.ResponseWriter, r *http.Request) ResponseFunc {
 
 	resolvedBytes, err := json.Marshal(resolved)
 	if err != nil {
-		logging.LogInfo(s.l, ctx, "error marshalling resolved metadata", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, ferrors.EntityNotFoundError())
+		s.cfg.LogError(ctx, "error marshalling resolved metadata", slog.String("error", err.Error()))
+		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(resolveUnavailableError))
 	}
 
 	var resolvedMap map[string]any
 	if err = json.Unmarshal(resolvedBytes, &resolvedMap); err != nil {
-		logging.LogInfo(s.l, ctx, "error unmarshalling resolved metadata", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, ferrors.EntityNotFoundError())
+		s.cfg.LogError(ctx, "error unmarshalling resolved metadata", slog.String("error", err.Error()))
+		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(resolveUnavailableError))
 	}
 
-	token, err := jwt.New(s.configuration.SignerConfiguration.Signer, map[string]any{
-		"kid": s.configuration.SignerConfiguration.KeyID,
+	token, err := jwt.New(s.cfg.SignerConfiguration.Signer, map[string]any{
+		"kid": s.cfg.SignerConfiguration.KeyID,
 		"typ": "resolve-response+jwt",
-		"alg": s.configuration.SignerConfiguration.Algorithm,
-	}, resolvedMap, jwt.Opts{Algorithm: josemodel.GetAlgorithm(s.configuration.SignerConfiguration.Algorithm)})
+		"alg": s.cfg.SignerConfiguration.Algorithm,
+	}, resolvedMap, jwt.Opts{Algorithm: josemodel.GetAlgorithm(s.cfg.SignerConfiguration.Algorithm)})
 	if err != nil {
-		logging.LogInfo(s.l, ctx, "error creating resolve response", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, ferrors.EntityNotFoundError())
+		s.cfg.LogError(ctx, "error creating resolve response", slog.String("error", err.Error()))
+		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(resolveUnavailableError))
 	}
 
 	return s.RespondWithResolveResponse(w, []byte(*token))

@@ -1,7 +1,6 @@
 package client
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -18,7 +17,7 @@ func TestClient_BuildTrustChain(t *testing.T) {
 	testHttpClient := testServer.Client()
 	testServerURL := testServer.URL
 
-	client := New(testHttpClient)
+	client := New(model.ClientConfiguration{Configuration: model.Configuration{HttpClient: testHttpClient}})
 	tests := map[string]struct {
 		subject, trustAnchor string
 		validate             func(t *testing.T, result []model.EntityStatement, signedResult []string, expiry *int64, err error)
@@ -83,7 +82,7 @@ func TestClient_BuildTrustChain(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			signedResult, result, exp, err := client.BuildTrustChain(context.Background(), tt.subject, tt.trustAnchor)
+			signedResult, result, exp, err := client.BuildTrustChain(t.Context(), tt.subject, tt.trustAnchor)
 			tt.validate(t, result, signedResult, exp, err)
 		})
 	}
@@ -94,7 +93,7 @@ func TestClient_ResolveMetadata(t *testing.T) {
 	testHttpClient := testServer.Client()
 	testServerURL := testServer.URL
 
-	client := New(testHttpClient)
+	client := New(model.ClientConfiguration{Configuration: model.Configuration{HttpClient: testHttpClient}})
 	tests := map[string]struct {
 		subject, trustAnchor string
 		validate             func(t *testing.T, result *model.Metadata, err error)
@@ -191,11 +190,11 @@ func TestClient_ResolveMetadata(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			chain, _, _, err := client.BuildTrustChain(context.Background(), tt.subject, tt.trustAnchor)
+			chain, _, _, err := client.BuildTrustChain(t.Context(), tt.subject, tt.trustAnchor)
 			if err != nil {
 				t.Fatalf("expected no error, got %q", err.Error())
 			}
-			result, err := client.ResolveMetadata(tt.subject, chain)
+			result, err := client.ResolveMetadata(t.Context(), tt.subject, chain)
 			tt.validate(t, result, err)
 		})
 	}

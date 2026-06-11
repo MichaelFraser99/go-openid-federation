@@ -25,6 +25,9 @@ func TestRetrieve(t *testing.T) {
 	testServer := server_test.TestServer(t)
 	testHttpClient := testServer.Client()
 	testServerURL := testServer.URL
+	cfg := model.Configuration{
+		HttpClient: testHttpClient,
+	}
 
 	tests := map[string]struct {
 		httpClient              *http.Client
@@ -114,7 +117,7 @@ func TestRetrieve(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			issuerConfiguration := tt.issuingEntity(t)
-			signedResult, result, err := Retrieve(tt.httpClient, issuerConfiguration, tt.subjectEntityIdentifier)
+			signedResult, result, err := Retrieve(t.Context(), cfg, issuerConfiguration, tt.subjectEntityIdentifier)
 			tt.validate(t, issuerConfiguration, result, signedResult, err)
 		})
 	}
@@ -282,8 +285,8 @@ func TestNew(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			testConfiguration := tt.serverConfiguration()
-			result, err := New(*subjectIdentifier, func() (*model.SubordinateConfiguration, *model.SignerConfiguration, error) {
-				subordinate, cErr := testConfiguration.GetSubordinate(*subjectIdentifier)
+			result, err := New(t.Context(), *subjectIdentifier, func() (*model.SubordinateConfiguration, *model.SignerConfiguration, error) {
+				subordinate, cErr := testConfiguration.GetSubordinate(t.Context(), *subjectIdentifier)
 				if cErr != nil {
 					return nil, nil, cErr
 				}

@@ -103,6 +103,21 @@ type Retriever interface {
 	GetSubordinateSigners(ctx context.Context) ([]SignerConfiguration, error)
 }
 
+type SubordinateListingFilter struct {
+	EntityTypes   []string
+	TrustMarked   *bool
+	TrustMarkType *string
+	Intermediate  *bool
+}
+
+func (f SubordinateListingFilter) IsEmpty() bool {
+	return len(f.EntityTypes) == 0 && f.TrustMarked == nil && f.TrustMarkType == nil && f.Intermediate == nil
+}
+
+type SubordinateListingRetriever interface {
+	ListSubordinates(ctx context.Context, filter SubordinateListingFilter) ([]EntityIdentifier, error)
+}
+
 type TrustMarkIssuerRetriever interface {
 	ListTrustMarkIssuers(ctx context.Context) (map[string][]EntityIdentifier, error)
 }
@@ -333,12 +348,24 @@ type Metadata struct {
 	FederationMetadata                  *FederationMetadata                  `json:"federation_entity,omitempty"`
 	OpenIDRelyingPartyMetadata          *OpenIDRelyingPartyMetadata          `json:"openid_relying_party,omitempty"`
 	OpenIDConnectOpenIDProviderMetadata *OpenIDConnectOpenIDProviderMetadata `json:"openid_provider,omitempty"`
+	OAuthAuthorizationServerMetadata    *OAuthAuthorizationServerMetadata    `json:"oauth_authorization_server,omitempty"`
+	OAuthClientMetadata                 *OAuthClientMetadata                 `json:"oauth_client,omitempty"`
+	OAuthResourceMetadata               *OAuthResourceMetadata               `json:"oauth_resource,omitempty"`
+	OpenIDWalletProviderMetadata        *OpenIDWalletProviderMetadata        `json:"openid_wallet_provider,omitempty"`
+	OpenIDCredentialIssuerMetadata      *OpenIDCredentialIssuerMetadata      `json:"openid_credential_issuer,omitempty"`
+	OpenIDCredentialVerifierMetadata    *OpenIDCredentialVerifierMetadata    `json:"openid_credential_verifier,omitempty"`
 }
 
 type MetadataPolicy struct {
 	FederationMetadata                  map[string]PolicyOperators `json:"federation_entity,omitempty"`
 	OpenIDRelyingPartyMetadata          map[string]PolicyOperators `json:"openid_relying_party,omitempty"`
 	OpenIDConnectOpenIDProviderMetadata map[string]PolicyOperators `json:"openid_provider,omitempty"`
+	OAuthAuthorizationServerMetadata    map[string]PolicyOperators `json:"oauth_authorization_server,omitempty"`
+	OAuthClientMetadata                 map[string]PolicyOperators `json:"oauth_client,omitempty"`
+	OAuthResourceMetadata               map[string]PolicyOperators `json:"oauth_resource,omitempty"`
+	OpenIDWalletProviderMetadata        map[string]PolicyOperators `json:"openid_wallet_provider,omitempty"`
+	OpenIDCredentialIssuerMetadata      map[string]PolicyOperators `json:"openid_credential_issuer,omitempty"`
+	OpenIDCredentialVerifierMetadata    map[string]PolicyOperators `json:"openid_credential_verifier,omitempty"`
 }
 
 func (m *Metadata) UnmarshalJSON(data []byte) error {
@@ -383,6 +410,78 @@ func (m *Metadata) UnmarshalJSON(data []byte) error {
 			}
 		}
 	}
+	if oauthAuthorizationServer, ok := bytesMap["oauth_authorization_server"]; ok {
+		m.OAuthAuthorizationServerMetadata, err = ReMarshalJsonAsEntityMetadata[OAuthAuthorizationServerMetadata](oauthAuthorizationServer)
+		if err != nil {
+			return fmt.Errorf("malformed oauth authorization server metadata: %s", err.Error())
+		}
+		if m.OAuthAuthorizationServerMetadata != nil {
+			err = m.OAuthAuthorizationServerMetadata.VerifyMetadata()
+			if err != nil {
+				return fmt.Errorf("invalid oauth authorization server metadata: %w", err)
+			}
+		}
+	}
+	if oauthClient, ok := bytesMap["oauth_client"]; ok {
+		m.OAuthClientMetadata, err = ReMarshalJsonAsEntityMetadata[OAuthClientMetadata](oauthClient)
+		if err != nil {
+			return fmt.Errorf("malformed oauth client metadata: %s", err.Error())
+		}
+		if m.OAuthClientMetadata != nil {
+			err = m.OAuthClientMetadata.VerifyMetadata()
+			if err != nil {
+				return fmt.Errorf("invalid oauth client metadata: %w", err)
+			}
+		}
+	}
+	if oauthResource, ok := bytesMap["oauth_resource"]; ok {
+		m.OAuthResourceMetadata, err = ReMarshalJsonAsEntityMetadata[OAuthResourceMetadata](oauthResource)
+		if err != nil {
+			return fmt.Errorf("malformed oauth resource metadata: %s", err.Error())
+		}
+		if m.OAuthResourceMetadata != nil {
+			err = m.OAuthResourceMetadata.VerifyMetadata()
+			if err != nil {
+				return fmt.Errorf("invalid oauth resource metadata: %w", err)
+			}
+		}
+	}
+	if openidWalletProvider, ok := bytesMap["openid_wallet_provider"]; ok {
+		m.OpenIDWalletProviderMetadata, err = ReMarshalJsonAsEntityMetadata[OpenIDWalletProviderMetadata](openidWalletProvider)
+		if err != nil {
+			return fmt.Errorf("malformed openid wallet provider metadata: %s", err.Error())
+		}
+		if m.OpenIDWalletProviderMetadata != nil {
+			err = m.OpenIDWalletProviderMetadata.VerifyMetadata()
+			if err != nil {
+				return fmt.Errorf("invalid openid wallet provider metadata: %w", err)
+			}
+		}
+	}
+	if openidCredentialIssuer, ok := bytesMap["openid_credential_issuer"]; ok {
+		m.OpenIDCredentialIssuerMetadata, err = ReMarshalJsonAsEntityMetadata[OpenIDCredentialIssuerMetadata](openidCredentialIssuer)
+		if err != nil {
+			return fmt.Errorf("malformed openid credential issuer metadata: %s", err.Error())
+		}
+		if m.OpenIDCredentialIssuerMetadata != nil {
+			err = m.OpenIDCredentialIssuerMetadata.VerifyMetadata()
+			if err != nil {
+				return fmt.Errorf("invalid openid credential issuer metadata: %w", err)
+			}
+		}
+	}
+	if openidCredentialVerifier, ok := bytesMap["openid_credential_verifier"]; ok {
+		m.OpenIDCredentialVerifierMetadata, err = ReMarshalJsonAsEntityMetadata[OpenIDCredentialVerifierMetadata](openidCredentialVerifier)
+		if err != nil {
+			return fmt.Errorf("malformed openid credential verifier metadata: %s", err.Error())
+		}
+		if m.OpenIDCredentialVerifierMetadata != nil {
+			err = m.OpenIDCredentialVerifierMetadata.VerifyMetadata()
+			if err != nil {
+				return fmt.Errorf("invalid openid credential verifier metadata: %w", err)
+			}
+		}
+	}
 	return nil
 }
 
@@ -396,6 +495,24 @@ func (m Metadata) MarshalJSON() ([]byte, error) {
 	}
 	if m.OpenIDConnectOpenIDProviderMetadata != nil {
 		resultMap["openid_provider"] = marshalMetadataToMap(*m.OpenIDConnectOpenIDProviderMetadata)
+	}
+	if m.OAuthAuthorizationServerMetadata != nil {
+		resultMap["oauth_authorization_server"] = marshalMetadataToMap(*m.OAuthAuthorizationServerMetadata)
+	}
+	if m.OAuthClientMetadata != nil {
+		resultMap["oauth_client"] = marshalMetadataToMap(*m.OAuthClientMetadata)
+	}
+	if m.OAuthResourceMetadata != nil {
+		resultMap["oauth_resource"] = marshalMetadataToMap(*m.OAuthResourceMetadata)
+	}
+	if m.OpenIDWalletProviderMetadata != nil {
+		resultMap["openid_wallet_provider"] = marshalMetadataToMap(*m.OpenIDWalletProviderMetadata)
+	}
+	if m.OpenIDCredentialIssuerMetadata != nil {
+		resultMap["openid_credential_issuer"] = marshalMetadataToMap(*m.OpenIDCredentialIssuerMetadata)
+	}
+	if m.OpenIDCredentialVerifierMetadata != nil {
+		resultMap["openid_credential_verifier"] = marshalMetadataToMap(*m.OpenIDCredentialVerifierMetadata)
 	}
 	return json.Marshal(resultMap)
 }
@@ -427,6 +544,48 @@ func (m *MetadataPolicy) UnmarshalJSON(data []byte) error {
 		}
 		m.OpenIDConnectOpenIDProviderMetadata = *openidProviderOperators
 	}
+	if oauthAuthorizationServer, ok := bytesMap["oauth_authorization_server"]; ok {
+		oauthAuthorizationServerOperators, err := ReMarshalJsonAsEntityMetadata[map[string]PolicyOperators](oauthAuthorizationServer)
+		if err != nil {
+			return fmt.Errorf("malformed oauth authorization server metadata policy: %s", err.Error())
+		}
+		m.OAuthAuthorizationServerMetadata = *oauthAuthorizationServerOperators
+	}
+	if oauthClient, ok := bytesMap["oauth_client"]; ok {
+		oauthClientOperators, err := ReMarshalJsonAsEntityMetadata[map[string]PolicyOperators](oauthClient)
+		if err != nil {
+			return fmt.Errorf("malformed oauth client metadata policy: %s", err.Error())
+		}
+		m.OAuthClientMetadata = *oauthClientOperators
+	}
+	if oauthResource, ok := bytesMap["oauth_resource"]; ok {
+		oauthResourceOperators, err := ReMarshalJsonAsEntityMetadata[map[string]PolicyOperators](oauthResource)
+		if err != nil {
+			return fmt.Errorf("malformed oauth resource metadata policy: %s", err.Error())
+		}
+		m.OAuthResourceMetadata = *oauthResourceOperators
+	}
+	if openidWalletProvider, ok := bytesMap["openid_wallet_provider"]; ok {
+		openidWalletProviderOperators, err := ReMarshalJsonAsEntityMetadata[map[string]PolicyOperators](openidWalletProvider)
+		if err != nil {
+			return fmt.Errorf("malformed openid wallet provider metadata policy: %s", err.Error())
+		}
+		m.OpenIDWalletProviderMetadata = *openidWalletProviderOperators
+	}
+	if openidCredentialIssuer, ok := bytesMap["openid_credential_issuer"]; ok {
+		openidCredentialIssuerOperators, err := ReMarshalJsonAsEntityMetadata[map[string]PolicyOperators](openidCredentialIssuer)
+		if err != nil {
+			return fmt.Errorf("malformed openid credential issuer metadata policy: %s", err.Error())
+		}
+		m.OpenIDCredentialIssuerMetadata = *openidCredentialIssuerOperators
+	}
+	if openidCredentialVerifier, ok := bytesMap["openid_credential_verifier"]; ok {
+		openidCredentialVerifierOperators, err := ReMarshalJsonAsEntityMetadata[map[string]PolicyOperators](openidCredentialVerifier)
+		if err != nil {
+			return fmt.Errorf("malformed openid credential verifier metadata policy: %s", err.Error())
+		}
+		m.OpenIDCredentialVerifierMetadata = *openidCredentialVerifierOperators
+	}
 	return nil
 }
 
@@ -441,7 +600,104 @@ func (m MetadataPolicy) MarshalJSON() ([]byte, error) {
 	if m.OpenIDConnectOpenIDProviderMetadata != nil {
 		resultMap["openid_provider"] = marshalPolicyOperatorSetToMap(m.OpenIDConnectOpenIDProviderMetadata)
 	}
+	if m.OAuthAuthorizationServerMetadata != nil {
+		resultMap["oauth_authorization_server"] = marshalPolicyOperatorSetToMap(m.OAuthAuthorizationServerMetadata)
+	}
+	if m.OAuthClientMetadata != nil {
+		resultMap["oauth_client"] = marshalPolicyOperatorSetToMap(m.OAuthClientMetadata)
+	}
+	if m.OAuthResourceMetadata != nil {
+		resultMap["oauth_resource"] = marshalPolicyOperatorSetToMap(m.OAuthResourceMetadata)
+	}
+	if m.OpenIDWalletProviderMetadata != nil {
+		resultMap["openid_wallet_provider"] = marshalPolicyOperatorSetToMap(m.OpenIDWalletProviderMetadata)
+	}
+	if m.OpenIDCredentialIssuerMetadata != nil {
+		resultMap["openid_credential_issuer"] = marshalPolicyOperatorSetToMap(m.OpenIDCredentialIssuerMetadata)
+	}
+	if m.OpenIDCredentialVerifierMetadata != nil {
+		resultMap["openid_credential_verifier"] = marshalPolicyOperatorSetToMap(m.OpenIDCredentialVerifierMetadata)
+	}
 	return json.Marshal(resultMap)
+}
+
+func (m *Metadata) byEntityType() map[string]map[string]any {
+	entries := map[string]map[string]any{}
+	if m.FederationMetadata != nil {
+		entries["federation_entity"] = *m.FederationMetadata
+	}
+	if m.OpenIDRelyingPartyMetadata != nil {
+		entries["openid_relying_party"] = *m.OpenIDRelyingPartyMetadata
+	}
+	if m.OpenIDConnectOpenIDProviderMetadata != nil {
+		entries["openid_provider"] = *m.OpenIDConnectOpenIDProviderMetadata
+	}
+	if m.OAuthAuthorizationServerMetadata != nil {
+		entries["oauth_authorization_server"] = *m.OAuthAuthorizationServerMetadata
+	}
+	if m.OAuthClientMetadata != nil {
+		entries["oauth_client"] = *m.OAuthClientMetadata
+	}
+	if m.OAuthResourceMetadata != nil {
+		entries["oauth_resource"] = *m.OAuthResourceMetadata
+	}
+	if m.OpenIDWalletProviderMetadata != nil {
+		entries["openid_wallet_provider"] = *m.OpenIDWalletProviderMetadata
+	}
+	if m.OpenIDCredentialIssuerMetadata != nil {
+		entries["openid_credential_issuer"] = *m.OpenIDCredentialIssuerMetadata
+	}
+	if m.OpenIDCredentialVerifierMetadata != nil {
+		entries["openid_credential_verifier"] = *m.OpenIDCredentialVerifierMetadata
+	}
+	return entries
+}
+
+func (m *MetadataPolicy) byEntityType() map[string]*map[string]PolicyOperators {
+	return map[string]*map[string]PolicyOperators{
+		"federation_entity":          &m.FederationMetadata,
+		"openid_relying_party":       &m.OpenIDRelyingPartyMetadata,
+		"openid_provider":            &m.OpenIDConnectOpenIDProviderMetadata,
+		"oauth_authorization_server": &m.OAuthAuthorizationServerMetadata,
+		"oauth_client":               &m.OAuthClientMetadata,
+		"oauth_resource":             &m.OAuthResourceMetadata,
+		"openid_wallet_provider":     &m.OpenIDWalletProviderMetadata,
+		"openid_credential_issuer":   &m.OpenIDCredentialIssuerMetadata,
+		"openid_credential_verifier": &m.OpenIDCredentialVerifierMetadata,
+	}
+}
+
+func (m *Metadata) FilterByEntityTypes(entityTypes []string) {
+	if len(entityTypes) == 0 {
+		return
+	}
+	if !slices.Contains(entityTypes, "federation_entity") {
+		m.FederationMetadata = nil
+	}
+	if !slices.Contains(entityTypes, "openid_relying_party") {
+		m.OpenIDRelyingPartyMetadata = nil
+	}
+	if !slices.Contains(entityTypes, "openid_provider") {
+		m.OpenIDConnectOpenIDProviderMetadata = nil
+	}
+	if !slices.Contains(entityTypes, "oauth_authorization_server") {
+		m.OAuthAuthorizationServerMetadata = nil
+	}
+	if !slices.Contains(entityTypes, "oauth_client") {
+		m.OAuthClientMetadata = nil
+	}
+	if !slices.Contains(entityTypes, "oauth_resource") {
+		m.OAuthResourceMetadata = nil
+	}
+	if !slices.Contains(entityTypes, "openid_wallet_provider") {
+		m.OpenIDWalletProviderMetadata = nil
+	}
+	if !slices.Contains(entityTypes, "openid_credential_issuer") {
+		m.OpenIDCredentialIssuerMetadata = nil
+	}
+	if !slices.Contains(entityTypes, "openid_credential_verifier") {
+		m.OpenIDCredentialVerifierMetadata = nil
+	}
 }
 
 func marshalPolicyOperatorSetToMap(in map[string]PolicyOperators) map[string]any {

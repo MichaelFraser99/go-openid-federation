@@ -28,10 +28,8 @@ func (m FederationMetadata) VerifyMetadata() error {
 		}
 	}
 
-	if v, ok := m["endpoint_auth_signing_alg_values_supported"]; ok {
-		if _, ok := v.([]string); !ok {
-			return fmt.Errorf("invalid endpoint_auth_signing_alg_values_supported metadata value")
-		}
+	if err := verifyStringArrayClaim(m, "endpoint_auth_signing_alg_values_supported"); err != nil {
+		return err
 	}
 	return nil
 }

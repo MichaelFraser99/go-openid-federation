@@ -459,6 +459,30 @@ func createTrustMarkJWT(t *testing.T, issuer, trustMarkType, sub string, private
 	return *token
 }
 
+func createTrustMarkJWTWithExp(t *testing.T, issuer, trustMarkType, sub string, privateKey crypto.Signer, exp *int64) string {
+	t.Helper()
+
+	body := map[string]any{
+		"iss":             issuer,
+		"sub":             sub,
+		"trust_mark_type": trustMarkType,
+		"iat":             int64(1234567890),
+	}
+	if exp != nil {
+		body["exp"] = *exp
+	}
+	head := map[string]any{
+		"kid": "test-key",
+		"typ": "trust-mark+jwt",
+		"alg": "RS256",
+	}
+	token, err := jwt.New(privateKey, head, body, jwt.Opts{Algorithm: josemodel.RS256})
+	if err != nil {
+		t.Fatalf("failed to create trust mark JWT: %v", err)
+	}
+	return *token
+}
+
 // Helper to create an entity configuration for trust mark issuer
 func createIssuerEntityConfiguration(t *testing.T, iss model.EntityIdentifier, signer crypto.Signer) string {
 	t.Helper()
@@ -592,6 +616,84 @@ func TestFilterByTrusted(t *testing.T) {
 				}
 				if len(resolved.TrustMarks) != 2 {
 					t.Fatalf("expected 2 trust marks, got %d", len(resolved.TrustMarks))
+				}
+			},
+		},
+		"lowers exp to an included trust mark exp when earlier than the chain": {
+			setupTest: func() (*model.ResolveResponse, model.EntityStatement, model.Configuration) {
+				trustMark := createTrustMarkJWTWithExp(t, string(issuer1ID), "trusted-mark", subjectID, issuer1Key, model.Pointer(int64(8000000000)))
+
+				resolved := &model.ResolveResponse{
+					Exp: 9999999999,
+					TrustMarks: []model.TrustMarkHolder{
+						{TrustMarkType: "trusted-mark", TrustMark: trustMark},
+					},
+				}
+				trustAnchorConfig := model.EntityStatement{
+					TrustMarkIssuers: map[string][]model.EntityIdentifier{
+						"trusted-mark": {issuer1ID},
+					},
+				}
+				return resolved, trustAnchorConfig, model.Configuration{HttpClient: sharedClient}
+			},
+			validate: func(t *testing.T, resolved *model.ResolveResponse, err error) {
+				if err != nil {
+					t.Fatalf("expected no error, got %q", err.Error())
+				}
+				if resolved.Exp != 8000000000 {
+					t.Errorf("expected exp lowered to 8000000000, got %d", resolved.Exp)
+				}
+			},
+		},
+		"keeps chain exp when the trust mark exp is later": {
+			setupTest: func() (*model.ResolveResponse, model.EntityStatement, model.Configuration) {
+				trustMark := createTrustMarkJWTWithExp(t, string(issuer1ID), "trusted-mark", subjectID, issuer1Key, model.Pointer(int64(9999999999)))
+
+				resolved := &model.ResolveResponse{
+					Exp: 8000000000,
+					TrustMarks: []model.TrustMarkHolder{
+						{TrustMarkType: "trusted-mark", TrustMark: trustMark},
+					},
+				}
+				trustAnchorConfig := model.EntityStatement{
+					TrustMarkIssuers: map[string][]model.EntityIdentifier{
+						"trusted-mark": {issuer1ID},
+					},
+				}
+				return resolved, trustAnchorConfig, model.Configuration{HttpClient: sharedClient}
+			},
+			validate: func(t *testing.T, resolved *model.ResolveResponse, err error) {
+				if err != nil {
+					t.Fatalf("expected no error, got %q", err.Error())
+				}
+				if resolved.Exp != 8000000000 {
+					t.Errorf("expected exp to remain 8000000000, got %d", resolved.Exp)
+				}
+			},
+		},
+		"ignores trust marks without an exp": {
+			setupTest: func() (*model.ResolveResponse, model.EntityStatement, model.Configuration) {
+				trustMark := createTrustMarkJWTWithExp(t, string(issuer1ID), "trusted-mark", subjectID, issuer1Key, nil)
+
+				resolved := &model.ResolveResponse{
+					Exp: 8000000000,
+					TrustMarks: []model.TrustMarkHolder{
+						{TrustMarkType: "trusted-mark", TrustMark: trustMark},
+					},
+				}
+				trustAnchorConfig := model.EntityStatement{
+					TrustMarkIssuers: map[string][]model.EntityIdentifier{
+						"trusted-mark": {issuer1ID},
+					},
+				}
+				return resolved, trustAnchorConfig, model.Configuration{HttpClient: sharedClient}
+			},
+			validate: func(t *testing.T, resolved *model.ResolveResponse, err error) {
+				if err != nil {
+					t.Fatalf("expected no error, got %q", err.Error())
+				}
+				if resolved.Exp != 8000000000 {
+					t.Errorf("expected exp to remain 8000000000, got %d", resolved.Exp)
 				}
 			},
 		},

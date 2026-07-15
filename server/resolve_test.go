@@ -1,12 +1,16 @@
 package server
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,6 +20,50 @@ import (
 	"github.com/MichaelFraser99/go-openid-federation/model"
 	"github.com/MichaelFraser99/go-openid-federation/model_test"
 )
+
+func decodeResolveMetadata(t *testing.T, response *http.Response, err error) map[string]any {
+	t.Helper()
+	if err != nil {
+		t.Fatalf("expected no error, got %q", err.Error())
+	}
+	if response == nil {
+		t.Fatal("expected response to be non-nil")
+	}
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("expected status code 200, got %d", response.StatusCode)
+	}
+	defer response.Body.Close() //nolint:errcheck
+
+	bodyBytes, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatalf("expected no error reading response body, got %q", err.Error())
+	}
+	parts := strings.Split(string(bodyBytes), ".")
+	if len(parts) != 3 {
+		t.Fatalf("expected 3 parts, got %d", len(parts))
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatalf("expected no error decoding body, got %q", err.Error())
+	}
+	var parsed map[string]any
+	if err = json.Unmarshal(payload, &parsed); err != nil {
+		t.Fatalf("expected no error parsing body, got %q", err.Error())
+	}
+	metadata, ok := parsed["metadata"].(map[string]any)
+	if !ok {
+		return map[string]any{}
+	}
+	return metadata
+}
+
+func metadataKeys(metadata map[string]any) []string {
+	keys := make([]string, 0, len(metadata))
+	for k := range metadata {
+		keys = append(keys, k)
+	}
+	return keys
+}
 
 func TestServer_Resolve(t *testing.T) {
 	signer, err := jws.GetSigner(josemodel.ES256, nil)
@@ -43,6 +91,15 @@ func TestServer_Resolve(t *testing.T) {
 	directChildPublicJWK, err := jwk.PublicJwk(directChildSigner.Public())
 	if err != nil {
 		t.Fatalf("expected no error creating direct child public JWK, got %q", err.Error())
+	}
+
+	walletSigner, err := jws.GetSigner(josemodel.ES256, nil)
+	if err != nil {
+		t.Fatalf("expected no error creating wallet signer, got %q", err.Error())
+	}
+	walletPublicJWK, err := jwk.PublicJwk(walletSigner.Public())
+	if err != nil {
+		t.Fatalf("expected no error creating wallet public JWK, got %q", err.Error())
 	}
 
 	trustAnchorServer := NewServer(model.ServerConfiguration{
@@ -98,8 +155,39 @@ func TestServer_Resolve(t *testing.T) {
 		dcs.Close()
 	})
 
+	walletEntityServer := NewServer(model.ServerConfiguration{
+		SignerConfiguration: model.SignerConfiguration{
+			Algorithm: "ES256",
+			Signer:    walletSigner,
+			KeyID:     (*walletPublicJWK)["kid"].(string),
+		},
+		EntityConfiguration: model.EntityStatement{
+			Metadata: &model.Metadata{
+				OpenIDWalletProviderMetadata: &model.OpenIDWalletProviderMetadata{
+					"vp_formats_supported": map[string]any{
+						"dc+sd-jwt": map[string]any{
+							"sd-jwt_alg_values": []string{"ES256", "ES384"},
+							"kb-jwt_alg_values": []string{"ES256", "ES384"},
+						},
+					},
+				},
+			},
+		},
+		EntityConfigurationLifetime: 10 * time.Minute,
+	})
+
+	wm := http.NewServeMux()
+	walletEntityServer.Configure(wm)
+	ws := httptest.NewTLSServer(wm)
+	walletEntityServer.SetEntityIdentifier(model.EntityIdentifier(ws.URL))
+
+	t.Cleanup(func() {
+		ws.Close()
+	})
+
 	validTrustAnchor := tas.URL
 	validEntityIdentifier := dcs.URL
+	validWalletEntityIdentifier := ws.URL
 
 	tests := map[string]struct {
 		requestSub        string
@@ -109,9 +197,35 @@ func TestServer_Resolve(t *testing.T) {
 		validate          func(t *testing.T, response *http.Response, err error)
 	}{
 		"we can resolve a valid entity": {
-			requestSub: dcs.URL,
+			requestSub: validEntityIdentifier,
 			validate: func(t *testing.T, response *http.Response, err error) {
 				validateFetchResponse(t, response, err, http.StatusOK)
+			},
+		},
+		"we can resolve a valid wallet entity": {
+			requestSub: validWalletEntityIdentifier,
+			validate: func(t *testing.T, response *http.Response, err error) {
+				validateFetchResponse(t, response, err, http.StatusOK)
+			},
+		},
+		"resolving the wallet filtered to its own type retains its metadata": {
+			requestSub:  validWalletEntityIdentifier,
+			entityTypes: []string{"openid_wallet_provider"},
+			validate: func(t *testing.T, response *http.Response, err error) {
+				metadata := decodeResolveMetadata(t, response, err)
+				if _, ok := metadata["openid_wallet_provider"]; !ok {
+					t.Errorf("expected resolved metadata to retain 'openid_wallet_provider', got keys %v", metadataKeys(metadata))
+				}
+			},
+		},
+		"resolving the wallet filtered to a different type strips its metadata": {
+			requestSub:  validWalletEntityIdentifier,
+			entityTypes: []string{"openid_provider"},
+			validate: func(t *testing.T, response *http.Response, err error) {
+				metadata := decodeResolveMetadata(t, response, err)
+				if _, ok := metadata["openid_wallet_provider"]; ok {
+					t.Errorf("expected 'openid_wallet_provider' to be filtered out, got keys %v", metadataKeys(metadata))
+				}
 			},
 		},
 		"missing sub parameter returns an error": {
@@ -198,12 +312,18 @@ func TestServer_Resolve(t *testing.T) {
 				SubordinateStatementLifetime: 1 * time.Minute,
 			}
 			intermediateConfigurations.AddSubordinate(model.EntityIdentifier(dcs.URL), &model.SubordinateConfiguration{})
+			intermediateConfigurations.AddSubordinate(model.EntityIdentifier(ws.URL), &model.SubordinateConfiguration{})
 
 			tr := TestRetriever{}
 			tr.Configure(map[string]*model.SubordinateConfiguration{
 				dcs.URL: {
 					JWKs: josemodel.Jwks{
 						Keys: []map[string]any{*directChildPublicJWK},
+					},
+				},
+				ws.URL: {
+					JWKs: josemodel.Jwks{
+						Keys: []map[string]any{*walletPublicJWK},
 					},
 				},
 			})
@@ -245,6 +365,7 @@ func TestServer_Resolve(t *testing.T) {
 			})
 
 			directChildEntityServer.AddAuthorityHint(model.EntityIdentifier(s.URL))
+			walletEntityServer.AddAuthorityHint(model.EntityIdentifier(s.URL))
 
 			// Build the request URL with the test-specific parameters
 			requestURL := fmt.Sprintf("%s/resolve", s.URL)

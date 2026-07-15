@@ -85,15 +85,13 @@ func ProcessAndExtractPolicy(trustChain []EntityStatement) (*MetadataPolicy, err
 			continue
 		}
 
-		var err error
-		if finalisedPolicy.MetadataPolicy.FederationMetadata, err = applyPolicy(finalisedPolicy.MetadataPolicy.FederationMetadata, metadataPolicy.FederationMetadata); err != nil {
-			return nil, err
-		}
-		if finalisedPolicy.MetadataPolicy.OpenIDConnectOpenIDProviderMetadata, err = applyPolicy(finalisedPolicy.MetadataPolicy.OpenIDConnectOpenIDProviderMetadata, metadataPolicy.OpenIDConnectOpenIDProviderMetadata); err != nil {
-			return nil, err
-		}
-		if finalisedPolicy.MetadataPolicy.OpenIDRelyingPartyMetadata, err = applyPolicy(finalisedPolicy.MetadataPolicy.OpenIDRelyingPartyMetadata, metadataPolicy.OpenIDRelyingPartyMetadata); err != nil {
-			return nil, err
+		destination := finalisedPolicy.MetadataPolicy.byEntityType()
+		for entityType, incoming := range metadataPolicy.byEntityType() {
+			merged, err := applyPolicy(*destination[entityType], *incoming)
+			if err != nil {
+				return nil, err
+			}
+			*destination[entityType] = merged
 		}
 	}
 	return finalisedPolicy.MetadataPolicy, nil
@@ -197,82 +195,61 @@ func ApplyPolicy(subject EntityStatement, policy MetadataPolicy) (*EntityStateme
 		return &subject, nil
 	}
 
-	if subject.Metadata.FederationMetadata != nil {
-		for k, operators := range policy.FederationMetadata {
-			for _, operator := range operators.Metadata {
-				resolved, err := operator.Resolve((*subject.Metadata.FederationMetadata)[k])
-				if err != nil {
-					return nil, err
-				}
-				if resolved == nil {
-					delete(*subject.Metadata.FederationMetadata, k)
-				} else {
-					(*subject.Metadata.FederationMetadata)[k] = resolved
-				}
-			}
-		}
-	}
-
-	if subject.Metadata.OpenIDRelyingPartyMetadata != nil {
-		for k, operators := range policy.OpenIDRelyingPartyMetadata {
-			for _, operator := range operators.Metadata {
-				existing, ok := (*subject.Metadata.OpenIDRelyingPartyMetadata)[k]
-				if k == "scope" {
-					// scope has special behaviour
-					if ok {
-						existing = ConvertStringsToAnySlice(strings.Split(existing.(string), " "))
-					} else {
-						existing = []any{}
-					}
-				}
-				if k == "scope" {
-					operator = operator.ToSlice(k)
-				}
-				resolved, err := operator.Resolve(existing)
-				if err != nil {
-					return nil, err
-				}
-				if k == "scope" {
-					if resolvedSlice, ok := resolved.([]string); ok {
-						resolved = strings.Join(resolvedSlice, " ")
-					} else if resolvedAny, ok := resolved.([]any); ok {
-						stringSlice := make([]string, len(resolvedAny))
-						for i, v := range resolvedAny {
-							stringSlice[i], ok = v.(string)
-							if !ok {
-								return nil, fmt.Errorf("all scope values must be strings")
-							}
-						}
-						resolved = strings.Join(stringSlice, " ")
-					} else {
-						return nil, fmt.Errorf("scope must be a string or array of strings")
-					}
-				}
-				if resolved == nil {
-					delete(*subject.Metadata.OpenIDRelyingPartyMetadata, k)
-				} else {
-					(*subject.Metadata.OpenIDRelyingPartyMetadata)[k] = resolved
-				}
-			}
-		}
-	}
-
-	if subject.Metadata.OpenIDConnectOpenIDProviderMetadata != nil {
-		for k, operators := range policy.OpenIDConnectOpenIDProviderMetadata {
-			for _, operator := range operators.Metadata {
-				resolved, err := operator.Resolve((*subject.Metadata.OpenIDConnectOpenIDProviderMetadata)[k])
-				if err != nil {
-					return nil, err
-				}
-				if resolved == nil {
-					delete(*subject.Metadata.OpenIDConnectOpenIDProviderMetadata, k)
-				} else {
-					(*subject.Metadata.OpenIDConnectOpenIDProviderMetadata)[k] = resolved
-				}
-			}
+	policies := policy.byEntityType()
+	for entityType, metadata := range subject.Metadata.byEntityType() {
+		if err := applyPolicyToMetadata(metadata, *policies[entityType]); err != nil {
+			return nil, err
 		}
 	}
 	return &subject, nil
+}
+
+func applyPolicyToMetadata(metadata map[string]any, policy map[string]PolicyOperators) error {
+	for k, operators := range policy {
+		for _, operator := range operators.Metadata {
+			existing, ok := metadata[k]
+			if k == "scope" {
+				if ok {
+					existingString, isString := existing.(string)
+					if !isString {
+						return fmt.Errorf("scope must be a string")
+					}
+					existing = ConvertStringsToAnySlice(strings.Split(existingString, " "))
+				} else {
+					existing = []any{}
+				}
+				operator = operator.ToSlice(k)
+			}
+			resolved, err := operator.Resolve(existing)
+			if err != nil {
+				return err
+			}
+			if k == "scope" {
+				switch resolvedTyped := resolved.(type) {
+				case []string:
+					resolved = strings.Join(resolvedTyped, " ")
+				case []any:
+					stringSlice := make([]string, len(resolvedTyped))
+					for i, v := range resolvedTyped {
+						stringValue, isString := v.(string)
+						if !isString {
+							return fmt.Errorf("all scope values must be strings")
+						}
+						stringSlice[i] = stringValue
+					}
+					resolved = strings.Join(stringSlice, " ")
+				default:
+					return fmt.Errorf("scope must be a string or array of strings")
+				}
+			}
+			if resolved == nil {
+				delete(metadata, k)
+			} else {
+				metadata[k] = resolved
+			}
+		}
+	}
+	return nil
 }
 
 func CalculateChainExpiration(chain []EntityStatement) int64 {

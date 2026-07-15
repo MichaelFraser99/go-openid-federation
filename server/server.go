@@ -61,7 +61,7 @@ func (s *Server) Configure(h *http.ServeMux) {
 		}
 	}
 	if s.cfg.TrustMarkRetriever != nil {
-		h.HandleFunc("GET /trust-mark-status", func(w http.ResponseWriter, r *http.Request) { s.TrustMarkStatus(w, r)() })
+		h.HandleFunc("POST /trust-mark-status", func(w http.ResponseWriter, r *http.Request) { s.TrustMarkStatus(w, r)() })
 		h.HandleFunc("GET /trust-mark-list", func(w http.ResponseWriter, r *http.Request) { s.TrustMarkList(w, r)() })
 		h.HandleFunc("GET /trust-mark", func(w http.ResponseWriter, r *http.Request) { s.TrustMark(w, r)() })
 	}

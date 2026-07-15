@@ -125,7 +125,8 @@ func TestMetadata_UnmarshalJSON(t *testing.T) {
 					"client_registration_types_supported": ["automatic"],
 					"issuer": "https://example.com",
 					"authorization_endpoint": "https://example.com/auth",
-					"token_endpoint": "https://example.com/token"
+					"token_endpoint": "https://example.com/token",
+					"jwks_uri": "https://example.com/jwks"
 				}
 			}`,
 			expected: Metadata{
@@ -150,6 +151,7 @@ func TestMetadata_UnmarshalJSON(t *testing.T) {
 					"issuer":                                "https://example.com",
 					"authorization_endpoint":                "https://example.com/auth",
 					"token_endpoint":                        "https://example.com/token",
+					"jwks_uri":                              "https://example.com/jwks",
 				},
 			},
 			wantErr: false,
@@ -213,14 +215,14 @@ func TestMetadata_UnmarshalJSON(t *testing.T) {
 			name: "invalid openid relying party metadata - missing required field",
 			json: `{
 				"openid_relying_party": {
-					"redirect_uris": ["https://example.com/callback"]
+					"client_registration_types": ["automatic"]
 				}
 			}`,
 			expected: Metadata{},
 			wantErr:  true,
 		},
 		{
-			name: "invalid openid provider metadata - missing required field",
+			name: "invalid openid provider metadata - missing conditionally required token_endpoint",
 			json: `{
 				"openid_provider": {
 					"response_types_supported": ["code"],
@@ -228,7 +230,8 @@ func TestMetadata_UnmarshalJSON(t *testing.T) {
 					"id_token_signing_alg_values_supported": ["RS256"],
 					"client_registration_types_supported": ["automatic"],
 					"issuer": "https://example.com",
-					"authorization_endpoint": "https://example.com/auth"
+					"authorization_endpoint": "https://example.com/auth",
+					"jwks_uri": "https://example.com/jwks"
 				}
 			}`,
 			expected: Metadata{},

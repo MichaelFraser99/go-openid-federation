@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"slices"
 
 	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
@@ -64,16 +63,8 @@ func (s *Server) Resolve(w http.ResponseWriter, r *http.Request) ResponseFunc {
 		return s.RespondWithError(ctx, w, err)
 	}
 
-	if len(entityTypes) > 0 {
-		if !slices.Contains(entityTypes, "federation_entity") {
-			resolved.Metadata.FederationMetadata = nil
-		}
-		if !slices.Contains(entityTypes, "openid_provider") {
-			resolved.Metadata.OpenIDConnectOpenIDProviderMetadata = nil
-		}
-		if !slices.Contains(entityTypes, "openid_relying_party") {
-			resolved.Metadata.OpenIDRelyingPartyMetadata = nil
-		}
+	if resolved.Metadata != nil {
+		resolved.Metadata.FilterByEntityTypes(entityTypes)
 	}
 
 	resolvedBytes, err := json.Marshal(resolved)

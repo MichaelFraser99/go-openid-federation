@@ -16,7 +16,12 @@ const trustMarkStatusUnavailableError = "unable to list trust mark status at thi
 
 func (s *Server) TrustMarkStatus(w http.ResponseWriter, r *http.Request) ResponseFunc {
 	ctx := r.Context()
-	trustMark := r.URL.Query().Get("trust_mark")
+
+	if err := r.ParseForm(); err != nil {
+		s.cfg.LogInfo(ctx, "error parsing request", slog.String("error", err.Error()))
+		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("failed to parse request parameters"))
+	}
+	trustMark := r.PostForm.Get("trust_mark")
 
 	if trustMark == "" {
 		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("request missing required parameter 'trust_mark'"))

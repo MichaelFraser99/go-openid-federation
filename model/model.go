@@ -286,8 +286,7 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return fmt.Errorf("malformed 'jwks' claim: invalid JSON")
 		}
-		err = json.Unmarshal(bytes, &e.JWKs)
-		if err != nil {
+		if err = json.Unmarshal(bytes, &e.JWKs); err != nil {
 			return fmt.Errorf("invalid 'jwks' claim: %s", err.Error())
 		}
 	}
@@ -298,8 +297,7 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 			return fmt.Errorf("malformed 'metadata' claim: invalid JSON")
 		}
 		var metadata Metadata
-		err = json.Unmarshal(bytes, &metadata)
-		if err != nil {
+		if err = json.Unmarshal(bytes, &metadata); err != nil {
 			return fmt.Errorf("invalid 'metadata' claim: %s", err.Error())
 		}
 		e.Metadata = &metadata
@@ -311,12 +309,24 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 			return fmt.Errorf("malformed 'metadata_policy' claim: invalid JSON")
 		}
 		var metadataPolicy MetadataPolicy
-		err = json.Unmarshal(bytes, &metadataPolicy)
-		if err != nil {
+		if err = json.Unmarshal(bytes, &metadataPolicy); err != nil {
 			return fmt.Errorf("invalid 'metadata_policy' claim: %s", err.Error())
 		}
 		e.MetadataPolicy = &metadataPolicy
 	}
+
+	if entityTrustMarks, ok := jsonMap["trust_marks"]; ok {
+	    bytes, err := json.Marshal(entityTrustMarks)
+	    if err != nil {
+	        return fmt.Errorf("malformed 'trust_marks' claim: invalid JSON")
+	    }
+	    var trustMarks []TrustMarkHolder
+	    if err = json.Unmarshal(bytes, &trustMarks); err != nil {
+	        return fmt.Errorf("invalid 'trust_marks' claim: %s", err.Error())
+	    }
+	    e.TrustMarks = trustMarks
+	}
+	
 	return nil
 }
 

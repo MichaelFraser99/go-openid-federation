@@ -317,6 +317,18 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 		e.TrustMarks = trustMarks
 	}
 
+	if entityTrustMarkIssuers, ok := jsonMap["trust_mark_issuers"]; ok {
+		bytes, err := json.Marshal(entityTrustMarkIssuers)
+		if err != nil {
+			return fmt.Errorf("malformed 'trust_mark_issuers' claim: invalid JSON")
+		}
+		var trustMarkIssuers map[string][]EntityIdentifier
+		if err = json.Unmarshal(bytes, &trustMarkIssuers); err != nil {
+			return fmt.Errorf("invalid 'trust_mark_issuers' claim: %s", err.Error())
+		}
+		e.TrustMarkIssuers = trustMarkIssuers
+	}
+
 	if metadataPolicy, ok := jsonMap["metadata_policy"]; ok {
 		bytes, err := json.Marshal(metadataPolicy)
 		if err != nil {

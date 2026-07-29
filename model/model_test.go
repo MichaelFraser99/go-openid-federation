@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 )
@@ -254,6 +255,89 @@ func TestMetadata_UnmarshalJSON(t *testing.T) {
 				if !reflect.DeepEqual(m, tt.expected) {
 					t.Errorf("Metadata.UnmarshalJSON() = %v, want %v", m, tt.expected)
 				}
+			}
+		})
+	}
+}
+
+func TestEntityStatement_UnmarshalJSON(t *testing.T) {
+	tests := []struct {
+		name    string
+		json    string
+		expected EntityStatement
+		wantErr bool
+	}{
+		{
+			name: "valid entity configuration with trust marks and issuers",
+			json: `{
+				"iss": "https://issuer.example.com",
+				"sub": "https://subject.example.com",
+				"iat": 1710000000,
+				"exp": 4102444800,
+				"authority_hints": ["https://anchor.example.com"],
+				"jwks": {"keys": [{"kid": "test-key", "kty": "RSA"}]},
+				"trust_marks": [{"trust_mark_type": "https://example.com/trust-mark", "trust_mark": "jwt-value"}],
+				"trust_mark_issuers": {
+					"https://example.com/trust-mark": ["https://issuer.example.com"]
+				},
+				"trust_mark_owners": {
+					"https://example.com/trust-mark": {
+						"sub": "https://issuer.example.com",
+						"jwks": {"keys": []}
+					}
+				},
+				"source_endpoint": "https://subject.example.com/source"
+			}`,
+			expected: EntityStatement{
+				Iss:            EntityIdentifier("https://issuer.example.com"),
+				Sub:            EntityIdentifier("https://subject.example.com"),
+				Iat:            1710000000,
+				Exp:            4102444800,
+				AuthorityHints: []EntityIdentifier{EntityIdentifier("https://anchor.example.com")},
+				JWKs:           josemodel.Jwks{Keys: []map[string]any{{"kid": "test-key", "kty": "RSA"}}},
+				TrustMarks: []TrustMarkHolder{{TrustMarkType: "https://example.com/trust-mark", TrustMark: "jwt-value"}},
+				TrustMarkIssuers: map[string][]EntityIdentifier{
+					"https://example.com/trust-mark": {EntityIdentifier("https://issuer.example.com")},
+				},
+				TrustMarkOwners: map[string]any{
+					"https://example.com/trust-mark": map[string]any{
+						"sub": "https://issuer.example.com",
+						"jwks": map[string]any{"keys": []any{}},
+					},
+				},
+				SourceEndpoint: "https://subject.example.com/source",
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid trust mark issuers payload",
+			json: `{
+				"iss": "https://issuer.example.com",
+				"sub": "https://subject.example.com",
+				"iat": 1710000000,
+				"exp": 1710003600,
+				"jwks": {"keys": []},
+				"trust_mark_issuers": {"https://example.com/trust-mark": "not-an-array"}
+			}`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got EntityStatement
+			err := json.Unmarshal([]byte(tt.json), &got)
+
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("EntityStatement.UnmarshalJSON() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if tt.wantErr {
+				return
+			}
+
+			if diff := cmp.Diff(tt.expected, got, cmpopts.IgnoreFields(josemodel.Jwks{}, "Opts")); diff != "" {
+				t.Errorf("EntityStatement.UnmarshalJSON() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

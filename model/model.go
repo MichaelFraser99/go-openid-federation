@@ -286,8 +286,7 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return fmt.Errorf("malformed 'jwks' claim: invalid JSON")
 		}
-		err = json.Unmarshal(bytes, &e.JWKs)
-		if err != nil {
+		if err = json.Unmarshal(bytes, &e.JWKs); err != nil {
 			return fmt.Errorf("invalid 'jwks' claim: %s", err.Error())
 		}
 	}
@@ -298,8 +297,7 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 			return fmt.Errorf("malformed 'metadata' claim: invalid JSON")
 		}
 		var metadata Metadata
-		err = json.Unmarshal(bytes, &metadata)
-		if err != nil {
+		if err = json.Unmarshal(bytes, &metadata); err != nil {
 			return fmt.Errorf("invalid 'metadata' claim: %s", err.Error())
 		}
 		e.Metadata = &metadata
@@ -311,12 +309,72 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 			return fmt.Errorf("malformed 'metadata_policy' claim: invalid JSON")
 		}
 		var metadataPolicy MetadataPolicy
-		err = json.Unmarshal(bytes, &metadataPolicy)
-		if err != nil {
+		if err = json.Unmarshal(bytes, &metadataPolicy); err != nil {
 			return fmt.Errorf("invalid 'metadata_policy' claim: %s", err.Error())
 		}
 		e.MetadataPolicy = &metadataPolicy
 	}
+
+	if entityTrustMarks, ok := jsonMap["trust_marks"]; ok {
+		bytes, err := json.Marshal(entityTrustMarks)
+		if err != nil {
+			return fmt.Errorf("malformed 'trust_marks' claim: invalid JSON")
+		}
+		var trustMarks []TrustMarkHolder
+		if err = json.Unmarshal(bytes, &trustMarks); err != nil {
+			return fmt.Errorf("invalid 'trust_marks' claim: %s", err.Error())
+		}
+		e.TrustMarks = trustMarks
+	}
+
+	if trustMarkIssuers, ok := jsonMap["trust_mark_issuers"]; ok {
+		if parsedTrustMarkIssuers, ok := trustMarkIssuers.(map[string]any); !ok {
+			return fmt.Errorf("'trust_mark_issuers' claim is malformed")
+		} else {
+			parsedIssuers := make(map[string][]EntityIdentifier, len(parsedTrustMarkIssuers))
+			for trustMarkType, issuers := range parsedTrustMarkIssuers {
+				issuerList, ok := issuers.([]any)
+				if !ok {
+					return fmt.Errorf("'trust_mark_issuers' claim is malformed")
+				}
+				parsedEntities := make([]EntityIdentifier, 0, len(issuerList))
+				for _, issuer := range issuerList {
+					issuerString, ok := issuer.(string)
+					if !ok {
+						return fmt.Errorf("'trust_mark_issuers' claim contains malformed entity identifier")
+					}
+					entityIdentifier, err := ValidateEntityIdentifier(issuerString)
+					if err != nil {
+						return fmt.Errorf("'trust_mark_issuers' claim contains invalid entity identifier: %s", err.Error())
+					}
+					parsedEntities = append(parsedEntities, *entityIdentifier)
+				}
+				parsedIssuers[trustMarkType] = parsedEntities
+			}
+			e.TrustMarkIssuers = parsedIssuers
+		}
+	}
+
+	if constraints, ok := jsonMap["constraints"]; ok {
+		e.Constraints = constraints
+	}
+
+	if crit, ok := jsonMap["crit"]; ok {
+		e.Crit = crit
+	}
+
+	if metadataPolicyCrit, ok := jsonMap["metadata_policy_crit"]; ok {
+		e.MetadataPolicyCrit = metadataPolicyCrit
+	}
+
+	if trustMarkOwners, ok := jsonMap["trust_mark_owners"]; ok {
+		e.TrustMarkOwners = trustMarkOwners
+	}
+
+	if sourceEndpoint, ok := jsonMap["source_endpoint"]; ok {
+		e.SourceEndpoint = sourceEndpoint
+	}
+
 	return nil
 }
 

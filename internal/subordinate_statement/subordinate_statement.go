@@ -62,7 +62,7 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 		return nil, nil, fmt.Errorf("failed to read %q's federation fetch response body: %s", issuer.Sub, err.Error())
 	}
 
-	subordinateStatement, err := Validate(issuer, string(responseBytes))
+	subordinateStatement, err := Validate(cfg, issuer, string(responseBytes))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -74,7 +74,7 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 	return josemodel.Pointer(string(responseBytes)), subordinateStatement, nil
 }
 
-func Validate(issuer model.EntityStatement, subordinateStatementJwt string) (*model.EntityStatement, error) {
+func Validate(cfg model.Configuration, issuer model.EntityStatement, subordinateStatementJwt string) (*model.EntityStatement, error) {
 	parts := strings.Split(subordinateStatementJwt, ".")
 	if len(parts) != 3 {
 		return nil, fmt.Errorf("invalid JWT structure")
@@ -148,6 +148,18 @@ func Validate(issuer model.EntityStatement, subordinateStatementJwt string) (*mo
 
 	if subordinateStatement.Iss != issuer.Sub {
 		return nil, fmt.Errorf("'iss' claim does not match issuer 'sub' claim")
+	}
+
+	if subordinateStatement.Metadata != nil {
+		if err = subordinateStatement.Metadata.Verify(cfg.EntityTypes, cfg.DiscardUnrecognisedEntityTypes); err != nil {
+			return nil, model.NewInvalidMetadataError(err.Error())
+		}
+	}
+
+	if subordinateStatement.MetadataPolicy != nil {
+		if err = subordinateStatement.MetadataPolicy.Verify(cfg.EntityTypes, cfg.DiscardUnrecognisedEntityTypes); err != nil {
+			return nil, model.NewInvalidMetadataError(err.Error())
+		}
 	}
 
 	return &subordinateStatement, nil

@@ -69,7 +69,7 @@ func TestRetrieve(t *testing.T) {
 				if result.Metadata.OpenIDConnectOpenIDProviderMetadata == nil {
 					t.Fatal("expected result.Metadata.OpenIDConnectOpenIDProviderMetadata to be non-nil")
 				}
-				parsedSignedResult, err := Validate(t.Context(), result.Sub, *signedResult)
+				parsedSignedResult, err := Validate(t.Context(), model.Configuration{}, result.Sub, *signedResult)
 				if err != nil {
 					t.Fatalf("expected no error parsing signed response, got %q", err.Error())
 				}
@@ -188,7 +188,7 @@ func TestNew(t *testing.T) {
 				if result == nil {
 					t.Fatal("expected result to be non-nil")
 				}
-				_, err = Validate(t.Context(), expectedIdentifier, *result)
+				_, err = Validate(t.Context(), model.Configuration{}, expectedIdentifier, *result)
 				if err != nil {
 					t.Fatalf("expected no error validating entity identifier, got %q", err.Error())
 				}
@@ -332,7 +332,7 @@ func TestNew(t *testing.T) {
 				if result == nil {
 					t.Fatal("expected result to be non-nil")
 				}
-				_, err = Validate(t.Context(), expectedIdentifier, *result)
+				_, err = Validate(t.Context(), model.Configuration{}, expectedIdentifier, *result)
 				if err != nil {
 					t.Fatalf("expected no error validating entity identifier, got %q", err.Error())
 				}

@@ -35,7 +35,7 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 	for i := 0; i < len(route)-1; i++ {
 		signedResponse, subordinateStatement, err := subordinate_statement.Retrieve(ctx, cfg, route[i+1], route[i].Sub)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to retrieve subordinate statement: %s", err.Error())
+			return nil, nil, nil, fmt.Errorf("failed to retrieve subordinate statement: %w", err)
 		}
 		trustChain = append(trustChain, *signedResponse)
 		parsedTrustChain = append(parsedTrustChain, *subordinateStatement)
@@ -121,7 +121,7 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 
 	if *parsedSub == *parsedIss {
 		cfg.LogInfo(ctx, "processing self-signed entity configuration", slog.String("entity", string(*parsedSub)))
-		response, err := entity_configuration.Validate(ctx, *parsedSub, trustChain[len(trustChain)-1])
+		response, err := entity_configuration.Validate(ctx, cfg, *parsedSub, trustChain[len(trustChain)-1])
 		if err != nil {
 			cfg.LogInfo(ctx, "failed to validate self-signed entity configuration", slog.String("entity", string(*parsedSub)), slog.String("error", err.Error()))
 			return nil, fmt.Errorf("error validating entity configuration in final chain entry: %s", err.Error())
@@ -157,7 +157,7 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 		previousStatement := processedChain[len(trustChain)-(i+2)]
 
 		cfg.LogInfo(ctx, "validating chain step", slog.Int("step", i), slog.String("issuer", string(previousStatement.Iss)))
-		nextStep, err := subordinate_statement.Validate(previousStatement, trustChain[i])
+		nextStep, err := subordinate_statement.Validate(cfg, previousStatement, trustChain[i])
 		if err != nil {
 			cfg.LogInfo(ctx, "failed to validate chain step", slog.Int("step", i), slog.String("error", err.Error()))
 			return nil, fmt.Errorf("error validating step in provided trust chain: %s", err.Error())
@@ -166,7 +166,7 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 	}
 
 	cfg.LogInfo(ctx, "validating subject entity configuration", slog.String("subject", string(processedChain[len(processedChain)-1].Sub)))
-	subjectEntityConfiguration, err := entity_configuration.Validate(ctx, processedChain[len(processedChain)-1].Sub, trustChain[0])
+	subjectEntityConfiguration, err := entity_configuration.Validate(ctx, cfg, processedChain[len(processedChain)-1].Sub, trustChain[0])
 	if err != nil {
 		cfg.LogInfo(ctx, "failed to validate subject entity configuration", slog.String("error", err.Error()))
 		return nil, fmt.Errorf("error parsing trust chain subject entity configuration: %s", err.Error())
@@ -234,6 +234,14 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 		cfg.LogInfo(ctx, "failed to apply policy", slog.Any("metadata", processedChain[0]), slog.Any("policy", *finalisedPolicy), slog.String("error", err.Error()))
 		return nil, model.NewInvalidMetadataError("unresolvable metadata policy encountered")
 	}
+
+	if applied.Metadata != nil {
+		if err = applied.Metadata.VerifyResolved(cfg.EntityTypes); err != nil {
+			cfg.LogInfo(ctx, "resolved metadata failed verification", slog.String("subject", string(processedChain[0].Sub)), slog.String("error", err.Error()))
+			return nil, model.NewInvalidMetadataError(err.Error())
+		}
+	}
+
 	result.Metadata = applied.Metadata
 	result.TrustMarks = processedChain[0].TrustMarks
 

@@ -96,7 +96,7 @@ func TestRetrieve(t *testing.T) {
 				if result.MetadataPolicy == nil {
 					t.Fatal("expected result.MetadataPolicy to be non-nil")
 				}
-				parsedSignedResult, err := Validate(issuer, *signedResult)
+				parsedSignedResult, err := Validate(model.Configuration{}, issuer, *signedResult)
 				if err != nil {
 					t.Fatalf("expected no error parsing signed response, got %q", err.Error())
 				}
@@ -223,7 +223,7 @@ func TestNew(t *testing.T) {
 				if result == nil {
 					t.Fatal("expected result to be non-nil")
 				}
-				_, err = Validate(issuer, *result)
+				_, err = Validate(model.Configuration{}, issuer, *result)
 				if err != nil {
 					t.Fatalf("expected no error validating entity identifier, got %q", err.Error())
 				}

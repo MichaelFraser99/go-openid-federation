@@ -87,11 +87,14 @@ func ProcessAndExtractPolicy(trustChain []EntityStatement) (*MetadataPolicy, err
 
 		destination := finalisedPolicy.MetadataPolicy.byEntityType()
 		for entityType, incoming := range metadataPolicy.byEntityType() {
-			merged, err := applyPolicy(*destination[entityType], *incoming)
+			if incoming == nil {
+				continue
+			}
+			merged, err := applyPolicy(destination[entityType], incoming)
 			if err != nil {
 				return nil, err
 			}
-			*destination[entityType] = merged
+			finalisedPolicy.MetadataPolicy.setEntityType(entityType, merged)
 		}
 	}
 	return finalisedPolicy.MetadataPolicy, nil
@@ -197,7 +200,11 @@ func ApplyPolicy(subject EntityStatement, policy MetadataPolicy) (*EntityStateme
 
 	policies := policy.byEntityType()
 	for entityType, metadata := range subject.Metadata.byEntityType() {
-		if err := applyPolicyToMetadata(metadata, *policies[entityType]); err != nil {
+		operators, ok := policies[entityType]
+		if !ok || operators == nil {
+			continue
+		}
+		if err := applyPolicyToMetadata(metadata, operators); err != nil {
 			return nil, err
 		}
 	}

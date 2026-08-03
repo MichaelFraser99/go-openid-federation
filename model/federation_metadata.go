@@ -28,7 +28,7 @@ func (m FederationMetadata) VerifyMetadata() error {
 		}
 	}
 
-	if err := verifyStringArrayClaim(m, "endpoint_auth_signing_alg_values_supported"); err != nil {
+	if err := VerifyStringArrayClaim(m, "endpoint_auth_signing_alg_values_supported"); err != nil {
 		return err
 	}
 	return nil

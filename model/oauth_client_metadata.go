@@ -16,14 +16,14 @@ func (m OAuthClientMetadata) VerifyMetadata() error {
 		"response_types",
 		"contacts",
 	} {
-		if err := verifyStringArrayClaim(m, key); err != nil {
+		if err := VerifyStringArrayClaim(m, key); err != nil {
 			return err
 		}
 	}
-	if err := verifyObjectClaim(m, "jwks"); err != nil {
+	if err := VerifyObjectClaim(m, "jwks"); err != nil {
 		return err
 	}
-	if err := verifyHTTPSURLClaim(m, "jwks_uri", true); err != nil {
+	if err := VerifyHTTPSURLClaim(m, "jwks_uri", true); err != nil {
 		return err
 	}
 	return nil

@@ -52,7 +52,7 @@ func Retrieve(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 		return nil, nil, fmt.Errorf("failed to read %q's entity configuration response body: %s", entityIdentifier, err.Error())
 	}
 
-	entityConfiguration, err := Validate(ctx, entityIdentifier, string(responseBytes))
+	entityConfiguration, err := Validate(ctx, cfg, entityIdentifier, string(responseBytes))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -60,7 +60,7 @@ func Retrieve(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 	return josemodel.Pointer(string(responseBytes)), entityConfiguration, nil
 }
 
-func Validate(ctx context.Context, entityIdentifier model.EntityIdentifier, entityConfigurationJwt string) (*model.EntityStatement, error) {
+func Validate(ctx context.Context, cfg model.Configuration, entityIdentifier model.EntityIdentifier, entityConfigurationJwt string) (*model.EntityStatement, error) {
 	parts := strings.Split(entityConfigurationJwt, ".")
 	if len(parts) != 3 {
 		return nil, fmt.Errorf("invalid JWT structure")
@@ -164,6 +164,12 @@ func Validate(ctx context.Context, entityIdentifier model.EntityIdentifier, enti
 
 	if entityConfiguration.Sub != entityIdentifier {
 		return nil, fmt.Errorf("'sub' claim does not match the original entity identifier")
+	}
+
+	if entityConfiguration.Metadata != nil {
+		if err = entityConfiguration.Metadata.Verify(cfg.EntityTypes, cfg.DiscardUnrecognisedEntityTypes); err != nil {
+			return nil, model.NewInvalidMetadataError(err.Error())
+		}
 	}
 
 	return &entityConfiguration, nil

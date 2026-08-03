@@ -14,7 +14,7 @@ func (m OpenIDRelyingPartyMetadata) VerifyMetadata() error {
 	if len(m) == 0 { //explicitly ignoring constraints on empty JSON ({})
 		return nil
 	}
-	if err := verifyRequiredClaims(m, "redirect_uris"); err != nil {
+	if err := VerifyRequiredClaims(m, "redirect_uris"); err != nil {
 		return err
 	}
 	for _, key := range []string{
@@ -24,7 +24,7 @@ func (m OpenIDRelyingPartyMetadata) VerifyMetadata() error {
 		"response_types",
 		"contacts",
 	} {
-		if err := verifyStringArrayClaim(m, key); err != nil {
+		if err := VerifyStringArrayClaim(m, key); err != nil {
 			return err
 		}
 	}
@@ -33,13 +33,13 @@ func (m OpenIDRelyingPartyMetadata) VerifyMetadata() error {
 	if hasJWKs && hasJWKsURI {
 		return fmt.Errorf("'jwks' and 'jwks_uri' must not be used together")
 	}
-	if err := verifyObjectClaim(m, "jwks"); err != nil {
+	if err := VerifyObjectClaim(m, "jwks"); err != nil {
 		return err
 	}
-	if err := verifyHTTPSURLClaim(m, "jwks_uri", true); err != nil {
+	if err := VerifyHTTPSURLClaim(m, "jwks_uri", true); err != nil {
 		return err
 	}
-	if err := verifyHTTPSURLClaim(m, "signed_jwks_uri", true); err != nil {
+	if err := VerifyHTTPSURLClaim(m, "signed_jwks_uri", true); err != nil {
 		return err
 	}
 	return nil

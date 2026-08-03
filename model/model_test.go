@@ -56,6 +56,21 @@ func TestMetadataPolicy_MarshalJSON(t *testing.T) {
 			err:      nil,
 		},
 		{
+			name: "metadata policy with an unrecognised entity type",
+			policy: MetadataPolicy{
+				FederationMetadata: map[string]PolicyOperators{
+					"organization_name": {Metadata: []MetadataPolicyOperator{Value{operatorValue: "Example"}}},
+				},
+				Extensions: map[string]map[string]PolicyOperators{
+					"openid_verifier_provider": {
+						"organization_name": {Metadata: []MetadataPolicyOperator{Value{operatorValue: "Example Verifier"}}},
+					},
+				},
+			},
+			expected: `{"federation_entity":{"organization_name":{"value":"Example"}},"openid_verifier_provider":{"organization_name":{"value":"Example Verifier"}}}`,
+			err:      nil,
+		},
+		{
 			name: "empty metadata policy holders",
 			policy: MetadataPolicy{
 				FederationMetadata:                  map[string]PolicyOperators{},
@@ -234,6 +249,52 @@ func TestMetadata_UnmarshalJSON(t *testing.T) {
 					"authorization_endpoint": "https://example.com/auth",
 					"jwks_uri": "https://example.com/jwks"
 				}
+			}`,
+			expected: Metadata{},
+			wantErr:  true,
+		},
+		{
+			name: "unrecognised entity type is captured as an extension",
+			json: `{
+				"openid_verifier_provider": {
+					"vp_formats_supported": {"dc+sd-jwt": {}}
+				}
+			}`,
+			expected: Metadata{
+				Extensions: map[string]map[string]any{
+					"openid_verifier_provider": {
+						"vp_formats_supported": map[string]any{"dc+sd-jwt": map[string]any{}},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "unrecognised entity types coexist with built-in entity types",
+			json: `{
+				"federation_entity": {
+					"organization_name": "Example"
+				},
+				"openid_verifier_provider": {
+					"vp_formats_supported": {"dc+sd-jwt": {}}
+				}
+			}`,
+			expected: Metadata{
+				FederationMetadata: &FederationMetadata{
+					"organization_name": "Example",
+				},
+				Extensions: map[string]map[string]any{
+					"openid_verifier_provider": {
+						"vp_formats_supported": map[string]any{"dc+sd-jwt": map[string]any{}},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "malformed unrecognised entity type is rejected",
+			json: `{
+				"openid_verifier_provider": "not-an-object"
 			}`,
 			expected: Metadata{},
 			wantErr:  true,

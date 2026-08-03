@@ -10,7 +10,7 @@ func (m OpenIDCredentialIssuerMetadata) VerifyMetadata() error {
 	if len(m) == 0 { //explicitly ignoring constraints on empty JSON ({})
 		return nil
 	}
-	if err := verifyRequiredClaims(m,
+	if err := VerifyRequiredClaims(m,
 		"credential_issuer",
 		"credential_endpoint",
 		"credential_configurations_supported",
@@ -23,7 +23,7 @@ func (m OpenIDCredentialIssuerMetadata) VerifyMetadata() error {
 	if err := verifyHTTPSURLValue("credential_endpoint", m["credential_endpoint"], true); err != nil {
 		return err
 	}
-	if err := verifyObjectClaim(m, "credential_configurations_supported"); err != nil {
+	if err := VerifyObjectClaim(m, "credential_configurations_supported"); err != nil {
 		return err
 	}
 	for _, key := range []string{
@@ -31,11 +31,11 @@ func (m OpenIDCredentialIssuerMetadata) VerifyMetadata() error {
 		"deferred_credential_endpoint",
 		"notification_endpoint",
 	} {
-		if err := verifyHTTPSURLClaim(m, key, true); err != nil {
+		if err := VerifyHTTPSURLClaim(m, key, true); err != nil {
 			return err
 		}
 	}
-	if err := verifyStringArrayClaim(m, "authorization_servers"); err != nil {
+	if err := VerifyStringArrayClaim(m, "authorization_servers"); err != nil {
 		return err
 	}
 	return nil

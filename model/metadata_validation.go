@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-func verifyRequiredClaims(m map[string]any, keys ...string) error {
+func VerifyRequiredClaims(m map[string]any, keys ...string) error {
 	for _, k := range keys {
 		if _, ok := m[k]; !ok {
 			return fmt.Errorf("missing required '%s' claim", k)
@@ -16,7 +16,7 @@ func verifyRequiredClaims(m map[string]any, keys ...string) error {
 	return nil
 }
 
-func metadataStringSlice(v any) ([]string, bool) {
+func MetadataStringSlice(v any) ([]string, bool) {
 	switch t := v.(type) {
 	case []string:
 		return t, true
@@ -35,23 +35,23 @@ func metadataStringSlice(v any) ([]string, bool) {
 	}
 }
 
-func verifyStringArrayClaim(m map[string]any, key string) error {
+func VerifyStringArrayClaim(m map[string]any, key string) error {
 	v, ok := m[key]
 	if !ok || v == nil {
 		return nil
 	}
-	if _, ok := metadataStringSlice(v); !ok {
+	if _, ok := MetadataStringSlice(v); !ok {
 		return fmt.Errorf("'%s' must be an array of strings", key)
 	}
 	return nil
 }
 
-func verifyNonEmptyStringArrayClaim(m map[string]any, key string) error {
+func VerifyNonEmptyStringArrayClaim(m map[string]any, key string) error {
 	v, ok := m[key]
 	if !ok || v == nil {
 		return nil
 	}
-	slice, ok := metadataStringSlice(v)
+	slice, ok := MetadataStringSlice(v)
 	if !ok {
 		return fmt.Errorf("'%s' must be an array of strings", key)
 	}
@@ -61,7 +61,7 @@ func verifyNonEmptyStringArrayClaim(m map[string]any, key string) error {
 	return nil
 }
 
-func verifyObjectClaim(m map[string]any, key string) error {
+func VerifyObjectClaim(m map[string]any, key string) error {
 	v, ok := m[key]
 	if !ok || v == nil {
 		return nil
@@ -72,7 +72,7 @@ func verifyObjectClaim(m map[string]any, key string) error {
 	return nil
 }
 
-func verifyHTTPSURLClaim(m map[string]any, key string, allowQuery bool) error {
+func VerifyHTTPSURLClaim(m map[string]any, key string, allowQuery bool) error {
 	v, ok := m[key]
 	if !ok || v == nil {
 		return nil
@@ -101,12 +101,12 @@ func verifyHTTPSURLValue(key string, v any, allowQuery bool) error {
 	return nil
 }
 
-func verifyAlgValuesClaim(m map[string]any, key string, allowNone bool) error {
+func VerifyAlgValuesClaim(m map[string]any, key string, allowNone bool) error {
 	v, ok := m[key]
 	if !ok || v == nil {
 		return nil
 	}
-	slice, ok := metadataStringSlice(v)
+	slice, ok := MetadataStringSlice(v)
 	if !ok {
 		return fmt.Errorf("'%s' must be an array of strings", key)
 	}
@@ -130,7 +130,7 @@ func responseTypesRequireTokenEndpoint(m map[string]any) bool {
 	if !ok || v == nil {
 		return true
 	}
-	slice, ok := metadataStringSlice(v)
+	slice, ok := MetadataStringSlice(v)
 	if !ok {
 		return true
 	}

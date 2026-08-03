@@ -34,9 +34,9 @@ func TestVerifyRequiredClaims(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			err := verifyRequiredClaims(tt.metadata, tt.keys...)
+			err := VerifyRequiredClaims(tt.metadata, tt.keys...)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("verifyRequiredClaims() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("VerifyRequiredClaims() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
@@ -82,19 +82,19 @@ func TestMetadataStringSlice(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, ok := metadataStringSlice(tt.value)
+			got, ok := MetadataStringSlice(tt.value)
 			if ok != tt.wantOk {
-				t.Fatalf("metadataStringSlice() ok = %v, want %v", ok, tt.wantOk)
+				t.Fatalf("MetadataStringSlice() ok = %v, want %v", ok, tt.wantOk)
 			}
 			if !ok {
 				return
 			}
 			if len(got) != len(tt.want) {
-				t.Fatalf("metadataStringSlice() = %v, want %v", got, tt.want)
+				t.Fatalf("MetadataStringSlice() = %v, want %v", got, tt.want)
 			}
 			for i := range got {
 				if got[i] != tt.want[i] {
-					t.Errorf("metadataStringSlice()[%d] = %q, want %q", i, got[i], tt.want[i])
+					t.Errorf("MetadataStringSlice()[%d] = %q, want %q", i, got[i], tt.want[i])
 				}
 			}
 		})
@@ -134,9 +134,9 @@ func TestVerifyStringArrayClaim(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			err := verifyStringArrayClaim(tt.metadata, "k")
+			err := VerifyStringArrayClaim(tt.metadata, "k")
 			if (err != nil) != tt.wantErr {
-				t.Errorf("verifyStringArrayClaim() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("VerifyStringArrayClaim() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
@@ -167,9 +167,9 @@ func TestVerifyNonEmptyStringArrayClaim(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			err := verifyNonEmptyStringArrayClaim(tt.metadata, "k")
+			err := VerifyNonEmptyStringArrayClaim(tt.metadata, "k")
 			if (err != nil) != tt.wantErr {
-				t.Errorf("verifyNonEmptyStringArrayClaim() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("VerifyNonEmptyStringArrayClaim() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
@@ -204,9 +204,9 @@ func TestVerifyObjectClaim(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			err := verifyObjectClaim(tt.metadata, "k")
+			err := VerifyObjectClaim(tt.metadata, "k")
 			if (err != nil) != tt.wantErr {
-				t.Errorf("verifyObjectClaim() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("VerifyObjectClaim() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
@@ -295,9 +295,9 @@ func TestVerifyHTTPSURLClaim(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			err := verifyHTTPSURLClaim(tt.metadata, "k", tt.allowQuery)
+			err := VerifyHTTPSURLClaim(tt.metadata, "k", tt.allowQuery)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("verifyHTTPSURLClaim() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("VerifyHTTPSURLClaim() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
@@ -338,9 +338,9 @@ func TestVerifyAlgValuesClaim(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			err := verifyAlgValuesClaim(tt.metadata, "k", tt.allowNone)
+			err := VerifyAlgValuesClaim(tt.metadata, "k", tt.allowNone)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("verifyAlgValuesClaim() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("VerifyAlgValuesClaim() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

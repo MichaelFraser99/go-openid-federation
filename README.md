@@ -296,10 +296,10 @@ func (exampleService) VerifyMetadata(metadata map[string]any) error {
 	if len(metadata) == 0 {
 		return nil
 	}
-	if _, ok := metadata["service_endpoint"]; !ok {
-		return errors.New("missing required 'service_endpoint' claim")
+	if err := model.VerifyRequiredClaims(metadata, "service_endpoint"); err != nil {
+		return err
 	}
-	return nil
+	return model.VerifyHTTPSURLClaim(metadata, "service_endpoint", false)
 }
 
 func (exampleService) VerifyMetadataPolicy(policy map[string]model.PolicyOperators) error {
@@ -341,7 +341,22 @@ Set `DiscardUnrecognisedEntityTypes` to remove them instead. Discarding does not
 
 The nine built-in types are always registered and are never discarded. A registry entry under a built-in identifier replaces that built-in, changing the validation applied to a standard type.
 
-`model.DefaultEntityTypeRegistry` returns the built-in definitions.
+`model.DefaultEntityTypeRegistry` returns the built-in definitions. Embedding one in a custom type delegates to its validation, which is useful when a type is close to a standardised one.
+
+### Claim validators
+
+The validators the built-in types use are exported for custom types to reuse.
+
+| Function | Checks |
+| --- | --- |
+| `VerifyRequiredClaims(m, keys...)` | Every named claim is present |
+| `VerifyObjectClaim(m, key)` | The claim, if present, is a JSON object |
+| `VerifyStringArrayClaim(m, key)` | The claim, if present, is an array of strings |
+| `VerifyNonEmptyStringArrayClaim(m, key)` | The claim, if present, is a non-empty array of strings |
+| `VerifyHTTPSURLClaim(m, key, allowQuery)` | The claim, if present, is an HTTPS URL with no fragment |
+| `VerifyAlgValuesClaim(m, key, allowNone)` | The claim, if present, is an array of algorithm names |
+
+`MetadataStringSlice(v)` returns a `[]string` from either a `[]string` or a `[]any`. JSON unmarshalling produces the latter and Go-constructed metadata the former, so a validator handling only one will reject valid input.
 
 ## Metadata policy
 

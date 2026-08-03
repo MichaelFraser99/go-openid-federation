@@ -14,7 +14,7 @@ func (m OpenIDConnectOpenIDProviderMetadata) VerifyMetadata() error {
 	if len(m) == 0 { //explicitly ignoring constraints on empty JSON ({})
 		return nil
 	}
-	if err := verifyRequiredClaims(m,
+	if err := VerifyRequiredClaims(m,
 		"issuer",
 		"authorization_endpoint",
 		"response_types_supported",
@@ -43,11 +43,11 @@ func (m OpenIDConnectOpenIDProviderMetadata) VerifyMetadata() error {
 		"registration_endpoint",
 		"federation_registration_endpoint",
 	} {
-		if err := verifyHTTPSURLClaim(m, key, true); err != nil {
+		if err := VerifyHTTPSURLClaim(m, key, true); err != nil {
 			return err
 		}
 	}
-	if err := verifyObjectClaim(m, "jwks"); err != nil {
+	if err := VerifyObjectClaim(m, "jwks"); err != nil {
 		return err
 	}
 	for _, key := range []string{
@@ -60,7 +60,7 @@ func (m OpenIDConnectOpenIDProviderMetadata) VerifyMetadata() error {
 		"grant_types_supported",
 		"response_modes_supported",
 	} {
-		if err := verifyStringArrayClaim(m, key); err != nil {
+		if err := VerifyStringArrayClaim(m, key); err != nil {
 			return err
 		}
 	}

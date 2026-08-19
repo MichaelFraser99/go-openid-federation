@@ -136,8 +136,22 @@ type TrustMarkRetriever interface {
 	ListTrustMarks(ctx context.Context, trustMarkIdentifier string, identifier *EntityIdentifier) ([]EntityIdentifier, error)
 }
 
+type ExtendedListingFilter struct {
+	EntityTypes   []string
+	TrustMarked   *bool
+	TrustMarkType []string
+	Intermediate  *bool
+	From          *EntityIdentifier
+	Limit         int
+	Claims        []string
+}
+
+func (f ExtendedListingFilter) IsEmpty() bool {
+	return len(f.EntityTypes) == 0 && f.TrustMarked == nil && len(f.TrustMarkType) == 0 && f.Intermediate == nil
+}
+
 type ExtendedListingRetriever interface {
-	GetExtendedSubordinates(ctx context.Context, from *EntityIdentifier, size int, claims []string) (*ExtendedListingResponse, error)
+	GetExtendedSubordinates(ctx context.Context, filter ExtendedListingFilter) (*ExtendedListingResponse, error)
 }
 
 type SubordinateStatusRetriever interface {
@@ -389,8 +403,6 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 type EntityTypeIdentifier interface {
 	VerifyMetadata() error
 }
-
-//todo: oauth_authorization_server, oauth_client, oauth_resource
 
 type MetadataPolicyOperator interface {
 	String() string

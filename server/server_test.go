@@ -67,7 +67,7 @@ func (t TestRetriever) GetSubordinateSigners(ctx context.Context) ([]model.Signe
 
 type TestExtendedRetriever struct{}
 
-func (r TestExtendedRetriever) GetExtendedSubordinates(ctx context.Context, from *model.EntityIdentifier, size int, claims []string) (*model.ExtendedListingResponse, error) {
+func (r TestExtendedRetriever) GetExtendedSubordinates(ctx context.Context, filter model.ExtendedListingFilter) (*model.ExtendedListingResponse, error) {
 	identifiers := []string{
 		"https://a-some-fourth-federation.com/some-path",
 		"https://b-some-other-federation.com/some-path",
@@ -76,11 +76,11 @@ func (r TestExtendedRetriever) GetExtendedSubordinates(ctx context.Context, from
 		"https://e-some-fifth-federation.com/some-path",
 	}
 
-	if from != nil {
-		if !slices.Contains(identifiers, string(*from)) {
-			return nil, fmt.Errorf("unknown entity identifier: %s", *from)
+	if filter.From != nil {
+		if !slices.Contains(identifiers, string(*filter.From)) {
+			return nil, fmt.Errorf("unknown entity identifier: %s", *filter.From)
 		}
-		identifiers = identifiers[slices.Index(identifiers, string(*from)):]
+		identifiers = identifiers[slices.Index(identifiers, string(*filter.From)):]
 	}
 
 	response := model.ExtendedListingResponse{}
@@ -91,10 +91,10 @@ func (r TestExtendedRetriever) GetExtendedSubordinates(ctx context.Context, from
 		})
 	}
 
-	if len(response.ImmediateSubordinateEntities) > size {
-		nextIdentifier, _ := model.ValidateEntityIdentifier(response.ImmediateSubordinateEntities[size]["id"].(string))
+	if len(response.ImmediateSubordinateEntities) > filter.Limit {
+		nextIdentifier, _ := model.ValidateEntityIdentifier(response.ImmediateSubordinateEntities[filter.Limit]["id"].(string))
 		response.NextEntityID = nextIdentifier
-		response.ImmediateSubordinateEntities = response.ImmediateSubordinateEntities[:size]
+		response.ImmediateSubordinateEntities = response.ImmediateSubordinateEntities[:filter.Limit]
 	}
 
 	return &response, nil

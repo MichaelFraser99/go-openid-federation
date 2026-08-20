@@ -207,9 +207,9 @@ type SignerConfiguration struct {
 	KeyID, Algorithm string
 }
 
-type ExtendedListingResponse struct {
-	ImmediateSubordinateEntities []map[string]any  `json:"immediate_subordinate_entities"`
-	NextEntityID                 *EntityIdentifier `json:"next_entity_id,omitempty"`
+type ExtendedListingResponse struct { //todo: change immediate subordinate entities to be a defined struct
+	ImmediateSubordinateEntities []map[string]any `json:"immediate_subordinate_entities"`
+	Next                         *string          `json:"next,omitempty"`
 }
 
 type SubordinateStatusResponse struct {

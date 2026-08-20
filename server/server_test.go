@@ -93,7 +93,7 @@ func (r TestExtendedRetriever) GetExtendedSubordinates(ctx context.Context, filt
 
 	if len(response.ImmediateSubordinateEntities) > filter.Limit {
 		nextIdentifier, _ := model.ValidateEntityIdentifier(response.ImmediateSubordinateEntities[filter.Limit]["id"].(string))
-		response.NextEntityID = nextIdentifier
+		response.Next = (*string)(nextIdentifier)
 		response.ImmediateSubordinateEntities = response.ImmediateSubordinateEntities[:filter.Limit]
 	}
 
@@ -421,7 +421,7 @@ func TestServer_ExtendedList(t *testing.T) {
 				if response.StatusCode != http.StatusOK {
 					t.Fatalf("expected status code 200, got %d (response: %s)", response.StatusCode, responseBytes)
 				}
-				if string(responseBytes) != `{"immediate_subordinate_entities":[{"id":"https://a-some-fourth-federation.com/some-path"},{"id":"https://b-some-other-federation.com/some-path"}],"next_entity_id":"https://c-some-federation.com/some-path"}` {
+				if string(responseBytes) != `{"immediate_subordinate_entities":[{"id":"https://a-some-fourth-federation.com/some-path"},{"id":"https://b-some-other-federation.com/some-path"}],"next":"https://c-some-federation.com/some-path"}` {
 					t.Errorf("unexpected response', got %q", responseBytes)
 				}
 			},
@@ -465,7 +465,7 @@ func TestServer_ExtendedList(t *testing.T) {
 				if response.StatusCode != http.StatusOK {
 					t.Fatalf("expected status code 200, got %d (response: %s)", response.StatusCode, responseBytes)
 				}
-				if string(responseBytes) != `{"immediate_subordinate_entities":[{"id":"https://c-some-federation.com/some-path"},{"id":"https://d-some-third-federation.com/some-path"}],"next_entity_id":"https://e-some-fifth-federation.com/some-path"}` {
+				if string(responseBytes) != `{"immediate_subordinate_entities":[{"id":"https://c-some-federation.com/some-path"},{"id":"https://d-some-third-federation.com/some-path"}],"next":"https://e-some-fifth-federation.com/some-path"}` {
 					t.Errorf("unexpected response', got %q", responseBytes)
 				}
 			},

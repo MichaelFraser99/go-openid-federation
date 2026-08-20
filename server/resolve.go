@@ -14,9 +14,6 @@ import (
 
 const resolveUnavailableError = "unable to resolve entities at this time"
 
-//todo: consider how we can allow consumers to define their own metadata types
-//todo: resolve tests
-
 func (s *Server) Resolve(w http.ResponseWriter, r *http.Request) ResponseFunc {
 	ctx := r.Context()
 	sub := r.URL.Query().Get("sub")

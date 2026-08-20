@@ -27,69 +27,18 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 		return s.RespondWithError(ctx, w, model.NewServerError("extended subordinate listing size limit not configured"))
 	}
 
-	err := r.ParseForm()
-	if err != nil {
+	if err := r.ParseForm(); err != nil {
 		s.cfg.LogInfo(ctx, "error parsing request", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("failed to parse request form"))
 	}
-	fromEntityID := r.URL.Query().Get("from_entity_id")
-	limit := r.URL.Query().Get("limit")
-	updatedAfter := r.URL.Query().Get("updated_after")   //todo
-	updatedBefore := r.URL.Query().Get("updated_before") //todo
-	claims := r.URL.Query().Get("claims")
-	auditTimestamps := r.URL.Query().Get("audit_timestamps") //todo
 
-	var (
-		parsedLimit           int
-		parsedFromEntityID    *model.EntityIdentifier
-		parsedRequestedClaims []string
-	)
-
-	if fromEntityID != "" {
-		parsedFromEntityID, err = model.ValidateEntityIdentifier(fromEntityID)
-		if err != nil {
-			s.cfg.LogInfo(ctx, "error parsing 'from_entity_id' parameter", slog.String("error", err.Error()))
-			return s.RespondWithError(ctx, w, model.NewInvalidRequestError("malformed 'from_entity_id' parameter"))
-		}
-	}
-	if limit != "" {
-		parsedLimit, err = strconv.Atoi(limit)
-		if err != nil {
-			s.cfg.LogInfo(ctx, "error parsing 'limit' parameter", slog.String("error", err.Error()))
-			return s.RespondWithError(ctx, w, model.NewInvalidRequestError("malformed 'limit' parameter"))
-		}
-	} else {
-		parsedLimit = s.cfg.Extensions.ExtendedListing.SizeLimit
-	}
-	if claims != "" {
-		split := strings.Split(claims, ",")
-		parsedRequestedClaims = make([]string, len(split))
-		for i, claim := range split {
-			parsedRequestedClaims[i] = strings.TrimSpace(claim)
-		}
+	filter, subordinateStatement, err := parseExtendedListingFilter(r.URL.Query(), s.cfg.Extensions.ExtendedListing.SizeLimit)
+	if err != nil {
+		s.cfg.LogInfo(ctx, "received extended list request with malformed filter", slog.String("error", err.Error()))
+		return s.RespondWithError(ctx, w, err)
 	}
 
-	var subordinateStatement bool
-	if subordinateStatement = slices.Contains(parsedRequestedClaims, "subordinate_statement"); subordinateStatement {
-		parsedRequestedClaims = slices.DeleteFunc(parsedRequestedClaims, func(val string) bool {
-			return val == "subordinate_statement"
-		})
-	}
-
-	if updatedAfter != "" {
-		s.cfg.LogInfo(ctx, "parameter 'updated_after' is not supported", slog.String("value", updatedAfter))
-		return s.RespondWithError(ctx, w, model.NewUnsupportedParameterError("parameter 'updated_after' is not supported"))
-	}
-	if updatedBefore != "" {
-		s.cfg.LogInfo(ctx, "parameter 'updated_before' is not supported", slog.String("value", updatedBefore))
-		return s.RespondWithError(ctx, w, model.NewUnsupportedParameterError("parameter 'updated_before' is not supported"))
-	}
-	if auditTimestamps != "" {
-		s.cfg.LogInfo(ctx, "parameter 'audit_timestamps' is not supported", slog.String("value", auditTimestamps))
-		return s.RespondWithError(ctx, w, model.NewUnsupportedParameterError("parameter 'audit_timestamps' is not supported"))
-	}
-
-	subordinates, err := s.cfg.Extensions.ExtendedListing.MetadataRetriever.GetExtendedSubordinates(ctx, parsedFromEntityID, parsedLimit, parsedRequestedClaims)
+	subordinates, err := s.cfg.Extensions.ExtendedListing.MetadataRetriever.GetExtendedSubordinates(ctx, filter)
 	if err != nil {
 		s.cfg.LogError(ctx, "error getting subordinates", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(extendedListingUnavailableError))
@@ -97,11 +46,6 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 
 	if len(subordinates.ImmediateSubordinateEntities) == 0 {
 		return s.RespondWithJSON(w, []byte(`{"immediate_subordinate_entities":[]}`))
-	}
-
-	if parsedFromEntityID != nil && subordinates.ImmediateSubordinateEntities[0]["id"] != fromEntityID {
-		s.cfg.LogError(ctx, "first entity identifier retrieved from configured metadata retriever does not match the requested value", slog.String("received", subordinates.ImmediateSubordinateEntities[0]["id"].(string)), slog.String("requested", fromEntityID))
-		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(extendedListingUnavailableError))
 	}
 
 	if subordinateStatement {
@@ -136,4 +80,63 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(extendedListingUnavailableError))
 	}
 	return s.RespondWithJSON(w, entitiesJSON)
+}
+
+func parseExtendedListingFilter(query map[string][]string, defaultLimit int) (model.ExtendedListingFilter, bool, error) {
+	filter := model.ExtendedListingFilter{
+		EntityTypes:   query["entity_type"],
+		TrustMarkType: query["trust_mark_type"],
+		Limit:         defaultLimit,
+	}
+
+	trustMarked, err := parseOptionalBool(getSingle(query, "trust_marked"))
+	if err != nil {
+		return filter, false, model.NewInvalidRequestError("parameter 'trust_marked' must be a boolean")
+	}
+	filter.TrustMarked = trustMarked
+
+	intermediate, err := parseOptionalBool(getSingle(query, "intermediate"))
+	if err != nil {
+		return filter, false, model.NewInvalidRequestError("parameter 'intermediate' must be a boolean")
+	}
+	filter.Intermediate = intermediate
+
+	if fromEntityID := getSingle(query, "from_entity_id"); fromEntityID != "" {
+		parsedFromEntityID, err := model.ValidateEntityIdentifier(fromEntityID)
+		if err != nil {
+			return filter, false, model.NewInvalidRequestError("malformed 'from_entity_id' parameter")
+		}
+		filter.From = parsedFromEntityID
+	}
+
+	if limit := getSingle(query, "limit"); limit != "" {
+		parsedLimit, err := strconv.Atoi(limit)
+		if err != nil {
+			return filter, false, model.NewInvalidRequestError("malformed 'limit' parameter")
+		}
+		filter.Limit = parsedLimit
+	}
+
+	for _, unsupported := range []string{"updated_after", "updated_before", "audit_timestamps"} {
+		if value := getSingle(query, unsupported); value != "" {
+			return filter, false, model.NewUnsupportedParameterError("parameter '" + unsupported + "' is not supported")
+		}
+	}
+
+	var subordinateStatement bool
+	if claims := getSingle(query, "claims"); claims != "" {
+		split := strings.Split(claims, ",")
+		requestedClaims := make([]string, 0, len(split))
+		for _, claim := range split {
+			requestedClaims = append(requestedClaims, strings.TrimSpace(claim))
+		}
+		if subordinateStatement = slices.Contains(requestedClaims, "subordinate_statement"); subordinateStatement {
+			requestedClaims = slices.DeleteFunc(requestedClaims, func(val string) bool {
+				return val == "subordinate_statement"
+			})
+		}
+		filter.Claims = requestedClaims
+	}
+
+	return filter, subordinateStatement, nil
 }

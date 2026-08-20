@@ -48,11 +48,6 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 		return s.RespondWithJSON(w, []byte(`{"immediate_subordinate_entities":[]}`))
 	}
 
-	if filter.From != nil && subordinates.ImmediateSubordinateEntities[0]["id"] != string(*filter.From) {
-		s.cfg.LogError(ctx, "first entity identifier retrieved from configured metadata retriever does not match the requested value", slog.String("received", subordinates.ImmediateSubordinateEntities[0]["id"].(string)), slog.String("requested", string(*filter.From)))
-		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(extendedListingUnavailableError))
-	}
-
 	if subordinateStatement {
 		for i, subordinateEntity := range subordinates.ImmediateSubordinateEntities {
 			if _, ok := subordinateEntity["id"]; !ok {

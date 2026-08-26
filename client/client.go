@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
 	"github.com/MichaelFraser99/go-openid-federation/internal/trust_chain"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
@@ -33,7 +34,7 @@ func (c *Client) BuildTrustChain(ctx context.Context, targetLeafEntityIdentifier
 		return nil, nil, nil, fmt.Errorf("invalid target trust anchor entity identifier: %s", err.Error())
 	}
 
-	return trust_chain.BuildTrustChain(ctx, c.cfg.Configuration, *parsedLeafEntityIdentifier, *parsedTargetEntityIdentifier)
+	return trust_chain.BuildTrustChain(ctx, c.cfg.Configuration, *parsedLeafEntityIdentifier, *parsedTargetEntityIdentifier, resolvecache.New())
 }
 
 func (c *Client) ResolveMetadata(ctx context.Context, subject string, trustChain []string) (*model.Metadata, error) {
@@ -42,7 +43,7 @@ func (c *Client) ResolveMetadata(ctx context.Context, subject string, trustChain
 		return nil, fmt.Errorf("invalid subject entity identifier: %s", err.Error())
 	}
 
-	resolved, err := trust_chain.ResolveMetadata(ctx, c.cfg.Configuration, *parsedSubject, trustChain)
+	resolved, err := trust_chain.ResolveMetadata(ctx, c.cfg.Configuration, *parsedSubject, trustChain, resolvecache.New())
 	if err != nil {
 		return nil, err
 	}

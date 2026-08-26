@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -41,6 +42,14 @@ func (s *Server) SetHttpClient(client *http.Client) {
 //	Adds an authority hint to a running server
 func (s *Server) AddAuthorityHint(entityIdentifier model.EntityIdentifier) {
 	s.cfg.AuthorityHints = append(s.cfg.AuthorityHints, entityIdentifier)
+}
+
+func (s *Server) resolveEntityIdentifier(ctx context.Context, param model.EntityIdentifierParam, raw string) (*model.EntityIdentifier, error) {
+	resolver := s.cfg.EntityIdentifierResolver
+	if resolver == nil {
+		resolver = model.StandardEntityIdentifierResolver{}
+	}
+	return resolver.ResolveEntityIdentifier(ctx, param, raw)
 }
 
 func (s *Server) Configure(h *http.ServeMux) {
@@ -125,28 +134,40 @@ func (s *Server) RespondWithSubordinateStatementResponse(w http.ResponseWriter, 
 }
 
 func (s *Server) parseError(err error) (statusCode int, message string) {
+	statusCode, errorCode := errorStatusAndCode(err)
+	body, marshalErr := json.Marshal(map[string]string{
+		"error":             errorCode,
+		"error_description": err.Error(),
+	})
+	if marshalErr != nil {
+		return http.StatusInternalServerError, fmt.Sprintf(`{"error":"%s"}`, model.ServerError)
+	}
+	return statusCode, string(body)
+}
+
+func errorStatusAndCode(err error) (int, string) {
 	switch {
 	case errors.Is(err, model.ErrInvalidRequest):
-		return http.StatusBadRequest, fmt.Sprintf(`{"error":"%s","error_description":"%s"}`, model.InvalidRequest, err.Error())
+		return http.StatusBadRequest, model.InvalidRequest
 	case errors.Is(err, model.ErrInvalidClient):
-		return http.StatusUnauthorized, fmt.Sprintf(`{"error":"%s","error_description":"%s"}`, model.InvalidClient, err.Error())
+		return http.StatusUnauthorized, model.InvalidClient
 	case errors.Is(err, model.ErrInvalidIssuer):
-		return http.StatusNotFound, fmt.Sprintf(`{"error":"%s","error_description":"%s"}`, model.InvalidIssuer, err.Error())
+		return http.StatusNotFound, model.InvalidIssuer
 	case errors.Is(err, model.ErrInvalidSubject):
-		return http.StatusNotFound, fmt.Sprintf(`{"error":"%s","error_description":"%s"}`, model.InvalidSubject, err.Error())
+		return http.StatusNotFound, model.InvalidSubject
 	case errors.Is(err, model.ErrInvalidTrustAnchor):
-		return http.StatusNotFound, fmt.Sprintf(`{"error":"%s","error_description":"%s"}`, model.InvalidTrustAnchor, err.Error())
+		return http.StatusNotFound, model.InvalidTrustAnchor
 	case errors.Is(err, model.ErrInvalidTrustChain):
-		return http.StatusBadRequest, fmt.Sprintf(`{"error":"%s","error_description":"%s"}`, model.InvalidTrustChain, err.Error())
+		return http.StatusBadRequest, model.InvalidTrustChain
 	case errors.Is(err, model.ErrInvalidMetadata):
-		return http.StatusBadRequest, fmt.Sprintf(`{"error":"%s","error_description":"%s"}`, model.InvalidMetadata, err.Error())
+		return http.StatusBadRequest, model.InvalidMetadata
 	case errors.Is(err, model.ErrNotFound):
-		return http.StatusNotFound, fmt.Sprintf(`{"error":"%s","error_description":"%s"}`, model.NotFound, err.Error())
+		return http.StatusNotFound, model.NotFound
 	case errors.Is(err, model.ErrTemporarilyUnavailable):
-		return http.StatusServiceUnavailable, fmt.Sprintf(`{"error":"%s","error_description":"%s"}`, model.TemporarilyUnavailable, err.Error())
+		return http.StatusServiceUnavailable, model.TemporarilyUnavailable
 	case errors.Is(err, model.ErrUnsupportedParameter):
-		return http.StatusBadRequest, fmt.Sprintf(`{"error":"%s","error_description":"%s"}`, model.UnsupportedParameter, err.Error())
+		return http.StatusBadRequest, model.UnsupportedParameter
 	default:
-		return http.StatusInternalServerError, fmt.Sprintf(`{"error":"%s","error_description":"%s"}`, model.ServerError, err.Error())
+		return http.StatusInternalServerError, model.ServerError
 	}
 }

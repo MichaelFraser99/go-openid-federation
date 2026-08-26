@@ -17,10 +17,25 @@ import (
 	"github.com/MichaelFraser99/go-jose/jws"
 	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
+	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
-func Retrieve(ctx context.Context, cfg model.Configuration, entityIdentifier model.EntityIdentifier) (*string, *model.EntityStatement, error) {
+func Retrieve(ctx context.Context, cfg model.Configuration, entityIdentifier model.EntityIdentifier, cache *resolvecache.Cache) (*string, *model.EntityStatement, error) {
+	if signed, statement, ok := cache.Load(entityIdentifier); ok {
+		cfg.LogInfo(ctx, "serving entity configuration from resolve cache", slog.String("subject", string(entityIdentifier)))
+		return signed, statement, nil
+	}
+
+	signed, statement, err := fetch(ctx, cfg, entityIdentifier)
+	if err != nil {
+		return nil, nil, err
+	}
+	cache.Store(entityIdentifier, signed, statement)
+	return signed, statement, nil
+}
+
+func fetch(ctx context.Context, cfg model.Configuration, entityIdentifier model.EntityIdentifier) (*string, *model.EntityStatement, error) {
 	if cfg.HttpClient == nil {
 		return nil, nil, fmt.Errorf("no http client present")
 	}

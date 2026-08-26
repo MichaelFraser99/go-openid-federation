@@ -9,17 +9,18 @@ import (
 
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_configuration"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
+	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
 	"github.com/MichaelFraser99/go-openid-federation/internal/subordinate_statement"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
-func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEntityIdentifier, targetTrustAnchorEntityIdentifier model.EntityIdentifier) (trustChain []string, parsedTrustChain []model.EntityStatement, expiry *int64, err error) {
+func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEntityIdentifier, targetTrustAnchorEntityIdentifier model.EntityIdentifier, cache *resolvecache.Cache) (trustChain []string, parsedTrustChain []model.EntityStatement, expiry *int64, err error) {
 	cfg.LogInfo(ctx, "building chain between entities", slog.String("leaf", string(targetLeafEntityIdentifier)), slog.String("trust_anchor", string(targetTrustAnchorEntityIdentifier)))
 	if targetLeafEntityIdentifier == targetTrustAnchorEntityIdentifier {
 		return nil, nil, nil, fmt.Errorf("target leaf entity identifier must not match target trust anchor entity identifier")
 	}
 
-	signedRoute, route, err := ChainUpOne(ctx, cfg, targetLeafEntityIdentifier, targetTrustAnchorEntityIdentifier, []model.EntityIdentifier{}, []model.EntityStatement{}, []string{})
+	signedRoute, route, _, err := ChainUpOne(ctx, cfg, targetLeafEntityIdentifier, targetTrustAnchorEntityIdentifier, []model.EntityIdentifier{}, []model.EntityStatement{}, []string{}, cache, map[model.EntityIdentifier]struct{}{})
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -44,13 +45,24 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 	return append(trustChain, signedRoute[len(signedRoute)-1]), append(parsedTrustChain, route[len(route)-1]), &exp, nil
 }
 
-func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target model.EntityIdentifier, checked []model.EntityIdentifier, path []model.EntityStatement, signedPath []string) ([]string, []model.EntityStatement, error) {
+func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target model.EntityIdentifier, checked []model.EntityIdentifier, path []model.EntityStatement, signedPath []string, cache *resolvecache.Cache, deadEnds map[model.EntityIdentifier]struct{}) ([]string, []model.EntityStatement, bool, error) {
 	cfg.LogInfo(ctx, "walking trust chain", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Any("checked", checked), slog.Any("path", path), slog.Any("signed_path", signedPath))
 
-	signedSubjectEntityStatement, subjectEntityStatement, err := entity_configuration.Retrieve(ctx, cfg, subject)
+	if cfg.MaxTrustChainDepth > 0 && len(path) >= cfg.MaxTrustChainDepth {
+		cfg.LogInfo(ctx, "reached configured maximum trust chain depth", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Int("max_depth", cfg.MaxTrustChainDepth))
+		return signedPath, path, true, model.NewInvalidTrustAnchorError("unable to build trust chain from specified 'sub' to specified 'trust_anchor'")
+	}
+
+	if _, dead := deadEnds[subject]; dead {
+		cfg.LogInfo(ctx, "skipping entity already proven not to reach the trust anchor", slog.String("subject", string(subject)), slog.String("target", string(target)))
+		return signedPath, path, false, model.NewInvalidTrustAnchorError("unable to build trust chain from specified 'sub' to specified 'trust_anchor'")
+	}
+
+	signedSubjectEntityStatement, subjectEntityStatement, err := entity_configuration.Retrieve(ctx, cfg, subject, cache)
 	if err != nil {
 		cfg.LogInfo(ctx, "failed to retrieve leaf entity configuration", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.String("error", err.Error()))
-		return signedPath, path, model.NewNotFoundError(fmt.Sprintf("failed to retrieve leaf entity configuration: %s", subject))
+		deadEnds[subject] = struct{}{}
+		return signedPath, path, false, model.NewNotFoundError(fmt.Sprintf("failed to retrieve leaf entity configuration: %s", subject))
 	}
 
 	path = append(path, *subjectEntityStatement)
@@ -59,39 +71,42 @@ func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 
 	if subjectEntityStatement.Iss == target {
 		cfg.LogInfo(ctx, "found target entity in trust chain", slog.String("subject", string(subject)), slog.String("target", string(target)))
-		return signedPath, path, nil
+		return signedPath, path, false, nil
 	}
 
 	cfg.LogInfo(ctx, "evaluating chain options", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Any("checked", checked), slog.Any("path", path))
+	tainted := false
 	var toCheck []model.EntityIdentifier
 	for _, trustIssuer := range subjectEntityStatement.AuthorityHints {
 		if trustIssuer == target {
 			cfg.LogInfo(ctx, "found target entity in authority hints", slog.String("subject", string(subject)), slog.String("target", string(target)))
 			toCheck = []model.EntityIdentifier{trustIssuer}
 			break
-		} else if !slices.Contains(checked, trustIssuer) {
+		} else if slices.Contains(checked, trustIssuer) {
+			tainted = true
+		} else if _, dead := deadEnds[trustIssuer]; !dead {
 			toCheck = append(toCheck, trustIssuer)
 		}
 	}
 	cfg.LogInfo(ctx, "checking authority hints", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Any("authority_hints_checked", checked), slog.Any("authority_hints_to_check", toCheck))
 
-	if len(toCheck) == 0 {
-		cfg.LogInfo(ctx, "dead end in path traversal - no paths to check", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Any("checked", checked), slog.Any("path", path), slog.Any("signed_path", signedPath))
-		return signedPath[:len(signedPath)-1], path[:len(path)-1], model.NewInvalidTrustAnchorError("unable to build trust chain from specified 'sub' to specified 'trust_anchor'")
-	}
-
 	for _, trustIssuer := range toCheck {
 		cfg.LogInfo(ctx, "checking authority hint", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.String("authority_hint", string(trustIssuer)))
-		signedPath, path, err = ChainUpOne(ctx, cfg, trustIssuer, target, checked, path, signedPath)
+		var childTainted bool
+		signedPath, path, childTainted, err = ChainUpOne(ctx, cfg, trustIssuer, target, checked, path, signedPath, cache, deadEnds)
 		if err == nil {
-			return signedPath, path, nil
+			return signedPath, path, false, nil
 		}
+		tainted = tainted || childTainted
 	}
-	cfg.LogInfo(ctx, "dead end in path traversal - all options checked", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Any("checked", checked), slog.Any("path", path), slog.Any("signed_path", signedPath))
-	return signedPath[:len(signedPath)-1], path[:len(path)-1], model.NewInvalidTrustAnchorError("unable to build trust chain from specified 'sub' to specified 'trust_anchor'")
+	cfg.LogInfo(ctx, "dead end in path traversal", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Any("checked", checked), slog.Any("path", path), slog.Any("signed_path", signedPath))
+	if !tainted {
+		deadEnds[subject] = struct{}{}
+	}
+	return signedPath[:len(signedPath)-1], path[:len(path)-1], tainted, model.NewInvalidTrustAnchorError("unable to build trust chain from specified 'sub' to specified 'trust_anchor'")
 }
 
-func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityIdentifier model.EntityIdentifier, trustChain []string) (*model.ResolveResponse, error) {
+func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityIdentifier model.EntityIdentifier, trustChain []string, cache *resolvecache.Cache) (*model.ResolveResponse, error) {
 	cfg.LogInfo(ctx, "resolving metadata from trust chain", slog.String("issuer", string(issuerEntityIdentifier)), slog.Int("chain_length", len(trustChain)))
 
 	if len(trustChain) == 0 {
@@ -129,7 +144,7 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 		processedChain = append(processedChain, *response)
 	} else {
 		cfg.LogInfo(ctx, "retrieving subject entity configuration", slog.String("subject", string(*parsedSub)))
-		signedEntityConfiguration, entityConfiguration, err := entity_configuration.Retrieve(ctx, cfg, *parsedSub)
+		signedEntityConfiguration, entityConfiguration, err := entity_configuration.Retrieve(ctx, cfg, *parsedSub, cache)
 		if err != nil {
 			cfg.LogInfo(ctx, "failed to retrieve subject entity configuration", slog.String("subject", string(*parsedSub)), slog.String("error", err.Error()))
 			return nil, err

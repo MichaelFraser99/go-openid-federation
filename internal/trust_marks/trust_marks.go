@@ -14,6 +14,7 @@ import (
 	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_configuration"
+	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -60,14 +61,14 @@ func Issue(ctx context.Context, cfg model.ServerConfiguration, trustMarkIdentifi
 	return trustMark, nil
 }
 
-func FilterByTrusted(ctx context.Context, cfg model.Configuration, resolved *model.ResolveResponse, trustAnchorConfiguration model.EntityStatement) error {
+func FilterByTrusted(ctx context.Context, cfg model.Configuration, resolved *model.ResolveResponse, trustAnchorConfiguration model.EntityStatement, cache *resolvecache.Cache) error {
 	cfg.LogInfo(ctx, "filtering trust marks by those trusted by the trust anchor")
 
 	var trustedTrustMarks []model.TrustMarkHolder
 	for _, tm := range resolved.TrustMarks {
 		for trustedTmType, trustedTmIssuers := range trustAnchorConfiguration.TrustMarkIssuers {
 			if tm.TrustMarkType == trustedTmType {
-				validated, err := Validate(ctx, cfg, tm.TrustMark, trustedTmIssuers)
+				validated, err := Validate(ctx, cfg, tm.TrustMark, trustedTmIssuers, cache)
 				if err != nil {
 					cfg.LogInfo(ctx, "failed to validate trust mark", slog.String("trust_mark_type", tm.TrustMarkType), slog.String("trust_mark", tm.TrustMark), slog.String("error", err.Error()))
 					continue
@@ -89,7 +90,7 @@ func FilterByTrusted(ctx context.Context, cfg model.Configuration, resolved *mod
 }
 
 // todo: this will need updating to support delegation
-func Validate(ctx context.Context, cfg model.Configuration, trustMark string, authorizedIssuers []model.EntityIdentifier) (*model.TrustMark, error) {
+func Validate(ctx context.Context, cfg model.Configuration, trustMark string, authorizedIssuers []model.EntityIdentifier, cache *resolvecache.Cache) (*model.TrustMark, error) {
 	cfg.LogInfo(ctx, "validating trust mark", slog.String("trust_mark", trustMark))
 
 	parts := strings.Split(trustMark, ".")
@@ -126,7 +127,7 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, au
 		return nil, fmt.Errorf("trust mark issuer is not authorized within the current federation")
 	}
 
-	_, issuerConfiguration, err := entity_configuration.Retrieve(ctx, cfg, *parsedIssuer)
+	_, issuerConfiguration, err := entity_configuration.Retrieve(ctx, cfg, *parsedIssuer, cache)
 	if err != nil {
 		cfg.LogError(ctx, "failed to retrieve issuer entity configuration", slog.String("error", err.Error()), slog.String("issuer", string(*parsedIssuer)))
 		return nil, fmt.Errorf("failed to retrieve issuer entity configuration: %v", err)

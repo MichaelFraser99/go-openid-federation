@@ -7,6 +7,7 @@ import (
 
 	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
+	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
 	"github.com/MichaelFraser99/go-openid-federation/internal/trust_chain"
 	"github.com/MichaelFraser99/go-openid-federation/internal/trust_marks"
 	"github.com/MichaelFraser99/go-openid-federation/model"
@@ -31,31 +32,33 @@ func (s *Server) Resolve(w http.ResponseWriter, r *http.Request) ResponseFunc {
 		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("missing required parameter 'trust_anchor'"))
 	}
 
-	parsedSub, err := model.ValidateEntityIdentifier(sub)
+	parsedSub, err := s.resolveEntityIdentifier(ctx, model.EntityIdentifierParamSub, sub)
 	if err != nil {
 		s.cfg.LogInfo(ctx, "invalid 'sub' parameter", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("malformed 'sub' parameter"))
+		return s.RespondWithError(ctx, w, err)
 	}
 
-	parsedTrustAnchor, err := model.ValidateEntityIdentifier(trustAnchor)
+	parsedTrustAnchor, err := s.resolveEntityIdentifier(ctx, model.EntityIdentifierParamTrustAnchor, trustAnchor)
 	if err != nil {
 		s.cfg.LogInfo(ctx, "invalid 'trust_anchor' parameter", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("malformed 'trust_anchor' parameter"))
+		return s.RespondWithError(ctx, w, err)
 	}
 
-	trustChain, parsedTrustChain, _, err := trust_chain.BuildTrustChain(ctx, s.cfg.Configuration, *parsedSub, *parsedTrustAnchor)
+	cache := resolvecache.New()
+
+	trustChain, parsedTrustChain, _, err := trust_chain.BuildTrustChain(ctx, s.cfg.Configuration, *parsedSub, *parsedTrustAnchor, cache)
 	if err != nil {
 		s.cfg.LogInfo(ctx, "error building trust chain", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, err)
 	}
 
-	resolved, err := trust_chain.ResolveMetadata(ctx, s.cfg.Configuration, s.cfg.EntityIdentifier, trustChain)
+	resolved, err := trust_chain.ResolveMetadata(ctx, s.cfg.Configuration, s.cfg.EntityIdentifier, trustChain, cache)
 	if err != nil {
 		s.cfg.LogInfo(ctx, "error resolving trust chain", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, err)
 	}
 
-	if err = trust_marks.FilterByTrusted(ctx, s.cfg.Configuration, resolved, parsedTrustChain[len(parsedTrustChain)-1]); err != nil {
+	if err = trust_marks.FilterByTrusted(ctx, s.cfg.Configuration, resolved, parsedTrustChain[len(parsedTrustChain)-1], cache); err != nil {
 		s.cfg.LogInfo(ctx, "error filtering trust marks", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, err)
 	}

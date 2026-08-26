@@ -170,7 +170,7 @@ func TestBuildTrustChain(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			cfg := tt.config
 
-			trustChain, parsedChain, expiry, err := BuildTrustChain(t.Context(), cfg, tt.leafID, tt.trustAnchor)
+			trustChain, parsedChain, expiry, err := BuildTrustChain(t.Context(), cfg, tt.leafID, tt.trustAnchor, nil)
 			tt.validate(t, trustChain, parsedChain, expiry, err)
 		})
 	}
@@ -206,7 +206,7 @@ func TestChainUpOne(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			cfg := model.Configuration{}
-			signed, path, err := ChainUpOne(t.Context(), cfg, tt.subject, tt.target, tt.checked, tt.path, tt.signed)
+			signed, path, _, err := ChainUpOne(t.Context(), cfg, tt.subject, tt.target, tt.checked, tt.path, tt.signed, nil, map[model.EntityIdentifier]struct{}{})
 			tt.validate(t, signed, path, err)
 		})
 	}
@@ -337,7 +337,7 @@ func TestResolveMetadata(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			cfg := model.Configuration{}
-			result, err := ResolveMetadata(t.Context(), cfg, tt.issuerID, tt.trustChain)
+			result, err := ResolveMetadata(t.Context(), cfg, tt.issuerID, tt.trustChain, nil)
 			tt.validate(t, result, err)
 		})
 	}

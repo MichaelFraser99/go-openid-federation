@@ -17,10 +17,10 @@ func (s *Server) TrustMark(w http.ResponseWriter, r *http.Request) ResponseFunc 
 		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("request missing required parameter 'sub'"))
 	}
 
-	parsedSub, err := model.ValidateEntityIdentifier(sub)
+	parsedSub, err := s.resolveEntityIdentifier(ctx, model.EntityIdentifierParamSub, sub)
 	if err != nil {
 		s.cfg.LogInfo(ctx, "invalid 'sub' parameter", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("malformed 'sub' parameter"))
+		return s.RespondWithError(ctx, w, err)
 	}
 
 	if trustMarkType == "" {

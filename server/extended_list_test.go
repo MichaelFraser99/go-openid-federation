@@ -20,6 +20,9 @@ type testExtendedListingRetriever struct {
 
 func (r *testExtendedListingRetriever) GetExtendedSubordinates(_ context.Context, filter model.ExtendedListingFilter) (*model.ExtendedListingResponse, error) {
 	r.received = &filter
+	if r.result == nil {
+		r.result = &model.ExtendedListingResponse{}
+	}
 	return r.result, r.err
 }
 
@@ -58,7 +61,7 @@ func TestServer_ExtendedList_DelegatesFilterToRetriever(t *testing.T) {
 		"trust_marked":    {"true"},
 		"trust_mark_type": {"https://tm.example.com/verified", "https://tm.example.com/certified"},
 		"intermediate":    {"false"},
-		"from_entity_id":  {"https://rp.example.com"},
+		"from":            {"https://rp.example.com"},
 		"limit":           {"5"},
 		"claims":          {"foo,bar"},
 	}
@@ -144,17 +147,5 @@ func TestServer_ExtendedList_MalformedBoolean(t *testing.T) {
 				t.Error("expected malformed request to be rejected before reaching the retriever")
 			}
 		})
-	}
-}
-
-func TestServer_ExtendedList_MalformedFromEntityID(t *testing.T) {
-	retriever := &testExtendedListingRetriever{}
-	s := startExtendedListServer(t, retriever)
-
-	resp, err := s.Client().Get(s.URL + "/extended-list?from_entity_id=not-a-valid-identifier")
-	validateErrorResponse(t, resp, err, http.StatusBadRequest, "invalid_request", "malformed 'from_entity_id' parameter")
-
-	if retriever.received != nil {
-		t.Error("expected malformed request to be rejected before reaching the retriever")
 	}
 }

@@ -60,11 +60,7 @@ type ServerConfiguration struct {
 	MetadataRetriever           Retriever
 	TrustMarkIssuerRetriever    TrustMarkIssuerRetriever
 	TrustMarkRetriever          TrustMarkRetriever
-
-	// EntityIdentifierResolver optionally maps incoming request values (the 'sub' and
-	// 'trust_anchor' parameters) onto canonical Entity Identifiers before the endpoints act on
-	// them. When nil, StandardEntityIdentifierResolver is used, preserving standard behaviour.
-	EntityIdentifierResolver EntityIdentifierResolver
+	EntityIdentifierResolver    EntityIdentifierResolver
 }
 
 type ClientConfiguration struct {

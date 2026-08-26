@@ -15,11 +15,12 @@ import (
 )
 
 type topo struct {
-	server *httptest.Server
-	keys   map[string]*rsa.PrivateKey
-	id     map[string]model.EntityIdentifier
-	mu     sync.Mutex
-	hits   map[string]int
+	server     *httptest.Server
+	keys       map[string]*rsa.PrivateKey
+	id         map[string]model.EntityIdentifier
+	mu         sync.Mutex
+	hits       map[string]int
+	errorNodes map[string]bool
 }
 
 func newTopo(t *testing.T, hints map[string][]string) *topo {
@@ -51,6 +52,11 @@ func newTopo(t *testing.T, hints map[string][]string) *topo {
 			tp.mu.Lock()
 			tp.hits[node]++
 			tp.mu.Unlock()
+
+			if tp.errorNodes[node] {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
 
 			authorityHints := make([]model.EntityIdentifier, 0, len(hints[node]))
 			for _, hint := range hints[node] {
@@ -182,6 +188,27 @@ func TestBuildTrustChain_BoundsWalk(t *testing.T) {
 				t.Errorf("total entity-configuration fetches = %d, want %d", got, tt.wantTotalHits)
 			}
 		})
+	}
+}
+
+func TestBuildTrustChain_BoundsFailingNodeFetches(t *testing.T) {
+	hints := map[string][]string{
+		"leaf":   {"a", "b"},
+		"a":      {"broken"},
+		"b":      {"broken"},
+		"broken": {},
+	}
+
+	tp := newTopo(t, hints)
+	tp.errorNodes = map[string]bool{"broken": true}
+	cfg := model.Configuration{HttpClient: tp.server.Client()}
+
+	_, _, _, err := BuildTrustChain(t.Context(), cfg, tp.id["leaf"], unreachableTrustAnchor, nil)
+	if err == nil {
+		t.Fatal("expected error for unreachable trust anchor")
+	}
+	if got := tp.hits["broken"]; got != 1 {
+		t.Errorf("failing shared node fetched %d times, want 1 (fetch failure not memoised as a dead end)", got)
 	}
 }
 

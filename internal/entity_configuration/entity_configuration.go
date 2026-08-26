@@ -22,14 +22,17 @@ import (
 )
 
 func Retrieve(ctx context.Context, cfg model.Configuration, entityIdentifier model.EntityIdentifier, cache *resolvecache.Cache) (*string, *model.EntityStatement, error) {
-	if signed, statement, err, ok := cache.Load(entityIdentifier); ok {
+	if signed, statement, ok := cache.Load(entityIdentifier); ok {
 		cfg.LogInfo(ctx, "serving entity configuration from resolve cache", slog.String("subject", string(entityIdentifier)))
-		return signed, statement, err
+		return signed, statement, nil
 	}
 
 	signed, statement, err := fetch(ctx, cfg, entityIdentifier)
-	cache.Store(entityIdentifier, signed, statement, err)
-	return signed, statement, err
+	if err != nil {
+		return nil, nil, err
+	}
+	cache.Store(entityIdentifier, signed, statement)
+	return signed, statement, nil
 }
 
 func fetch(ctx context.Context, cfg model.Configuration, entityIdentifier model.EntityIdentifier) (*string, *model.EntityStatement, error) {

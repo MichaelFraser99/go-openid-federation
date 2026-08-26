@@ -61,6 +61,7 @@ func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 	signedSubjectEntityStatement, subjectEntityStatement, err := entity_configuration.Retrieve(ctx, cfg, subject, cache)
 	if err != nil {
 		cfg.LogInfo(ctx, "failed to retrieve leaf entity configuration", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.String("error", err.Error()))
+		deadEnds[subject] = struct{}{}
 		return signedPath, path, false, model.NewNotFoundError(fmt.Sprintf("failed to retrieve leaf entity configuration: %s", subject))
 	}
 
@@ -89,14 +90,6 @@ func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 	}
 	cfg.LogInfo(ctx, "checking authority hints", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Any("authority_hints_checked", checked), slog.Any("authority_hints_to_check", toCheck))
 
-	if len(toCheck) == 0 {
-		cfg.LogInfo(ctx, "dead end in path traversal - no paths to check", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Any("checked", checked), slog.Any("path", path), slog.Any("signed_path", signedPath))
-		if !tainted {
-			deadEnds[subject] = struct{}{}
-		}
-		return signedPath[:len(signedPath)-1], path[:len(path)-1], tainted, model.NewInvalidTrustAnchorError("unable to build trust chain from specified 'sub' to specified 'trust_anchor'")
-	}
-
 	for _, trustIssuer := range toCheck {
 		cfg.LogInfo(ctx, "checking authority hint", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.String("authority_hint", string(trustIssuer)))
 		var childTainted bool
@@ -106,7 +99,7 @@ func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 		}
 		tainted = tainted || childTainted
 	}
-	cfg.LogInfo(ctx, "dead end in path traversal - all options checked", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Any("checked", checked), slog.Any("path", path), slog.Any("signed_path", signedPath))
+	cfg.LogInfo(ctx, "dead end in path traversal", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Any("checked", checked), slog.Any("path", path), slog.Any("signed_path", signedPath))
 	if !tainted {
 		deadEnds[subject] = struct{}{}
 	}

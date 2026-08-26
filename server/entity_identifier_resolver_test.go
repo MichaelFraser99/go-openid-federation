@@ -18,8 +18,6 @@ import (
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
-// mappingResolver maps chosen raw values onto real identifiers, delegating to the
-// standard resolver for final validation, and records which parameters it saw.
 type mappingResolver struct {
 	mappings map[string]string
 	errOn    string

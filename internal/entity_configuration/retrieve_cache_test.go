@@ -20,6 +20,40 @@ func (c *countingRoundTripper) RoundTrip(r *http.Request) (*http.Response, error
 	return c.next.RoundTrip(r)
 }
 
+type failOnceRoundTripper struct {
+	next   http.RoundTripper
+	failed bool
+}
+
+func (f *failOnceRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
+	if !f.failed {
+		f.failed = true
+		return nil, fmt.Errorf("transient network error")
+	}
+	return f.next.RoundTrip(r)
+}
+
+func TestRetrieve_DoesNotCacheErrors(t *testing.T) {
+	testServer := server_test.TestServer(t)
+	identifier := model.EntityIdentifier(fmt.Sprintf("%s/leaf", testServer.URL))
+
+	transport := &failOnceRoundTripper{next: testServer.Client().Transport}
+	cfg := model.Configuration{HttpClient: &http.Client{Transport: transport}}
+	cache := resolvecache.New()
+
+	if _, _, err := Retrieve(t.Context(), cfg, identifier, cache); err == nil {
+		t.Fatal("expected the first retrieval to fail transiently")
+	}
+
+	signed, statement, err := Retrieve(t.Context(), cfg, identifier, cache)
+	if err != nil {
+		t.Fatalf("expected the retry to succeed (a transient error must not be cached), got %q", err.Error())
+	}
+	if signed == nil || statement == nil {
+		t.Fatal("expected a successful statement on retry")
+	}
+}
+
 func TestRetrieve_CachesByIdentifier(t *testing.T) {
 	testServer := server_test.TestServer(t)
 	identifier := model.EntityIdentifier(fmt.Sprintf("%s/leaf", testServer.URL))

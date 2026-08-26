@@ -430,7 +430,7 @@ func TestValidate(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			trustMark, authorizedIssuers, cfg := tt.setupTest()
-			result, err := Validate(context.Background(), cfg, trustMark, authorizedIssuers)
+			result, err := Validate(context.Background(), cfg, trustMark, authorizedIssuers, nil)
 			tt.validate(t, result, err)
 		})
 	}
@@ -722,7 +722,7 @@ func TestFilterByTrusted(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			resolved, trustAnchorConfig, cfg := tt.setupTest()
-			err := FilterByTrusted(context.Background(), cfg, resolved, trustAnchorConfig)
+			err := FilterByTrusted(context.Background(), cfg, resolved, trustAnchorConfig, nil)
 			tt.validate(t, resolved, err)
 		})
 	}

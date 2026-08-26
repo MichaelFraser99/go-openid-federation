@@ -44,6 +44,11 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(extendedListingUnavailableError))
 	}
 
+	if subordinates == nil {
+		s.cfg.LogError(ctx, "extended listing retriever returned a nil response with no error, this is a result of mis-configuration")
+		return s.RespondWithError(ctx, w, model.NewServerError(extendedListingUnavailableError))
+	}
+
 	if len(subordinates.ImmediateSubordinateEntities) == 0 {
 		return s.RespondWithJSON(w, []byte(`{"immediate_subordinate_entities":[]}`))
 	}
@@ -101,12 +106,8 @@ func parseExtendedListingFilter(query map[string][]string, defaultLimit int) (mo
 	}
 	filter.Intermediate = intermediate
 
-	if fromEntityID := getSingle(query, "from_entity_id"); fromEntityID != "" {
-		parsedFromEntityID, err := model.ValidateEntityIdentifier(fromEntityID)
-		if err != nil {
-			return filter, false, model.NewInvalidRequestError("malformed 'from_entity_id' parameter")
-		}
-		filter.From = parsedFromEntityID
+	if from := getSingle(query, "from"); from != "" {
+		filter.From = new(from)
 	}
 
 	if limit := getSingle(query, "limit"); limit != "" {

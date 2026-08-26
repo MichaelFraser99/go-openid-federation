@@ -37,10 +37,10 @@ func (s *Server) SubordinateStatus(w http.ResponseWriter, r *http.Request) Respo
 	var parsedSubject *model.EntityIdentifier
 
 	if sub != "" {
-		parsedSubject, err = model.ValidateEntityIdentifier(sub)
+		parsedSubject, err = s.resolveEntityIdentifier(ctx, model.EntityIdentifierParamSub, sub)
 		if err != nil {
 			s.cfg.LogInfo(ctx, "error parsing 'sub' parameter as an entity identifier", slog.String("error", err.Error()))
-			return s.RespondWithError(ctx, w, model.NewInvalidRequestError("malformed 'sub' parameter"))
+			return s.RespondWithError(ctx, w, err)
 		}
 	} else {
 		s.cfg.LogInfo(ctx, "request missing required parameter 'sub'")

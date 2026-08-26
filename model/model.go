@@ -25,6 +25,14 @@ type Configuration struct {
 	// DiscardUnrecognisedEntityTypes removes Entity Types absent from EntityTypes during
 	// verification. When false, unrecognised Entity Types are preserved and relayed untouched.
 	DiscardUnrecognisedEntityTypes bool
+
+	// MaxTrustChainDepth bounds how many entities the resolver will traverse from the leaf
+	// while walking authority_hints to reach a Trust Anchor. Zero (the default) means
+	// unlimited. This is an operational safeguard against hostile or misconfigured
+	// authority_hints graphs and is independent of the spec's per-statement max_path_length
+	// constraint; set it according to how deep legitimate Trust Chains are in your federation
+	// (a tightly walled-garden federation can set a low value, an open one may leave it unset).
+	MaxTrustChainDepth int
 }
 
 func (cfg *Configuration) LogInfo(ctx context.Context, msg string, args ...any) {
@@ -52,6 +60,11 @@ type ServerConfiguration struct {
 	MetadataRetriever           Retriever
 	TrustMarkIssuerRetriever    TrustMarkIssuerRetriever
 	TrustMarkRetriever          TrustMarkRetriever
+
+	// EntityIdentifierResolver optionally maps incoming request values (the 'sub' and
+	// 'trust_anchor' parameters) onto canonical Entity Identifiers before the endpoints act on
+	// them. When nil, StandardEntityIdentifierResolver is used, preserving standard behaviour.
+	EntityIdentifierResolver EntityIdentifierResolver
 }
 
 type ClientConfiguration struct {
@@ -141,7 +154,7 @@ type ExtendedListingFilter struct {
 	TrustMarked   *bool
 	TrustMarkType []string
 	Intermediate  *bool
-	From          *EntityIdentifier
+	From          *string
 	Limit         int
 	Claims        []string
 }

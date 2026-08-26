@@ -90,7 +90,7 @@ func TestRetrieve(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			signedResult, result, err := Retrieve(t.Context(), cfg, tt.entityIdentifier)
+			signedResult, result, err := Retrieve(t.Context(), cfg, tt.entityIdentifier, nil)
 			tt.validate(t, result, signedResult, err)
 		})
 	}

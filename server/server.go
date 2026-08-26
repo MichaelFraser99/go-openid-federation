@@ -43,6 +43,14 @@ func (s *Server) AddAuthorityHint(entityIdentifier model.EntityIdentifier) {
 	s.cfg.AuthorityHints = append(s.cfg.AuthorityHints, entityIdentifier)
 }
 
+func (s *Server) resolveEntityIdentifier(ctx context.Context, param model.EntityIdentifierParam, raw string) (*model.EntityIdentifier, error) {
+	resolver := s.cfg.EntityIdentifierResolver
+	if resolver == nil {
+		resolver = model.StandardEntityIdentifierResolver{}
+	}
+	return resolver.ResolveEntityIdentifier(ctx, param, raw)
+}
+
 func (s *Server) Configure(h *http.ServeMux) {
 	if s.cfg.HttpClient == nil {
 		s.cfg.HttpClient = http.DefaultClient

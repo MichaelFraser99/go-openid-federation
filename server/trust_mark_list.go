@@ -20,10 +20,10 @@ func (s *Server) TrustMarkList(w http.ResponseWriter, r *http.Request) ResponseF
 	var err error
 
 	if sub != "" {
-		parsedSub, err = model.ValidateEntityIdentifier(sub)
+		parsedSub, err = s.resolveEntityIdentifier(ctx, model.EntityIdentifierParamSub, sub)
 		if err != nil {
 			s.cfg.LogInfo(ctx, "invalid 'sub' parameter", slog.String("error", err.Error()))
-			return s.RespondWithError(ctx, w, model.NewInvalidRequestError("malformed 'sub' parameter"))
+			return s.RespondWithError(ctx, w, err)
 		}
 	}
 

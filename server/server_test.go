@@ -427,7 +427,7 @@ func TestServer_ExtendedList(t *testing.T) {
 			},
 		},
 		"we can list entities with pagination with a defined cursor": {
-			extraQueryParameters: map[string]string{"from_entity_id": url.QueryEscape("https://c-some-federation.com/some-path")},
+			extraQueryParameters: map[string]string{"from": url.QueryEscape("https://c-some-federation.com/some-path")},
 			validate: func(t *testing.T, response *http.Response, err error) {
 				if err != nil {
 					t.Fatalf("expected no error, got %q", err.Error())
@@ -449,7 +449,7 @@ func TestServer_ExtendedList(t *testing.T) {
 			},
 		},
 		"we can list entities with pagination with a defined cursor and a limit": {
-			extraQueryParameters: map[string]string{"limit": "2", "from_entity_id": url.QueryEscape("https://c-some-federation.com/some-path")},
+			extraQueryParameters: map[string]string{"limit": "2", "from": url.QueryEscape("https://c-some-federation.com/some-path")},
 			validate: func(t *testing.T, response *http.Response, err error) {
 				if err != nil {
 					t.Fatalf("expected no error, got %q", err.Error())

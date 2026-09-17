@@ -41,7 +41,7 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 	subordinates, err := s.cfg.Extensions.ExtendedListing.MetadataRetriever.GetExtendedSubordinates(ctx, filter)
 	if err != nil {
 		s.cfg.LogError(ctx, "error getting subordinates", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(extendedListingUnavailableError))
+		return s.RespondWithError(ctx, w, err)
 	}
 
 	if subordinates == nil {

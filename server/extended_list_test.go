@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -146,6 +147,50 @@ func TestServer_ExtendedList_MalformedBoolean(t *testing.T) {
 			if retriever.received != nil {
 				t.Error("expected malformed request to be rejected before reaching the retriever")
 			}
+		})
+	}
+}
+
+func TestServer_ExtendedList_RetrieverErrorPropagates(t *testing.T) {
+	tests := map[string]struct {
+		err             error
+		expectedStatus  int
+		expectedError   string
+		expectedMessage string
+	}{
+		"unsupported parameter": {
+			err:             model.NewUnsupportedParameterError("parameter 'trust_marked' is not supported"),
+			expectedStatus:  http.StatusBadRequest,
+			expectedError:   "unsupported_parameter",
+			expectedMessage: "parameter 'trust_marked' is not supported",
+		},
+		"invalid request": {
+			err:             model.NewInvalidRequestError("parameter 'additional_identifier' must include a scheme"),
+			expectedStatus:  http.StatusBadRequest,
+			expectedError:   "invalid_request",
+			expectedMessage: "parameter 'additional_identifier' must include a scheme",
+		},
+		"not found": {
+			err:             model.NewNotFoundError("from cursor does not identify a subordinate"),
+			expectedStatus:  http.StatusNotFound,
+			expectedError:   "not_found",
+			expectedMessage: "from cursor does not identify a subordinate",
+		},
+		"untyped error": {
+			err:             errors.New("boom"),
+			expectedStatus:  http.StatusInternalServerError,
+			expectedError:   "server_error",
+			expectedMessage: "boom",
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			retriever := &testExtendedListingRetriever{err: tt.err}
+			s := startExtendedListServer(t, retriever)
+
+			resp, err := s.Client().Get(s.URL + "/extended-list")
+			validateErrorResponse(t, resp, err, tt.expectedStatus, tt.expectedError, tt.expectedMessage)
 		})
 	}
 }

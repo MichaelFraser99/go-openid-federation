@@ -23,7 +23,7 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 	if s.cfg.Extensions.ExtendedListing.MetadataRetriever == nil {
 		return s.RespondWithError(ctx, w, model.NewServerError("extended subordinate listing metadata retriever not configured"))
 	}
-	if s.cfg.Extensions.ExtendedListing.SizeLimit == 0 {
+	if s.cfg.Extensions.ExtendedListing.SizeLimit <= 0 {
 		return s.RespondWithError(ctx, w, model.NewServerError("extended subordinate listing size limit not configured"))
 	}
 
@@ -115,7 +115,10 @@ func parseExtendedListingFilter(query map[string][]string, defaultLimit int) (mo
 		if err != nil {
 			return filter, false, model.NewInvalidRequestError("malformed 'limit' parameter")
 		}
-		filter.Limit = parsedLimit
+		if parsedLimit <= 0 {
+			return filter, false, model.NewInvalidRequestError("parameter 'limit' must be a positive integer")
+		}
+		filter.Limit = min(parsedLimit, defaultLimit)
 	}
 
 	for _, unsupported := range []string{"updated_after", "updated_before", "audit_timestamps"} {

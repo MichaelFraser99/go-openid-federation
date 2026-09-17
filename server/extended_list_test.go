@@ -27,7 +27,7 @@ func (r *testExtendedListingRetriever) GetExtendedSubordinates(_ context.Context
 	return r.result, r.err
 }
 
-func startExtendedListServer(t *testing.T, retriever model.ExtendedListingRetriever) *httptest.Server {
+func startExtendedListServerWithSizeLimit(t *testing.T, retriever model.ExtendedListingRetriever, sizeLimit int) *httptest.Server {
 	t.Helper()
 	server := NewServer(model.ServerConfiguration{
 		EntityIdentifier:          "https://some-trust-source.com",
@@ -35,7 +35,7 @@ func startExtendedListServer(t *testing.T, retriever model.ExtendedListingRetrie
 		Extensions: model.Extensions{
 			ExtendedListing: model.ExtendedListingConfiguration{
 				Enabled:           true,
-				SizeLimit:         50,
+				SizeLimit:         sizeLimit,
 				MetadataRetriever: retriever,
 			},
 		},
@@ -45,6 +45,11 @@ func startExtendedListServer(t *testing.T, retriever model.ExtendedListingRetrie
 	s := httptest.NewServer(m)
 	t.Cleanup(s.Close)
 	return s
+}
+
+func startExtendedListServer(t *testing.T, retriever model.ExtendedListingRetriever) *httptest.Server {
+	t.Helper()
+	return startExtendedListServerWithSizeLimit(t, retriever, 50)
 }
 
 func TestServer_ExtendedList_DelegatesFilterToRetriever(t *testing.T) {
@@ -144,22 +149,46 @@ func TestServer_ExtendedList_LimitHandling(t *testing.T) {
 }
 
 func TestServer_ExtendedList_MalformedLimit(t *testing.T) {
-	tests := map[string]string{
-		"not an integer": "limit=notanint",
-		"zero":           "limit=0",
-		"negative":       "limit=-1",
+	tests := map[string]struct {
+		query       string
+		description string
+	}{
+		"not an integer": {query: "limit=notanint", description: "malformed 'limit' parameter"},
+		"zero":           {query: "limit=0", description: "parameter 'limit' must be a positive integer"},
+		"negative":       {query: "limit=-1", description: "parameter 'limit' must be a positive integer"},
 	}
 
-	for name, query := range tests {
+	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			retriever := &testExtendedListingRetriever{}
 			s := startExtendedListServer(t, retriever)
 
-			resp, err := s.Client().Get(s.URL + "/extended-list?" + query)
-			validateErrorResponse(t, resp, err, http.StatusBadRequest, "invalid_request", "malformed 'limit' parameter")
+			resp, err := s.Client().Get(s.URL + "/extended-list?" + tt.query)
+			validateErrorResponse(t, resp, err, http.StatusBadRequest, "invalid_request", tt.description)
 
 			if retriever.received != nil {
 				t.Error("expected malformed request to be rejected before reaching the retriever")
+			}
+		})
+	}
+}
+
+func TestServer_ExtendedList_RejectsNonPositiveConfiguredSizeLimit(t *testing.T) {
+	tests := map[string]int{
+		"zero":     0,
+		"negative": -1,
+	}
+
+	for name, sizeLimit := range tests {
+		t.Run(name, func(t *testing.T) {
+			retriever := &testExtendedListingRetriever{}
+			s := startExtendedListServerWithSizeLimit(t, retriever, sizeLimit)
+
+			resp, err := s.Client().Get(s.URL + "/extended-list?limit=5")
+			validateErrorResponse(t, resp, err, http.StatusInternalServerError, "server_error", "extended subordinate listing size limit not configured")
+
+			if retriever.received != nil {
+				t.Error("expected misconfigured server to reject request before reaching the retriever")
 			}
 		})
 	}

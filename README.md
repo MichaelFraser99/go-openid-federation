@@ -151,7 +151,7 @@ Filters are honoured only when the configured `MetadataRetriever` also implement
 | `trust_anchor` | yes | The trust anchor to resolve against |
 | `entity_type` | no | Repeatable; restricts the metadata returned |
 
-Resolving metadata issues outbound HTTP requests for the caller-supplied `sub` and `trust_anchor` and for the federated authorities discovered while building the trust chain.
+Resolving metadata makes outbound HTTP requests for the caller-supplied `sub` and `trust_anchor` and for the federated authorities discovered while building the trust chain.
 
 **`/extended-list`**
 

@@ -151,6 +151,8 @@ Filters are honoured only when the configured `MetadataRetriever` also implement
 | `trust_anchor` | yes | The trust anchor to resolve against |
 | `entity_type` | no | Repeatable; restricts the metadata returned |
 
+Resolving metadata makes outbound HTTP requests for the caller-supplied `sub` and `trust_anchor` and for the federated authorities discovered while building the trust chain.
+
 **`/extended-list`**
 
 | Parameter | Required | Notes |
@@ -199,7 +201,7 @@ The response is determined before it is written, so a caller can run code betwee
 
 | Field | Purpose |
 | --- | --- |
-| `HttpClient` | Client used for outbound federation requests. Defaults to `http.DefaultClient` |
+| `HttpClient` | Client used for outbound federation requests. Required for trust-chain resolution and other remote federation lookups; callers should provide an SSRF-safe client that enforces their network policy for untrusted entity identifiers |
 | `Logger` | Optional `*slog.Logger`. Logging is skipped when nil |
 | `EntityTypes` | Extension entity types, merged over the built-in definitions |
 | `DiscardUnrecognisedEntityTypes` | Removes entity types absent from the registry. Defaults to preserving them |
@@ -216,6 +218,8 @@ The response is determined before it is written, so a caller can run code betwee
 | `TrustMarkRetriever` | Enables the trust mark endpoints |
 
 The signer's public key is added to the published JWKS, keyed by `kid`, if not already present.
+
+When the library resolves a trust chain, it follows federation endpoints derived from untrusted entity identifiers and metadata. `model.ValidateEntityIdentifier` validates identifier syntax only. It does not resolve hosts or restrict which addresses a hostname may target. Deployments that expose `/resolve` or use the client-side resolution helpers should provide an `HttpClient` whose transport rejects disallowed destinations, including private, loopback, link-local and other reserved address ranges, and whose redirect handling preserves the same policy.
 
 ### Retriever interfaces
 
@@ -261,7 +265,7 @@ A `SubordinateConfiguration` may carry its own `SignerConfiguration`. When prese
 
 `model.EntityStatement` covers both entity configurations and subordinate statements. Its `UnmarshalJSON` enforces the required claims `iss`, `sub`, `iat`, `exp` and `jwks`, validates entity identifiers, and rejects expired statements at parse time.
 
-Entity identifiers are validated by `model.ValidateEntityIdentifier`. An identifier must be an HTTPS URL with a host, and must not carry a query or fragment component.
+Entity identifiers are validated by `model.ValidateEntityIdentifier`. An identifier must be an HTTPS URL with a host, and must not carry a query or fragment component. This validation is syntactic and does not make an identifier safe to fetch.
 
 The following entity types are supported.
 

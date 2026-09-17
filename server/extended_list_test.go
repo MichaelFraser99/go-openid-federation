@@ -104,26 +104,64 @@ func TestServer_ExtendedList_DelegatesFilterToRetriever(t *testing.T) {
 	}
 }
 
-func TestServer_ExtendedList_LimitDefaultsToSizeLimit(t *testing.T) {
-	retriever := &testExtendedListingRetriever{
-		result: &model.ExtendedListingResponse{ImmediateSubordinateEntities: []map[string]any{}},
+func TestServer_ExtendedList_LimitHandling(t *testing.T) {
+	tests := map[string]struct {
+		query         string
+		expectedLimit int
+	}{
+		"default":               {expectedLimit: 50},
+		"within configured max": {query: "limit=5", expectedLimit: 5},
+		"capped at configured max": {
+			query:         "limit=500",
+			expectedLimit: 50,
+		},
 	}
-	s := startExtendedListServer(t, retriever)
 
-	resp, err := s.Client().Get(s.URL + "/extended-list")
-	if err != nil {
-		t.Fatalf("expected no error, got %q", err.Error())
-	}
-	defer resp.Body.Close() //nolint:errcheck
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			retriever := &testExtendedListingRetriever{
+				result: &model.ExtendedListingResponse{ImmediateSubordinateEntities: []map[string]any{}},
+			}
+			s := startExtendedListServer(t, retriever)
 
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", resp.StatusCode)
+			resp, err := s.Client().Get(s.URL + "/extended-list?" + tt.query)
+			if err != nil {
+				t.Fatalf("expected no error, got %q", err.Error())
+			}
+			defer resp.Body.Close() //nolint:errcheck
+
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("expected status 200, got %d", resp.StatusCode)
+			}
+			if retriever.received == nil {
+				t.Fatal("expected the extended listing retriever to receive the filter")
+			}
+			if retriever.received.Limit != tt.expectedLimit {
+				t.Errorf("expected limit %d, got %d", tt.expectedLimit, retriever.received.Limit)
+			}
+		})
 	}
-	if retriever.received == nil {
-		t.Fatal("expected the extended listing retriever to receive the filter")
+}
+
+func TestServer_ExtendedList_MalformedLimit(t *testing.T) {
+	tests := map[string]string{
+		"not an integer": "limit=notanint",
+		"zero":           "limit=0",
+		"negative":       "limit=-1",
 	}
-	if retriever.received.Limit != 50 {
-		t.Errorf("expected limit to default to configured size limit 50, got %d", retriever.received.Limit)
+
+	for name, query := range tests {
+		t.Run(name, func(t *testing.T) {
+			retriever := &testExtendedListingRetriever{}
+			s := startExtendedListServer(t, retriever)
+
+			resp, err := s.Client().Get(s.URL + "/extended-list?" + query)
+			validateErrorResponse(t, resp, err, http.StatusBadRequest, "invalid_request", "malformed 'limit' parameter")
+
+			if retriever.received != nil {
+				t.Error("expected malformed request to be rejected before reaching the retriever")
+			}
+		})
 	}
 }
 

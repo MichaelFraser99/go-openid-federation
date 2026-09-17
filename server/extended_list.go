@@ -112,10 +112,10 @@ func parseExtendedListingFilter(query map[string][]string, defaultLimit int) (mo
 
 	if limit := getSingle(query, "limit"); limit != "" {
 		parsedLimit, err := strconv.Atoi(limit)
-		if err != nil {
+		if err != nil || parsedLimit <= 0 {
 			return filter, false, model.NewInvalidRequestError("malformed 'limit' parameter")
 		}
-		filter.Limit = parsedLimit
+		filter.Limit = min(parsedLimit, defaultLimit)
 	}
 
 	for _, unsupported := range []string{"updated_after", "updated_before", "audit_timestamps"} {

@@ -96,6 +96,34 @@ func TestRetrieve(t *testing.T) {
 	}
 }
 
+func TestRetrieve_RequiresHTTPClient(t *testing.T) {
+	tests := map[string]struct {
+		entityIdentifier model.EntityIdentifier
+	}{
+		"nil http client is rejected": {
+			entityIdentifier: "https://entity.example.com",
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			signedResult, result, err := Retrieve(t.Context(), model.Configuration{}, tt.entityIdentifier, nil)
+			if err == nil {
+				t.Fatal("expected an error, got nil")
+			}
+			if err.Error() != "no http client present" {
+				t.Fatalf("expected %q, got %q", "no http client present", err.Error())
+			}
+			if signedResult != nil {
+				t.Fatal("expected signed result to be nil")
+			}
+			if result != nil {
+				t.Fatal("expected result to be nil")
+			}
+		})
+	}
+}
+
 func TestNew(t *testing.T) {
 	subjectIdentifier, err := model.ValidateEntityIdentifier("https://some-federation.com/some-path")
 	if err != nil {

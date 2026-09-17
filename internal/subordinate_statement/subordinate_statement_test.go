@@ -123,6 +123,44 @@ func TestRetrieve(t *testing.T) {
 	}
 }
 
+func TestRetrieve_RequiresHTTPClient(t *testing.T) {
+	tests := map[string]struct {
+		issuer  model.EntityStatement
+		subject model.EntityIdentifier
+	}{
+		"nil http client is rejected": {
+			issuer: model.EntityStatement{
+				Iss: "https://issuer.example.com",
+				Sub: "https://issuer.example.com",
+				Metadata: &model.Metadata{
+					FederationMetadata: &model.FederationMetadata{
+						"federation_fetch_endpoint": "https://issuer.example.com/fetch",
+					},
+				},
+			},
+			subject: "https://subject.example.com",
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			signedResult, result, err := Retrieve(t.Context(), model.Configuration{}, tt.issuer, tt.subject)
+			if err == nil {
+				t.Fatal("expected an error, got nil")
+			}
+			if err.Error() != "no http client present" {
+				t.Fatalf("expected %q, got %q", "no http client present", err.Error())
+			}
+			if signedResult != nil {
+				t.Fatal("expected signed result to be nil")
+			}
+			if result != nil {
+				t.Fatal("expected result to be nil")
+			}
+		})
+	}
+}
+
 func TestNew(t *testing.T) {
 	issuerIdentifier, err := model.ValidateEntityIdentifier("https://some-issuing-federation.com/some-path")
 	if err != nil {

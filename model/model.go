@@ -325,11 +325,11 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 	if entityMetadata, ok := jsonMap["metadata"]; ok {
 		bytes, err := json.Marshal(entityMetadata)
 		if err != nil {
-			return fmt.Errorf("malformed 'metadata' claim: invalid JSON")
+			return NewInvalidMetadataError("malformed 'metadata' claim: invalid JSON")
 		}
 		var metadata Metadata
 		if err = json.Unmarshal(bytes, &metadata); err != nil {
-			return fmt.Errorf("invalid 'metadata' claim: %s", err.Error())
+			return NewInvalidMetadataError(fmt.Sprintf("invalid 'metadata' claim: %s", err.Error()))
 		}
 		e.Metadata = &metadata
 	}

@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"testing"
@@ -323,10 +324,11 @@ func TestMetadata_UnmarshalJSON(t *testing.T) {
 
 func TestEntityStatement_UnmarshalJSON(t *testing.T) {
 	tests := []struct {
-		name    string
-		json    string
-		expected EntityStatement
-		wantErr bool
+		name                  string
+		json                  string
+		expected              EntityStatement
+		wantErr               bool
+		expectInvalidMetadata bool
 	}{
 		{
 			name: "valid entity configuration with trust marks and issuers",
@@ -356,13 +358,13 @@ func TestEntityStatement_UnmarshalJSON(t *testing.T) {
 				Exp:            4102444800,
 				AuthorityHints: []EntityIdentifier{EntityIdentifier("https://anchor.example.com")},
 				JWKs:           josemodel.Jwks{Keys: []map[string]any{{"kid": "test-key", "kty": "RSA"}}},
-				TrustMarks: []TrustMarkHolder{{TrustMarkType: "https://example.com/trust-mark", TrustMark: "jwt-value"}},
+				TrustMarks:     []TrustMarkHolder{{TrustMarkType: "https://example.com/trust-mark", TrustMark: "jwt-value"}},
 				TrustMarkIssuers: map[string][]EntityIdentifier{
 					"https://example.com/trust-mark": {EntityIdentifier("https://issuer.example.com")},
 				},
 				TrustMarkOwners: map[string]any{
 					"https://example.com/trust-mark": map[string]any{
-						"sub": "https://issuer.example.com",
+						"sub":  "https://issuer.example.com",
 						"jwks": map[string]any{"keys": []any{}},
 					},
 				},
@@ -382,6 +384,23 @@ func TestEntityStatement_UnmarshalJSON(t *testing.T) {
 			}`,
 			wantErr: true,
 		},
+		{
+			name: "invalid metadata claim wraps invalid metadata sentinel",
+			json: `{
+				"iss": "https://issuer.example.com",
+				"sub": "https://subject.example.com",
+				"iat": 1710000000,
+				"exp": 4102444800,
+				"jwks": {"keys": [{"kid": "test-key", "kty": "RSA"}]},
+				"metadata": {
+					"openid_relying_party": {
+						"scope": "openid profile"
+					}
+				}
+			}`,
+			wantErr:               true,
+			expectInvalidMetadata: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -394,6 +413,9 @@ func TestEntityStatement_UnmarshalJSON(t *testing.T) {
 			}
 
 			if tt.wantErr {
+				if tt.expectInvalidMetadata && !errors.Is(err, ErrInvalidMetadata) {
+					t.Fatalf("expected error to wrap ErrInvalidMetadata")
+				}
 				return
 			}
 

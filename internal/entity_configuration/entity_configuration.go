@@ -166,7 +166,7 @@ func Validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 	var entityConfiguration model.EntityStatement
 	err = json.Unmarshal(body, &entityConfiguration)
 	if err != nil {
-		return nil, fmt.Errorf("malformed 'metadata' claim: %s", err.Error())
+		return nil, fmt.Errorf("malformed 'metadata' claim: %w", err)
 	}
 
 	if entityConfiguration.Iss != entityConfiguration.Sub {

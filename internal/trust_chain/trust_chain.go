@@ -2,6 +2,7 @@ package trust_chain
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -60,9 +61,12 @@ func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 
 	signedSubjectEntityStatement, subjectEntityStatement, err := entity_configuration.Retrieve(ctx, cfg, subject, cache)
 	if err != nil {
-		cfg.LogInfo(ctx, "failed to retrieve leaf entity configuration", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.String("error", err.Error()))
+		cfg.LogInfo(ctx, "entity configuration unusable", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.String("error", err.Error()))
 		deadEnds[subject] = struct{}{}
-		return signedPath, path, false, model.NewNotFoundError(fmt.Sprintf("failed to retrieve leaf entity configuration: %s", subject))
+		if errors.Is(err, model.ErrInvalidMetadata) {
+			return signedPath, path, false, model.NewInvalidMetadataError(fmt.Sprintf("entity configuration for %s failed validation: %s", subject, err.Error()))
+		}
+		return signedPath, path, false, model.NewNotFoundError(fmt.Sprintf("failed to retrieve entity configuration for %s", subject))
 	}
 
 	path = append(path, *subjectEntityStatement)

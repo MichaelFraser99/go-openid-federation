@@ -102,6 +102,15 @@ func TestServer_Resolve(t *testing.T) {
 		t.Fatalf("expected no error creating wallet public JWK, got %q", err.Error())
 	}
 
+	invalidMetadataSigner, err := jws.GetSigner(josemodel.ES256, nil)
+	if err != nil {
+		t.Fatalf("expected no error creating invalid metadata signer, got %q", err.Error())
+	}
+	invalidMetadataPublicJWK, err := jwk.PublicJwk(invalidMetadataSigner.Public())
+	if err != nil {
+		t.Fatalf("expected no error creating invalid metadata public JWK, got %q", err.Error())
+	}
+
 	trustAnchorServer := NewServer(model.ServerConfiguration{
 		SignerConfiguration: model.SignerConfiguration{
 			Algorithm: "ES256",
@@ -185,9 +194,35 @@ func TestServer_Resolve(t *testing.T) {
 		ws.Close()
 	})
 
+	invalidMetadataEntityServer := NewServer(model.ServerConfiguration{
+		SignerConfiguration: model.SignerConfiguration{
+			Algorithm: "ES256",
+			Signer:    invalidMetadataSigner,
+			KeyID:     (*invalidMetadataPublicJWK)["kid"].(string),
+		},
+		EntityConfiguration: model.EntityStatement{
+			Metadata: &model.Metadata{
+				OpenIDRelyingPartyMetadata: &model.OpenIDRelyingPartyMetadata{
+					"scope": "openid address",
+				},
+			},
+		},
+		EntityConfigurationLifetime: 10 * time.Minute,
+	})
+
+	imm := http.NewServeMux()
+	invalidMetadataEntityServer.Configure(imm)
+	ims := httptest.NewTLSServer(imm)
+	invalidMetadataEntityServer.SetEntityIdentifier(model.EntityIdentifier(ims.URL))
+
+	t.Cleanup(func() {
+		ims.Close()
+	})
+
 	validTrustAnchor := tas.URL
 	validEntityIdentifier := dcs.URL
 	validWalletEntityIdentifier := ws.URL
+	invalidMetadataEntityIdentifier := ims.URL
 
 	tests := map[string]struct {
 		requestSub        string
@@ -257,7 +292,13 @@ func TestServer_Resolve(t *testing.T) {
 		"entity not found returns an error": {
 			requestSub: "https://non-existent-entity.com/", // Entity that doesn't exist
 			validate: func(t *testing.T, response *http.Response, err error) {
-				validateErrorResponse(t, response, err, http.StatusNotFound, "not_found", "failed to retrieve leaf entity configuration: https://non-existent-entity.com/")
+				validateErrorResponse(t, response, err, http.StatusNotFound, "not_found", "failed to retrieve entity configuration for https://non-existent-entity.com/")
+			},
+		},
+		"entity configuration with invalid metadata returns invalid metadata": {
+			requestSub: invalidMetadataEntityIdentifier,
+			validate: func(t *testing.T, response *http.Response, err error) {
+				validateErrorResponse(t, response, err, http.StatusBadRequest, "invalid_metadata", "entity configuration for "+invalidMetadataEntityIdentifier+" failed validation: malformed 'metadata' claim: invalid 'metadata' claim: invalid openid relying party metadata: missing required 'redirect_uris' claim")
 			},
 		},
 		"trust anchor not found returns an error": {
@@ -313,6 +354,7 @@ func TestServer_Resolve(t *testing.T) {
 			}
 			intermediateConfigurations.AddSubordinate(model.EntityIdentifier(dcs.URL), &model.SubordinateConfiguration{})
 			intermediateConfigurations.AddSubordinate(model.EntityIdentifier(ws.URL), &model.SubordinateConfiguration{})
+			intermediateConfigurations.AddSubordinate(model.EntityIdentifier(ims.URL), &model.SubordinateConfiguration{})
 
 			tr := TestRetriever{}
 			tr.Configure(map[string]*model.SubordinateConfiguration{
@@ -324,6 +366,11 @@ func TestServer_Resolve(t *testing.T) {
 				ws.URL: {
 					JWKs: josemodel.Jwks{
 						Keys: []map[string]any{*walletPublicJWK},
+					},
+				},
+				ims.URL: {
+					JWKs: josemodel.Jwks{
+						Keys: []map[string]any{*invalidMetadataPublicJWK},
 					},
 				},
 			})
@@ -366,6 +413,7 @@ func TestServer_Resolve(t *testing.T) {
 
 			directChildEntityServer.AddAuthorityHint(model.EntityIdentifier(s.URL))
 			walletEntityServer.AddAuthorityHint(model.EntityIdentifier(s.URL))
+			invalidMetadataEntityServer.AddAuthorityHint(model.EntityIdentifier(s.URL))
 
 			// Build the request URL with the test-specific parameters
 			requestURL := fmt.Sprintf("%s/resolve", s.URL)

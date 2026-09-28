@@ -10,10 +10,7 @@ func (m OAuthResourceMetadata) VerifyMetadata() error {
 	if len(m) == 0 { //explicitly ignoring constraints on empty JSON ({})
 		return nil
 	}
-	if err := VerifyRequiredClaims(m, "resource"); err != nil {
-		return err
-	}
-	if err := verifyHTTPSURLValue("resource", m["resource"], true); err != nil {
+	if err := VerifyHTTPSURLClaim(m, "resource", true); err != nil {
 		return err
 	}
 	if err := VerifyHTTPSURLClaim(m, "jwks_uri", true); err != nil {

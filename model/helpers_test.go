@@ -558,6 +558,95 @@ func Test_applyPolicy(t *testing.T) {
 				}
 			},
 		},
+		"we deduplicate scope tokens when a value array holds space separated scope sets": {
+			subject: func(t *testing.T) EntityStatement {
+				return EntityStatement{
+					Metadata: &Metadata{
+						OpenIDConnectOpenIDProviderMetadata: &OpenIDConnectOpenIDProviderMetadata{
+							"issuer": "https://op.umu.se",
+						},
+					},
+				}
+			},
+			policy: func(t *testing.T) MetadataPolicy {
+				valueOperator, err := NewValue([]any{"openid", "openid accounts", "openid payments"})
+				if err != nil {
+					t.Fatalf("expected no error creating value operator, got %q", err.Error())
+				}
+				policyA := MetadataPolicy{OpenIDConnectOpenIDProviderMetadata: map[string]PolicyOperators{"scope": {[]MetadataPolicyOperator{valueOperator}}}}
+				es, err := ProcessAndExtractPolicy([]EntityStatement{{}, {MetadataPolicy: &policyA}})
+				if err != nil {
+					t.Fatalf("expected no error, got %q", err.Error())
+				}
+				return *es
+			},
+			verify: func(t *testing.T, result *EntityStatement, err error) {
+				if err != nil {
+					t.Fatalf("expected no error, got %q", err.Error())
+				}
+
+				expected := map[string]any{
+					"issuer": "https://op.umu.se",
+					"scope":  "openid accounts payments",
+				}
+
+				if diff := cmp.Diff(expected, (map[string]any)(*result.Metadata.OpenIDConnectOpenIDProviderMetadata), cmpopts.SortSlices(func(x, y any) bool {
+					if sx, ok := x.(string); ok {
+						if sy, ok := y.(string); ok {
+							return sx < sy
+						}
+					}
+					return fmt.Sprintf("%v", x) < fmt.Sprintf("%v", y)
+				})); diff != "" {
+					t.Errorf("mismatch (-expected +got):\n%s", diff)
+				}
+			},
+		},
+		"we deduplicate scope tokens when an added value is already present": {
+			subject: func(t *testing.T) EntityStatement {
+				return EntityStatement{
+					Metadata: &Metadata{
+						OpenIDRelyingPartyMetadata: &OpenIDRelyingPartyMetadata{
+							"client_id": "https://op.umu.se/openid",
+							"scope":     "openid  accounts",
+						},
+					},
+				}
+			},
+			policy: func(t *testing.T) MetadataPolicy {
+				addOperator, err := NewAdd([]any{"openid payments", "accounts"})
+				if err != nil {
+					t.Fatalf("expected no error creating add operator, got %q", err.Error())
+				}
+				policyA := MetadataPolicy{OpenIDRelyingPartyMetadata: map[string]PolicyOperators{"scope": {[]MetadataPolicyOperator{addOperator}}}}
+				es, err := ProcessAndExtractPolicy([]EntityStatement{{}, {MetadataPolicy: &policyA}})
+				if err != nil {
+					t.Fatalf("expected no error, got %q", err.Error())
+				}
+				return *es
+			},
+			verify: func(t *testing.T, result *EntityStatement, err error) {
+				if err != nil {
+					t.Fatalf("expected no error, got %q", err.Error())
+				}
+
+				expected := map[string]any{
+					"client_id": "https://op.umu.se/openid",
+					"scope":     "openid accounts payments",
+				}
+
+				if diff := cmp.Diff(expected, (map[string]any)(*result.Metadata.OpenIDRelyingPartyMetadata), cmpopts.SortSlices(func(x, y any) bool {
+					if sx, ok := x.(string); ok {
+						if sy, ok := y.(string); ok {
+							return sx < sy
+						}
+					}
+					return fmt.Sprintf("%v", x) < fmt.Sprintf("%v", y)
+				})); diff != "" {
+					t.Errorf("mismatch (-expected +got):\n%s", diff)
+				}
+			},
+		},
 	}
 
 	for name, tt := range tests {

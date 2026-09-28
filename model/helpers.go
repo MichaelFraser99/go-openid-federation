@@ -234,7 +234,7 @@ func applyPolicyToMetadata(metadata map[string]any, policy map[string]PolicyOper
 			if k == "scope" {
 				switch resolvedTyped := resolved.(type) {
 				case []string:
-					resolved = strings.Join(resolvedTyped, " ")
+					resolved = joinScopeTokens(resolvedTyped)
 				case []any:
 					stringSlice := make([]string, len(resolvedTyped))
 					for i, v := range resolvedTyped {
@@ -244,7 +244,7 @@ func applyPolicyToMetadata(metadata map[string]any, policy map[string]PolicyOper
 						}
 						stringSlice[i] = stringValue
 					}
-					resolved = strings.Join(stringSlice, " ")
+					resolved = joinScopeTokens(stringSlice)
 				default:
 					return fmt.Errorf("scope must be a string or array of strings")
 				}
@@ -257,6 +257,21 @@ func applyPolicyToMetadata(metadata map[string]any, policy map[string]PolicyOper
 		}
 	}
 	return nil
+}
+
+func joinScopeTokens(values []string) string {
+	seen := make(map[string]struct{})
+	var tokens []string
+	for _, value := range values {
+		for _, token := range strings.Fields(value) {
+			if _, ok := seen[token]; ok {
+				continue
+			}
+			seen[token] = struct{}{}
+			tokens = append(tokens, token)
+		}
+	}
+	return strings.Join(tokens, " ")
 }
 
 func CalculateChainExpiration(chain []EntityStatement) int64 {

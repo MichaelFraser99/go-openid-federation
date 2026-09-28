@@ -19,11 +19,12 @@ func TestOAuthResourceMetadata_VerifyMetadata(t *testing.T) {
 			},
 			wantErr: false,
 		},
-		"missing resource": {
+		"metadata without resource is valid": {
 			metadata: OAuthResourceMetadata{
+				"resource_name":     "Accounts API",
 				"scopes_supported": []any{"read"},
 			},
-			wantErr: true,
+			wantErr: false,
 		},
 		"resource must be https": {
 			metadata: OAuthResourceMetadata{
@@ -66,7 +67,6 @@ func TestOAuthResourceMetadata_VerifyMetadata(t *testing.T) {
 		},
 		"authorization_servers must be array of strings": {
 			metadata: OAuthResourceMetadata{
-				"resource":              "https://resource.example.com",
 				"authorization_servers": "https://as.example.com",
 			},
 			wantErr: true,

@@ -327,8 +327,8 @@ func TestDefaultEntityTypeRegistry_DelegatesToTheCorrectValidator(t *testing.T) 
 			expectedError: "'jwks_uri' must use the 'https' scheme",
 		},
 		"oauth_resource": {
-			metadata:      map[string]any{"client_name": "Example"},
-			expectedError: "missing required 'resource' claim",
+			metadata:      map[string]any{"authorization_servers": "https://as.example.com"},
+			expectedError: "'authorization_servers' must be an array of strings",
 		},
 		"openid_wallet_provider": {
 			metadata:      map[string]any{"vp_formats_supported": map[string]any{}, "client_id_prefixes_supported": []any{}},

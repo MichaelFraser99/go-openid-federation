@@ -313,10 +313,8 @@ func TestServer_Resolve(t *testing.T) {
 			trustAnchor: &validTrustAnchor,
 			trustAnchorPolicy: model.MetadataPolicy{
 				OpenIDRelyingPartyMetadata: map[string]model.PolicyOperators{
-					"scope": {
+					"missing_parameter": {
 						Metadata: []model.MetadataPolicyOperator{
-							model_test.NewSupersetOf(t, []any{"foo", "bar"}),
-							model_test.NewSubsetOf(t, []any{"baz", "bing"}),
 							model_test.NewEssential(t, true),
 						},
 					},

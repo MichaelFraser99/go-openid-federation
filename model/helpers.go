@@ -213,7 +213,7 @@ func ApplyPolicy(subject EntityStatement, policy MetadataPolicy) (*EntityStateme
 
 func applyPolicyToMetadata(metadata map[string]any, policy map[string]PolicyOperators) error {
 	for k, operators := range policy {
-		for _, operator := range operators.Metadata {
+		for _, operator := range sortByPriority(slices.Clone(operators.Metadata)) {
 			existing, ok := metadata[k]
 			if k == "scope" {
 				if ok {

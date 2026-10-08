@@ -282,9 +282,9 @@ func TestDeduplication_ComplexMaps(t *testing.T) {
 	input := []any{
 		map[string]any{"x": 1, "y": 2, "z": 3},
 		map[string]any{"a": "hello", "b": "world"},
-		map[string]any{"y": 2, "z": 3, "x": 1}, // Same as first, different order
+		map[string]any{"y": 2, "z": 3, "x": 1},     // Same as first, different order
 		map[string]any{"b": "world", "a": "hello"}, // Same as second, different order
-		map[string]any{"x": 1, "y": 2, "z": 4}, // Different from first
+		map[string]any{"x": 1, "y": 2, "z": 4},     // Different from first
 	}
 
 	expected := []any{
@@ -338,10 +338,10 @@ func TestDeduplication_EdgeCases(t *testing.T) {
 // Test that all data types work correctly
 func TestDeduplication_AllDataTypes(t *testing.T) {
 	tests := map[string]struct {
-		operator     string
-		createFunc   func(any) (any, error)
-		input        any
-		expectedLen  int
+		operator    string
+		createFunc  func(any) (any, error)
+		input       any
+		expectedLen int
 	}{
 		"Add with int8": {
 			operator: "add",

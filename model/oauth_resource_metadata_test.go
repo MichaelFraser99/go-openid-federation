@@ -21,7 +21,7 @@ func TestOAuthResourceMetadata_VerifyMetadata(t *testing.T) {
 		},
 		"metadata without resource is valid": {
 			metadata: OAuthResourceMetadata{
-				"resource_name":     "Accounts API",
+				"resource_name":    "Accounts API",
 				"scopes_supported": []any{"read"},
 			},
 			wantErr: false,

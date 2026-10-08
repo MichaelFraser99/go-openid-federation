@@ -26,6 +26,10 @@ func (p *PolicyOperators) UnmarshalJSON(data []byte) error {
 			}
 			p.Metadata = append(p.Metadata, pMetadata)
 		}
+		p.Metadata = sortByPriority(p.Metadata)
+		if err := validatePoliciesCanCombine(p.Metadata); err != nil {
+			return err
+		}
 	} else {
 		return fmt.Errorf("unable to parse %q as a valid Metadata Policy", string(data))
 	}

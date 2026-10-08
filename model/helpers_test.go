@@ -660,6 +660,232 @@ func Test_applyPolicy(t *testing.T) {
 	}
 }
 
+func Test_applyPolicy_absentScopeMatchesAbsentGrantTypes(t *testing.T) {
+	tests := []struct {
+		name                  string
+		scopeOperator         MetadataPolicyOperator
+		grantTypesOperator    MetadataPolicyOperator
+		wantScopePresent      bool
+		wantScopeValue        any
+		wantScopeError        string
+		wantGrantTypesPresent bool
+		wantGrantTypesValue   any
+		wantGrantTypesError   string
+	}{
+		{
+			name: "default sets absent value",
+			scopeOperator: func() MetadataPolicyOperator {
+				operator, err := NewDefault([]any{"openid", "accounts"})
+				if err != nil {
+					t.Fatalf("expected no error creating default operator, got %q", err.Error())
+				}
+				return operator
+			}(),
+			grantTypesOperator: func() MetadataPolicyOperator {
+				operator, err := NewDefault([]any{"authorization_code"})
+				if err != nil {
+					t.Fatalf("expected no error creating default operator, got %q", err.Error())
+				}
+				return operator
+			}(),
+			wantScopePresent:      true,
+			wantScopeValue:        "openid accounts",
+			wantGrantTypesPresent: true,
+			wantGrantTypesValue:   []any{"authorization_code"},
+		},
+		{
+			name: "subset_of skips absent value",
+			scopeOperator: func() MetadataPolicyOperator {
+				operator, err := NewSubsetOf([]any{"openid"})
+				if err != nil {
+					t.Fatalf("expected no error creating subset_of operator, got %q", err.Error())
+				}
+				return operator
+			}(),
+			grantTypesOperator: func() MetadataPolicyOperator {
+				operator, err := NewSubsetOf([]any{"authorization_code"})
+				if err != nil {
+					t.Fatalf("expected no error creating subset_of operator, got %q", err.Error())
+				}
+				return operator
+			}(),
+		},
+		{
+			name: "superset_of skips absent value",
+			scopeOperator: func() MetadataPolicyOperator {
+				operator, err := NewSupersetOf([]any{"openid"})
+				if err != nil {
+					t.Fatalf("expected no error creating superset_of operator, got %q", err.Error())
+				}
+				return operator
+			}(),
+			grantTypesOperator: func() MetadataPolicyOperator {
+				operator, err := NewSupersetOf([]any{"authorization_code"})
+				if err != nil {
+					t.Fatalf("expected no error creating superset_of operator, got %q", err.Error())
+				}
+				return operator
+			}(),
+		},
+		{
+			name: "essential true errors on absence",
+			scopeOperator: func() MetadataPolicyOperator {
+				operator, err := NewEssential(true)
+				if err != nil {
+					t.Fatalf("expected no error creating essential operator, got %q", err.Error())
+				}
+				return operator
+			}(),
+			grantTypesOperator: func() MetadataPolicyOperator {
+				operator, err := NewEssential(true)
+				if err != nil {
+					t.Fatalf("expected no error creating essential operator, got %q", err.Error())
+				}
+				return operator
+			}(),
+			wantScopeError:      "property marked as essential and not provided",
+			wantGrantTypesError: "property marked as essential and not provided",
+		},
+		{
+			name: "essential false keeps absence",
+			scopeOperator: func() MetadataPolicyOperator {
+				operator, err := NewEssential(false)
+				if err != nil {
+					t.Fatalf("expected no error creating essential operator, got %q", err.Error())
+				}
+				return operator
+			}(),
+			grantTypesOperator: func() MetadataPolicyOperator {
+				operator, err := NewEssential(false)
+				if err != nil {
+					t.Fatalf("expected no error creating essential operator, got %q", err.Error())
+				}
+				return operator
+			}(),
+		},
+	}
+
+	applyPolicyForKey := func(t *testing.T, key string, operator MetadataPolicyOperator) (*EntityStatement, error) {
+		t.Helper()
+		subject := EntityStatement{
+			Metadata: &Metadata{
+				OpenIDRelyingPartyMetadata: &OpenIDRelyingPartyMetadata{
+					"client_id": "x",
+				},
+			},
+		}
+
+		policy := MetadataPolicy{
+			OpenIDRelyingPartyMetadata: map[string]PolicyOperators{
+				key: {
+					Metadata: []MetadataPolicyOperator{operator},
+				},
+			},
+		}
+
+		return ApplyPolicy(subject, policy)
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scopeResult, scopeErr := applyPolicyForKey(t, "scope", tt.scopeOperator)
+			if tt.wantScopeError != "" {
+				if scopeErr == nil {
+					t.Fatalf("expected scope error %q, got nil", tt.wantScopeError)
+				}
+				if scopeErr.Error() != tt.wantScopeError {
+					t.Fatalf("expected scope error %q, got %q", tt.wantScopeError, scopeErr.Error())
+				}
+			} else if scopeErr != nil {
+				t.Fatalf("expected no scope error, got %q", scopeErr.Error())
+			}
+
+			grantTypesResult, grantTypesErr := applyPolicyForKey(t, "grant_types", tt.grantTypesOperator)
+			if tt.wantGrantTypesError != "" {
+				if grantTypesErr == nil {
+					t.Fatalf("expected grant_types error %q, got nil", tt.wantGrantTypesError)
+				}
+				if grantTypesErr.Error() != tt.wantGrantTypesError {
+					t.Fatalf("expected grant_types error %q, got %q", tt.wantGrantTypesError, grantTypesErr.Error())
+				}
+			} else if grantTypesErr != nil {
+				t.Fatalf("expected no grant_types error, got %q", grantTypesErr.Error())
+			}
+
+			if tt.wantScopeError == "" {
+				scopeMetadata := map[string]any(*scopeResult.Metadata.OpenIDRelyingPartyMetadata)
+				scopeValue, scopePresent := scopeMetadata["scope"]
+				if scopePresent != tt.wantScopePresent {
+					t.Fatalf("expected scope present=%t, got %t", tt.wantScopePresent, scopePresent)
+				}
+				if scopePresent && !reflect.DeepEqual(scopeValue, tt.wantScopeValue) {
+					t.Fatalf("expected scope value %v, got %v", tt.wantScopeValue, scopeValue)
+				}
+			}
+
+			if tt.wantGrantTypesError == "" {
+				grantTypesMetadata := map[string]any(*grantTypesResult.Metadata.OpenIDRelyingPartyMetadata)
+				grantTypesValue, grantTypesPresent := grantTypesMetadata["grant_types"]
+				if grantTypesPresent != tt.wantGrantTypesPresent {
+					t.Fatalf("expected grant_types present=%t, got %t", tt.wantGrantTypesPresent, grantTypesPresent)
+				}
+				if grantTypesPresent && !reflect.DeepEqual(grantTypesValue, tt.wantGrantTypesValue) {
+					t.Fatalf("expected grant_types value %v, got %v", tt.wantGrantTypesValue, grantTypesValue)
+				}
+			}
+		})
+	}
+}
+
+func Test_applyPolicy_scopeValueNullRemovesScopeWithoutError(t *testing.T) {
+	tests := map[string]struct {
+		metadata OpenIDRelyingPartyMetadata
+	}{
+		"scope present": {
+			metadata: OpenIDRelyingPartyMetadata{
+				"client_id": "x",
+				"scope":     "openid profile",
+			},
+		},
+		"scope absent": {
+			metadata: OpenIDRelyingPartyMetadata{
+				"client_id": "x",
+			},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			var policy MetadataPolicy
+			err := json.Unmarshal([]byte(`{"openid_relying_party":{"scope":{"value":null}}}`), &policy)
+			if err != nil {
+				t.Fatalf("expected no error unmarshalling policy, got %q", err.Error())
+			}
+
+			processed, err := ProcessAndExtractPolicy([]EntityStatement{{}, {MetadataPolicy: &policy}})
+			if err != nil {
+				t.Fatalf("expected no error processing policy, got %q", err.Error())
+			}
+
+			subject := EntityStatement{
+				Metadata: &Metadata{
+					OpenIDRelyingPartyMetadata: &tt.metadata,
+				},
+			}
+
+			result, err := ApplyPolicy(subject, *processed)
+			if err != nil {
+				t.Fatalf("expected no error applying policy, got %q", err.Error())
+			}
+
+			metadata := map[string]any(*result.Metadata.OpenIDRelyingPartyMetadata)
+			if _, found := metadata["scope"]; found {
+				t.Fatalf("expected scope to be removed, got %v", metadata["scope"])
+			}
+		})
+	}
+}
+
 func TestReMarshalJsonAsEntityMetadata(t *testing.T) {
 	type TestStruct struct {
 		Name  string `json:"name"`

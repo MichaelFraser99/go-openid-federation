@@ -222,8 +222,6 @@ func applyPolicyToMetadata(metadata map[string]any, policy map[string]PolicyOper
 						return fmt.Errorf("scope must be a string")
 					}
 					existing = ConvertStringsToAnySlice(strings.Split(existingString, " "))
-				} else {
-					existing = []any{}
 				}
 				operator = operator.ToSlice(k)
 			}
@@ -231,7 +229,7 @@ func applyPolicyToMetadata(metadata map[string]any, policy map[string]PolicyOper
 			if err != nil {
 				return err
 			}
-			if k == "scope" {
+			if k == "scope" && resolved != nil {
 				switch resolvedTyped := resolved.(type) {
 				case []string:
 					resolved = joinScopeTokens(resolvedTyped)

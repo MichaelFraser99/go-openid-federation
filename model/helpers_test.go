@@ -837,6 +837,55 @@ func Test_applyPolicy_absentScopeMatchesAbsentGrantTypes(t *testing.T) {
 	}
 }
 
+func Test_applyPolicy_scopeValueNullRemovesScopeWithoutError(t *testing.T) {
+	tests := map[string]struct {
+		metadata OpenIDRelyingPartyMetadata
+	}{
+		"scope present": {
+			metadata: OpenIDRelyingPartyMetadata{
+				"client_id": "x",
+				"scope":     "openid profile",
+			},
+		},
+		"scope absent": {
+			metadata: OpenIDRelyingPartyMetadata{
+				"client_id": "x",
+			},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			var policy MetadataPolicy
+			err := json.Unmarshal([]byte(`{"openid_relying_party":{"scope":{"value":null}}}`), &policy)
+			if err != nil {
+				t.Fatalf("expected no error unmarshalling policy, got %q", err.Error())
+			}
+
+			processed, err := ProcessAndExtractPolicy([]EntityStatement{{}, {MetadataPolicy: &policy}})
+			if err != nil {
+				t.Fatalf("expected no error processing policy, got %q", err.Error())
+			}
+
+			subject := EntityStatement{
+				Metadata: &Metadata{
+					OpenIDRelyingPartyMetadata: &tt.metadata,
+				},
+			}
+
+			result, err := ApplyPolicy(subject, *processed)
+			if err != nil {
+				t.Fatalf("expected no error applying policy, got %q", err.Error())
+			}
+
+			metadata := map[string]any(*result.Metadata.OpenIDRelyingPartyMetadata)
+			if _, found := metadata["scope"]; found {
+				t.Fatalf("expected scope to be removed, got %v", metadata["scope"])
+			}
+		})
+	}
+}
+
 func TestReMarshalJsonAsEntityMetadata(t *testing.T) {
 	type TestStruct struct {
 		Name  string `json:"name"`

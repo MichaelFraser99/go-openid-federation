@@ -662,15 +662,15 @@ func Test_applyPolicy(t *testing.T) {
 
 func Test_applyPolicy_absentScopeMatchesAbsentGrantTypes(t *testing.T) {
 	tests := []struct {
-		name                    string
-		scopeOperator           MetadataPolicyOperator
-		grantTypesOperator      MetadataPolicyOperator
-		wantScopePresent        bool
-		wantScopeValue          any
-		wantScopeError          string
-		wantGrantTypesPresent   bool
-		wantGrantTypesValue     any
-		wantGrantTypesError     string
+		name                  string
+		scopeOperator         MetadataPolicyOperator
+		grantTypesOperator    MetadataPolicyOperator
+		wantScopePresent      bool
+		wantScopeValue        any
+		wantScopeError        string
+		wantGrantTypesPresent bool
+		wantGrantTypesValue   any
+		wantGrantTypesError   string
 	}{
 		{
 			name: "default sets absent value",

@@ -136,7 +136,7 @@ func (s SubsetOf) CheckForConflict(containsFunc func(policyType reflect.Type) (M
 		sV := p.OperatorValue().([]any)
 		for _, v := range sV {
 			if !slices.Contains(s.operatorValue, v) {
-				return fmt.Errorf("cannot merge policy of type 'subset_of' with policy of type 'superset_of' unless the contents of `superset_of` is a superset of that in 'subset_of'")
+				return fmt.Errorf("cannot merge policy of type 'subset_of' with policy of type 'superset_of' unless the contents of 'subset_of' is a superset of that in 'superset_of'")
 			}
 		}
 	}

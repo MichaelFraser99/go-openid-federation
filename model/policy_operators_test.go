@@ -6,34 +6,23 @@ import (
 	"testing"
 )
 
-func TestPolicyOperators_UnmarshalJSON_OrdersAndValidates(t *testing.T) {
-	tests := map[string]struct {
-		input       string
-		expectError bool
-	}{
-		"default and subset_of":     {input: `{"default": ["a","x"], "subset_of": ["a","b"]}`},
-		"null value with default":   {input: `{"value": null, "default": ["a"]}`, expectError: true},
-		"null value with essential": {input: `{"value": null, "essential": true}`, expectError: true},
+func TestPolicyOperators_UnmarshalJSON_DefersValidationToResolution(t *testing.T) {
+	forbidden := map[string]string{
+		"null value with default":    `{"value": null, "default": ["a"]}`,
+		"null value with essential":  `{"value": null, "essential": true}`,
+		"subset_of with superset_of": `{"subset_of": ["a"], "superset_of": ["b"]}`,
 	}
-	for name, tt := range tests {
+	for name, input := range forbidden {
 		t.Run(name, func(t *testing.T) {
-			for i := 0; i < 100; i++ {
-				var p PolicyOperators
-				err := json.Unmarshal([]byte(tt.input), &p)
-				if tt.expectError {
-					if err == nil {
-						t.Fatal("expected error, got nil")
-					}
-					continue
-				}
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
-				for j := 1; j < len(p.Metadata); j++ {
-					if p.Metadata[j-1].ResolutionHierarchy() > p.Metadata[j].ResolutionHierarchy() {
-						t.Fatalf("operators not sorted by resolution hierarchy")
-					}
-				}
+			var operators PolicyOperators
+			if err := json.Unmarshal([]byte(input), &operators); err != nil {
+				t.Fatalf("expected parsing to accept the policy, got %q", err.Error())
+			}
+
+			policy := MetadataPolicy{OpenIDRelyingPartyMetadata: map[string]PolicyOperators{"grant_types": operators}}
+			chain := []EntityStatement{{}, {MetadataPolicy: &policy}}
+			if _, err := ProcessAndExtractPolicy(chain); err == nil {
+				t.Fatal("expected resolution to reject the policy, got no error")
 			}
 		})
 	}

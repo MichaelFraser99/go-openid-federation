@@ -64,7 +64,27 @@ func sortByPriority(policies []MetadataPolicyOperator) []MetadataPolicyOperator 
 	return policies
 }
 
+func sortAndValidatePolicy(policy *MetadataPolicy) error {
+	if policy == nil {
+		return nil
+	}
+	for _, parameters := range policy.byEntityType() {
+		for _, operators := range parameters {
+			if err := validatePoliciesCanCombine(sortByPriority(operators.Metadata)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func ProcessAndExtractPolicy(trustChain []EntityStatement) (*MetadataPolicy, error) {
+	for i := range trustChain {
+		if err := sortAndValidatePolicy(trustChain[i].MetadataPolicy); err != nil {
+			return nil, err
+		}
+	}
+
 	if len(trustChain) == 1 {
 		return trustChain[0].MetadataPolicy, nil // self-asserting chain of 1
 	}

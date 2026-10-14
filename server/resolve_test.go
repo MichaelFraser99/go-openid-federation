@@ -317,6 +317,21 @@ func TestServer_Resolve(t *testing.T) {
 						Metadata: []model.MetadataPolicyOperator{
 							model_test.NewSupersetOf(t, []any{"foo", "bar"}),
 							model_test.NewSubsetOf(t, []any{"baz", "bing"}),
+						},
+					},
+				},
+			},
+			validate: func(t *testing.T, response *http.Response, err error) {
+				validateErrorResponse(t, response, err, http.StatusBadRequest, "invalid_metadata", "cannot merge policy of type 'subset_of' with policy of type 'superset_of' unless the contents of 'subset_of' is a superset of that in 'superset_of'")
+			},
+		},
+		"essential policy on a missing parameter returns invalid metadata": {
+			requestSub:  validEntityIdentifier,
+			trustAnchor: &validTrustAnchor,
+			trustAnchorPolicy: model.MetadataPolicy{
+				OpenIDRelyingPartyMetadata: map[string]model.PolicyOperators{
+					"missing_parameter": {
+						Metadata: []model.MetadataPolicyOperator{
 							model_test.NewEssential(t, true),
 						},
 					},

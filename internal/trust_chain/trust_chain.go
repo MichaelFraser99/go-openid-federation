@@ -237,7 +237,7 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 	finalisedPolicy, err := model.ProcessAndExtractPolicy(processedChain)
 	if err != nil {
 		cfg.LogInfo(ctx, "failed to process and extract policy", slog.String("error", err.Error()))
-		return nil, fmt.Errorf("failed to process and extract policy: %s", err.Error())
+		return nil, model.NewInvalidMetadataError(err.Error())
 	}
 
 	if finalisedPolicy == nil {

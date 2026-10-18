@@ -17,10 +17,21 @@ import (
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
+type federationNode struct {
+	name string
+
+	notSubordinate bool
+	extraECKey     bool
+}
+
 type trustMarkFederation struct {
 	server *httptest.Server
 	keys   map[string]*rsa.PrivateKey
+	extra  map[string]*rsa.PrivateKey
 	id     map[string]model.EntityIdentifier
+
+	wellKnown map[string]string
+	statement map[string]string
 }
 
 func (f *trustMarkFederation) client() *http.Client {
@@ -48,93 +59,117 @@ func federationSign(t *testing.T, signer crypto.Signer, kid string, body map[str
 	return *token
 }
 
-func newTrustMarkFederation(t *testing.T, issuers ...string) *trustMarkFederation {
+func newTrustMarkFederation(t *testing.T, nodes ...federationNode) *trustMarkFederation {
 	t.Helper()
 
 	fed := &trustMarkFederation{
-		keys: map[string]*rsa.PrivateKey{},
-		id:   map[string]model.EntityIdentifier{},
+		keys:      map[string]*rsa.PrivateKey{},
+		extra:     map[string]*rsa.PrivateKey{},
+		id:        map[string]model.EntityIdentifier{},
+		wellKnown: map[string]string{},
+		statement: map[string]string{},
 	}
 
-	nodes := append([]string{"trust_anchor"}, issuers...)
-	for _, node := range nodes {
+	all := append([]federationNode{{name: "trust_anchor"}}, nodes...)
+	for _, node := range all {
 		key, err := rsa.GenerateKey(rand.Reader, 2048)
 		if err != nil {
-			t.Fatalf("failed to generate key for %q: %v", node, err)
+			t.Fatalf("failed to generate key for %q: %v", node.name, err)
 		}
-		fed.keys[node] = key
-	}
-
-	nodeByIdentifier := func(identifier string) string {
-		for node, id := range fed.id {
-			if string(id) == identifier {
-				return node
+		fed.keys[node.name] = key
+		if node.extraECKey {
+			extra, err := rsa.GenerateKey(rand.Reader, 2048)
+			if err != nil {
+				t.Fatalf("failed to generate extra key for %q: %v", node.name, err)
 			}
+			fed.extra[node.name] = extra
 		}
-		return ""
 	}
 
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := r.URL.Path
+	server := httptest.NewUnstartedServer(nil)
+	base := fmt.Sprintf("https://%s", server.Listener.Addr().String())
+	for _, node := range all {
+		fed.id[node.name] = model.EntityIdentifier(fmt.Sprintf("%s/%s", base, node.name))
+	}
 
-		if strings.HasSuffix(path, "/.well-known/openid-federation") {
-			node := strings.TrimSuffix(strings.TrimPrefix(path, "/"), "/.well-known/openid-federation")
-			key, ok := fed.keys[node]
+	for _, node := range all {
+		key := fed.keys[node.name]
+		ecKeys := []any{federationPublicJwk(t, key.Public(), "test-key")}
+		if extra, ok := fed.extra[node.name]; ok {
+			ecKeys = append(ecKeys, federationPublicJwk(t, extra.Public(), "tm-key"))
+		}
+
+		body := map[string]any{
+			"iss":      string(fed.id[node.name]),
+			"sub":      string(fed.id[node.name]),
+			"iat":      time.Now().UTC().Unix(),
+			"exp":      time.Now().Add(time.Hour).UTC().Unix(),
+			"jwks":     map[string]any{"keys": ecKeys},
+			"metadata": map[string]any{},
+		}
+		if node.name == "trust_anchor" {
+			body["metadata"] = map[string]any{
+				"federation_entity": map[string]any{
+					"federation_fetch_endpoint": fmt.Sprintf("%s/trust_anchor/fetch", base),
+				},
+			}
+		} else {
+			body["authority_hints"] = []string{string(fed.id["trust_anchor"])}
+		}
+		fed.wellKnown[node.name] = federationSign(t, key, "test-key", body)
+
+		if node.name == "trust_anchor" || node.notSubordinate {
+			continue
+		}
+		fed.statement[node.name] = federationSign(t, fed.keys["trust_anchor"], "test-key", map[string]any{
+			"iss":  string(fed.id["trust_anchor"]),
+			"sub":  string(fed.id[node.name]),
+			"iat":  time.Now().UTC().Unix(),
+			"exp":  time.Now().Add(time.Hour).UTC().Unix(),
+			"jwks": map[string]any{"keys": []any{federationPublicJwk(t, fed.keys[node.name].Public(), "test-key")}},
+		})
+	}
+
+	server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/.well-known/openid-federation") {
+			node := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/"), "/.well-known/openid-federation")
+			signed, ok := fed.wellKnown[node]
 			if !ok {
 				http.NotFound(w, r)
 				return
 			}
-
-			body := map[string]any{
-				"iss":      string(fed.id[node]),
-				"sub":      string(fed.id[node]),
-				"iat":      time.Now().UTC().Unix(),
-				"exp":      time.Now().Add(time.Hour).UTC().Unix(),
-				"jwks":     map[string]any{"keys": []any{federationPublicJwk(t, key.Public(), "test-key")}},
-				"metadata": map[string]any{},
-			}
-			if node == "trust_anchor" {
-				body["metadata"] = map[string]any{
-					"federation_entity": map[string]any{
-						"federation_fetch_endpoint": fmt.Sprintf("%s/trust_anchor/fetch", fed.server.URL),
-					},
-				}
-			} else {
-				body["authority_hints"] = []string{string(fed.id["trust_anchor"])}
-			}
-
 			w.Header().Set("Content-Type", "application/entity-statement+jwt")
-			w.Write([]byte(federationSign(t, key, "test-key", body))) //nolint:errcheck
+			w.Write([]byte(signed)) //nolint:errcheck
 			return
 		}
 
-		if path == "/trust_anchor/fetch" {
+		if r.URL.Path == "/trust_anchor/fetch" {
 			subject := r.URL.Query().Get("sub")
-			node := nodeByIdentifier(subject)
-			if node == "" || node == "trust_anchor" {
-				http.NotFound(w, r)
+			for node, id := range fed.id {
+				if string(id) != subject {
+					continue
+				}
+				signed, ok := fed.statement[node]
+				if !ok {
+					http.NotFound(w, r)
+					return
+				}
+				w.Header().Set("Content-Type", "application/entity-statement+jwt")
+				w.Write([]byte(signed)) //nolint:errcheck
 				return
 			}
-			body := map[string]any{
-				"iss":  string(fed.id["trust_anchor"]),
-				"sub":  subject,
-				"iat":  time.Now().UTC().Unix(),
-				"exp":  time.Now().Add(time.Hour).UTC().Unix(),
-				"jwks": map[string]any{"keys": []any{federationPublicJwk(t, fed.keys[node].Public(), "test-key")}},
-			}
-			w.Header().Set("Content-Type", "application/entity-statement+jwt")
-			w.Write([]byte(federationSign(t, fed.keys["trust_anchor"], "test-key", body))) //nolint:errcheck
+			http.NotFound(w, r)
 			return
 		}
 
 		http.NotFound(w, r)
 	})
+	server.StartTLS()
+	t.Cleanup(server.Close)
+	fed.server = server
 
-	fed.server = httptest.NewTLSServer(handler)
-	t.Cleanup(fed.server.Close)
-
-	for _, node := range nodes {
-		fed.id[node] = model.EntityIdentifier(fmt.Sprintf("%s/%s", fed.server.URL, node))
+	if server.URL != base {
+		t.Fatalf("expected the served base URL to stay %q, got %q", base, server.URL)
 	}
 	return fed
 }
@@ -157,7 +192,10 @@ func federationTrustMark(t *testing.T, signer crypto.Signer, kid, iss, trustMark
 }
 
 func TestFilterByTrusted_AppliesTrustMarkValidationRules(t *testing.T) {
-	fed := newTrustMarkFederation(t, "issuer", "rogue")
+	fed := newTrustMarkFederation(t,
+		federationNode{name: "issuer", extraECKey: true},
+		federationNode{name: "stranger", notSubordinate: true},
+	)
 
 	const (
 		subject       = model.EntityIdentifier("https://subject.example.com")
@@ -168,7 +206,9 @@ func TestFilterByTrusted_AppliesTrustMarkValidationRules(t *testing.T) {
 	)
 
 	issuerKey, issuerID := fed.keys["issuer"], fed.id["issuer"]
-	rogueKey := fed.keys["rogue"]
+	issuerTrustMarkKey := fed.extra["issuer"]
+	strangerKey, strangerID := fed.keys["stranger"], fed.id["stranger"]
+	anchorKey, anchorID := fed.keys["trust_anchor"], fed.id["trust_anchor"]
 
 	tests := []struct {
 		name          string
@@ -188,7 +228,37 @@ func TestFilterByTrusted_AppliesTrustMarkValidationRules(t *testing.T) {
 			expectKept:    true,
 		},
 		{
-			name: "an empty issuer list lets any issuer with a trust chain issue",
+			name: "a key published only in the issuer's entity configuration is accepted",
+			holder: model.TrustMarkHolder{
+				TrustMarkType: accreditedTM,
+				TrustMark:     federationTrustMark(t, issuerTrustMarkKey, "tm-key", string(issuerID), accreditedTM, string(subject)),
+			},
+			trustMarkType: accreditedTM,
+			issuers:       []model.EntityIdentifier{issuerID},
+			expectKept:    true,
+		},
+		{
+			name: "an issuer with no subordinate statement from the trust anchor is dropped",
+			holder: model.TrustMarkHolder{
+				TrustMarkType: accreditedTM,
+				TrustMark:     federationTrustMark(t, strangerKey, "test-key", string(strangerID), accreditedTM, string(subject)),
+			},
+			trustMarkType: accreditedTM,
+			issuers:       []model.EntityIdentifier{strangerID},
+			expectKept:    false,
+		},
+		{
+			name: "the trust anchor may issue trust marks about a subject itself",
+			holder: model.TrustMarkHolder{
+				TrustMarkType: accreditedTM,
+				TrustMark:     federationTrustMark(t, anchorKey, "test-key", string(anchorID), accreditedTM, string(subject)),
+			},
+			trustMarkType: accreditedTM,
+			issuers:       []model.EntityIdentifier{anchorID},
+			expectKept:    true,
+		},
+		{
+			name: "an empty issuer list lets any federation member issue",
 			holder: model.TrustMarkHolder{
 				TrustMarkType: openTrustMark,
 				TrustMark:     federationTrustMark(t, issuerKey, "test-key", string(issuerID), openTrustMark, string(subject)),
@@ -196,6 +266,16 @@ func TestFilterByTrusted_AppliesTrustMarkValidationRules(t *testing.T) {
 			trustMarkType: openTrustMark,
 			issuers:       []model.EntityIdentifier{},
 			expectKept:    true,
+		},
+		{
+			name: "an empty issuer list still requires federation membership",
+			holder: model.TrustMarkHolder{
+				TrustMarkType: openTrustMark,
+				TrustMark:     federationTrustMark(t, strangerKey, "test-key", string(strangerID), openTrustMark, string(subject)),
+			},
+			trustMarkType: openTrustMark,
+			issuers:       []model.EntityIdentifier{},
+			expectKept:    false,
 		},
 		{
 			name: "a trust mark issued to another subject is dropped",
@@ -227,16 +307,6 @@ func TestFilterByTrusted_AppliesTrustMarkValidationRules(t *testing.T) {
 			issuers:       []model.EntityIdentifier{issuerID},
 			expectKept:    false,
 		},
-		{
-			name: "an issuer outside the federation is dropped for an open type",
-			holder: model.TrustMarkHolder{
-				TrustMarkType: openTrustMark,
-				TrustMark:     federationTrustMark(t, rogueKey, "test-key", "https://rogue.example.net", openTrustMark, string(subject)),
-			},
-			trustMarkType: openTrustMark,
-			issuers:       []model.EntityIdentifier{},
-			expectKept:    false,
-		},
 	}
 
 	for _, tc := range tests {
@@ -247,7 +317,8 @@ func TestFilterByTrusted_AppliesTrustMarkValidationRules(t *testing.T) {
 				TrustMarks: []model.TrustMarkHolder{tc.holder},
 			}
 			trustAnchorConfiguration := model.EntityStatement{
-				Sub:              fed.id["trust_anchor"],
+				Sub:              anchorID,
+				JWKs:             josemodel.Jwks{Keys: []map[string]any{federationPublicJwk(t, anchorKey.Public(), "test-key")}},
 				TrustMarkIssuers: map[string][]model.EntityIdentifier{tc.trustMarkType: tc.issuers},
 			}
 
@@ -262,4 +333,105 @@ func TestFilterByTrusted_AppliesTrustMarkValidationRules(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFilterByTrusted_EstablishesTrustInEachIssuerOnce(t *testing.T) {
+	fed := newTrustMarkFederation(t, federationNode{name: "issuer"})
+
+	const (
+		subject      = model.EntityIdentifier("https://subject.example.com")
+		accreditedTM = "https://tm.employer.example/accredited"
+	)
+
+	issuerKey, issuerID := fed.keys["issuer"], fed.id["issuer"]
+
+	var fetches int
+	counting := fed.client()
+	counting.Transport = &countingTransport{inner: counting.Transport, path: "/trust_anchor/fetch", count: &fetches}
+
+	marks := make([]model.TrustMarkHolder, 0, 20)
+	for range 20 {
+		marks = append(marks, model.TrustMarkHolder{
+			TrustMarkType: accreditedTM,
+			TrustMark:     federationTrustMark(t, issuerKey, "test-key", string(issuerID), accreditedTM, string(subject)),
+		})
+	}
+
+	resolved := &model.ResolveResponse{
+		Sub:        subject,
+		Exp:        time.Now().Add(24 * time.Hour).UTC().Unix(),
+		TrustMarks: marks,
+	}
+	trustAnchorConfiguration := model.EntityStatement{
+		Sub:              fed.id["trust_anchor"],
+		TrustMarkIssuers: map[string][]model.EntityIdentifier{accreditedTM: {issuerID}},
+	}
+
+	cfg := model.Configuration{HttpClient: counting}
+	if err := FilterByTrusted(t.Context(), cfg, resolved, trustAnchorConfiguration, nil); err != nil {
+		t.Fatalf("expected no error from filtering, got %v", err)
+	}
+
+	if len(resolved.TrustMarks) != 20 {
+		t.Fatalf("expected all 20 trust marks to be kept, got %d", len(resolved.TrustMarks))
+	}
+	if fetches != 1 {
+		t.Errorf("expected one subordinate statement fetch for one issuer, got %d", fetches)
+	}
+}
+
+func TestFilterByTrusted_BoundsDistinctIssuersPerSubject(t *testing.T) {
+	fed := newTrustMarkFederation(t, federationNode{name: "issuer"})
+
+	const (
+		subject       = model.EntityIdentifier("https://subject.example.com")
+		openTrustMark = "https://tm.example.com/open"
+	)
+
+	var fetches int
+	counting := fed.client()
+	counting.Transport = &countingTransport{inner: counting.Transport, path: "/.well-known/openid-federation", count: &fetches}
+
+	marks := make([]model.TrustMarkHolder, 0, MaxTrustMarkIssuersPerResolve*3)
+	for i := range MaxTrustMarkIssuersPerResolve * 3 {
+		marks = append(marks, model.TrustMarkHolder{
+			TrustMarkType: openTrustMark,
+			TrustMark:     federationTrustMark(t, fed.keys["issuer"], "test-key", fmt.Sprintf("https://attacker-%d.example.com", i), openTrustMark, string(subject)),
+		})
+	}
+
+	resolved := &model.ResolveResponse{
+		Sub:        subject,
+		Exp:        time.Now().Add(24 * time.Hour).UTC().Unix(),
+		TrustMarks: marks,
+	}
+	trustAnchorConfiguration := model.EntityStatement{
+		Sub:              fed.id["trust_anchor"],
+		TrustMarkIssuers: map[string][]model.EntityIdentifier{openTrustMark: {}},
+	}
+
+	cfg := model.Configuration{HttpClient: counting}
+	if err := FilterByTrusted(t.Context(), cfg, resolved, trustAnchorConfiguration, nil); err != nil {
+		t.Fatalf("expected no error from filtering, got %v", err)
+	}
+
+	if len(resolved.TrustMarks) != 0 {
+		t.Errorf("expected every unreachable issuer to be dropped, got %d trust marks", len(resolved.TrustMarks))
+	}
+	if fetches > MaxTrustMarkIssuersPerResolve {
+		t.Errorf("expected at most %d issuer lookups for one subject, got %d", MaxTrustMarkIssuersPerResolve, fetches)
+	}
+}
+
+type countingTransport struct {
+	inner http.RoundTripper
+	path  string
+	count *int
+}
+
+func (c *countingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if strings.HasSuffix(r.URL.Path, c.path) {
+		*c.count++
+	}
+	return c.inner.RoundTrip(r)
 }

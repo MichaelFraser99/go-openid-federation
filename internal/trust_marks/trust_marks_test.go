@@ -7,6 +7,7 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/MichaelFraser99/go-jose/jwt"
@@ -351,6 +352,7 @@ func TestValidate(t *testing.T) {
 	tests := map[string]struct {
 		setupTest func() (trustMark string, authorizedIssuers []model.EntityIdentifier, cfg model.Configuration)
 		validate  func(t *testing.T, result *model.TrustMark, err error)
+		expectErr string
 	}{
 		"validates trust mark with invalid JWT structure - too few parts": {
 			setupTest: func() (string, []model.EntityIdentifier, model.Configuration) {
@@ -364,50 +366,34 @@ func TestValidate(t *testing.T) {
 		},
 		"fails validation when JWT body is not valid base64": {
 			setupTest: func() (string, []model.EntityIdentifier, model.Configuration) {
-				head := base64.RawURLEncoding.EncodeToString([]byte(`{"typ":"trust-mark+jwt"}`))
+				head := base64.RawURLEncoding.EncodeToString([]byte(`{"typ":"trust-mark+jwt","kid":"test-key"}`))
 				return head + ".invalid-base64!@#.signature", []model.EntityIdentifier{"https://issuer.example.com"}, model.Configuration{}
 			},
-			validate: func(t *testing.T, result *model.TrustMark, err error) {
-				if err == nil {
-					t.Fatal("expected error for invalid base64 body, got nil")
-				}
-			},
+			expectErr: "failed to decode JWT body",
 		},
 		"fails validation when JWT body is not valid JSON": {
 			setupTest: func() (string, []model.EntityIdentifier, model.Configuration) {
-				head := base64.RawURLEncoding.EncodeToString([]byte(`{"typ":"trust-mark+jwt"}`))
+				head := base64.RawURLEncoding.EncodeToString([]byte(`{"typ":"trust-mark+jwt","kid":"test-key"}`))
 				body := base64.RawURLEncoding.EncodeToString([]byte("not valid json"))
 				return head + "." + body + ".signature", []model.EntityIdentifier{"https://issuer.example.com"}, model.Configuration{}
 			},
-			validate: func(t *testing.T, result *model.TrustMark, err error) {
-				if err == nil {
-					t.Fatal("expected error for invalid JSON body, got nil")
-				}
-			},
+			expectErr: "failed to unmarshal JWT body",
 		},
 		"fails validation when issuer claim is missing": {
 			setupTest: func() (string, []model.EntityIdentifier, model.Configuration) {
-				head := base64.RawURLEncoding.EncodeToString([]byte(`{"typ":"trust-mark+jwt"}`))
+				head := base64.RawURLEncoding.EncodeToString([]byte(`{"typ":"trust-mark+jwt","kid":"test-key"}`))
 				body := base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"https://entity.example.com"}`))
 				return head + "." + body + ".signature", []model.EntityIdentifier{"https://issuer.example.com"}, model.Configuration{}
 			},
-			validate: func(t *testing.T, result *model.TrustMark, err error) {
-				if err == nil {
-					t.Fatal("expected error for missing issuer, got nil")
-				}
-			},
+			expectErr: "missing or invalid required field 'iss'",
 		},
 		"fails validation when issuer is not a valid entity identifier": {
 			setupTest: func() (string, []model.EntityIdentifier, model.Configuration) {
-				head := base64.RawURLEncoding.EncodeToString([]byte(`{"typ":"trust-mark+jwt"}`))
-				body := base64.RawURLEncoding.EncodeToString([]byte(`{"iss":"not a valid url","sub":"https://entity.example.com"}`))
+				head := base64.RawURLEncoding.EncodeToString([]byte(`{"typ":"trust-mark+jwt","kid":"test-key"}`))
+				body := base64.RawURLEncoding.EncodeToString([]byte(`{"iss":"not a valid url","sub":"https://entity.example.com","trust_mark_type":"https://tm.example.com/a","iat":1}`))
 				return head + "." + body + ".signature", []model.EntityIdentifier{"https://issuer.example.com"}, model.Configuration{}
 			},
-			validate: func(t *testing.T, result *model.TrustMark, err error) {
-				if err == nil {
-					t.Fatal("expected error for invalid entity identifier, got nil")
-				}
-			},
+			expectErr: "invalid trust mark issuer",
 		},
 		"fails validation when issuer is not in authorized list": {
 			setupTest: func() (string, []model.EntityIdentifier, model.Configuration) {
@@ -428,6 +414,15 @@ func TestValidate(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			trustMark, authorizedIssuers, cfg := tt.setupTest()
 			result, err := Validate(context.Background(), cfg, trustMark, ValidateOptions{AuthorizedIssuers: authorizedIssuers}, nil)
+			if tt.expectErr != "" {
+				if err == nil {
+					t.Fatalf("expected an error containing %q, got trust mark %v", tt.expectErr, result)
+				}
+				if !strings.Contains(err.Error(), tt.expectErr) {
+					t.Fatalf("expected an error containing %q, got %v", tt.expectErr, err)
+				}
+				return
+			}
 			tt.validate(t, result, err)
 		})
 	}
@@ -481,7 +476,7 @@ func createTrustMarkJWTWithExp(t *testing.T, issuer, trustMarkType, sub string, 
 }
 
 func TestFilterByTrusted(t *testing.T) {
-	fed := newTrustMarkFederation(t, "issuer1", "issuer2")
+	fed := newTrustMarkFederation(t, federationNode{name: "issuer1"}, federationNode{name: "issuer2"})
 
 	issuer1Key, issuer2Key := fed.keys["issuer1"], fed.keys["issuer2"]
 	issuer1ID, issuer2ID := fed.id["issuer1"], fed.id["issuer2"]

@@ -61,17 +61,50 @@ func Issue(ctx context.Context, cfg model.ServerConfiguration, trustMarkIdentifi
 	return trustMark, nil
 }
 
+const MaxTrustMarkIssuersPerResolve = 20
+
 type ValidateOptions struct {
 	ExpectedType             string
 	ExpectedSubject          model.EntityIdentifier
 	AuthorizedIssuers        []model.EntityIdentifier
 	TrustAnchor              model.EntityIdentifier
 	TrustAnchorConfiguration model.EntityStatement
+
+	issuerKeys *issuerKeyCache
+}
+
+type issuerKeyResult struct {
+	keys *josemodel.Jwks
+	err  error
+}
+
+type issuerKeyCache struct {
+	results map[model.EntityIdentifier]issuerKeyResult
+}
+
+func newIssuerKeyCache() *issuerKeyCache {
+	return &issuerKeyCache{results: map[model.EntityIdentifier]issuerKeyResult{}}
+}
+
+func (c *issuerKeyCache) lookup(issuer model.EntityIdentifier, resolve func() (*josemodel.Jwks, error)) (*josemodel.Jwks, error) {
+	if c == nil {
+		return resolve()
+	}
+	if result, known := c.results[issuer]; known {
+		return result.keys, result.err
+	}
+	if len(c.results) >= MaxTrustMarkIssuersPerResolve {
+		return nil, fmt.Errorf("refusing to establish trust in more than %d distinct trust mark issuers for one subject", MaxTrustMarkIssuersPerResolve)
+	}
+	keys, err := resolve()
+	c.results[issuer] = issuerKeyResult{keys: keys, err: err}
+	return keys, err
 }
 
 func FilterByTrusted(ctx context.Context, cfg model.Configuration, resolved *model.ResolveResponse, trustAnchorConfiguration model.EntityStatement, cache *resolvecache.Cache) error {
 	cfg.LogInfo(ctx, "filtering trust marks by those trusted by the trust anchor")
 
+	issuerKeys := newIssuerKeyCache()
 	trustedTrustMarks := make([]model.TrustMarkHolder, 0, len(resolved.TrustMarks))
 	for _, tm := range resolved.TrustMarks {
 		authorizedIssuers, trusted := trustAnchorConfiguration.TrustMarkIssuers[tm.TrustMarkType]
@@ -86,6 +119,7 @@ func FilterByTrusted(ctx context.Context, cfg model.Configuration, resolved *mod
 			AuthorizedIssuers:        authorizedIssuers,
 			TrustAnchor:              trustAnchorConfiguration.Sub,
 			TrustAnchorConfiguration: trustAnchorConfiguration,
+			issuerKeys:               issuerKeys,
 		}, cache)
 		if err != nil {
 			cfg.LogInfo(ctx, "failed to validate trust mark", slog.String("trust_mark_type", tm.TrustMarkType), slog.String("trust_mark", tm.TrustMark), slog.String("error", err.Error()))
@@ -102,18 +136,19 @@ func FilterByTrusted(ctx context.Context, cfg model.Configuration, resolved *mod
 }
 
 func issuerFederationKeys(ctx context.Context, cfg model.Configuration, issuer model.EntityIdentifier, opts ValidateOptions, cache *resolvecache.Cache) (*josemodel.Jwks, error) {
-	if issuer == opts.TrustAnchor {
-		return &opts.TrustAnchorConfiguration.JWKs, nil
-	}
+	return opts.issuerKeys.lookup(issuer, func() (*josemodel.Jwks, error) {
+		if issuer == opts.TrustAnchor {
+			jwks := opts.TrustAnchorConfiguration.JWKs
+			return &jwks, nil
+		}
 
-	_, parsedChain, _, err := trust_chain.BuildTrustChain(ctx, cfg, issuer, opts.TrustAnchor, cache)
-	if err != nil {
-		return nil, fmt.Errorf("unable to establish trust in trust mark issuer %s through trust anchor %s: %s", issuer, opts.TrustAnchor, err.Error())
-	}
-	if len(parsedChain) < 2 {
-		return nil, fmt.Errorf("trust chain for trust mark issuer %s contains no subordinate statement", issuer)
-	}
-	return &parsedChain[1].JWKs, nil
+		_, parsedChain, _, err := trust_chain.BuildTrustChain(ctx, cfg, issuer, opts.TrustAnchor, cache)
+		if err != nil {
+			return nil, fmt.Errorf("unable to establish trust in trust mark issuer %s through trust anchor %s: %s", issuer, opts.TrustAnchor, err.Error())
+		}
+		jwks := parsedChain[0].JWKs
+		return &jwks, nil
+	})
 }
 
 // todo: validate the delegation claim against trust_mark_owners

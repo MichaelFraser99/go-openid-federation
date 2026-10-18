@@ -206,7 +206,7 @@ func TestChainUpOne(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			cfg := model.Configuration{}
-			signed, path, _, err := ChainUpOne(t.Context(), cfg, tt.subject, tt.target, tt.checked, tt.path, tt.signed, nil, map[model.EntityIdentifier]struct{}{})
+			signed, path, _, err := ChainUpOne(t.Context(), cfg, tt.subject, tt.target, tt.checked, tt.path, tt.signed, nil, map[DeadEnd]struct{}{})
 			tt.validate(t, signed, path, err)
 		})
 	}

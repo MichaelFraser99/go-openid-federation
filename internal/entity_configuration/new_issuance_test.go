@@ -55,6 +55,17 @@ func issuanceSigner(t *testing.T) (model.SignerConfiguration, map[string]any) {
 	}, *publicJWK
 }
 
+func signerPublicJwk(t *testing.T, signerConfiguration model.SignerConfiguration) map[string]any {
+	t.Helper()
+	publicJWK, err := jwk.PublicJwk(signerConfiguration.Signer.Public())
+	if err != nil {
+		t.Fatalf("failed to create public jwk: %v", err)
+	}
+	(*publicJWK)["kid"] = signerConfiguration.KeyID
+	(*publicJWK)["alg"] = signerConfiguration.Algorithm
+	return *publicJWK
+}
+
 func issuedClaims(t *testing.T, token string) map[string]any {
 	t.Helper()
 	parts := strings.Split(token, ".")
@@ -177,6 +188,39 @@ func TestNew_IssuesConformingEntityConfigurations(t *testing.T) {
 			expectErr: true,
 		},
 		{
+			name: "configured signing key declaring another algorithm is rejected",
+			configure: func(t *testing.T, cfg *model.ServerConfiguration) {
+				signing := signerPublicJwk(t, cfg.SignerConfiguration)
+				signing["alg"] = "ES512"
+				cfg.EntityConfiguration.JWKs.Keys = []map[string]any{signing}
+			},
+			expectErr: true,
+		},
+		{
+			name: "configured signing key declaring a non-signing use is rejected",
+			configure: func(t *testing.T, cfg *model.ServerConfiguration) {
+				signing := signerPublicJwk(t, cfg.SignerConfiguration)
+				signing["use"] = "enc"
+				cfg.EntityConfiguration.JWKs.Keys = []map[string]any{signing}
+			},
+			expectErr: true,
+		},
+		{
+			name: "configured signing key agreeing on algorithm and use is accepted",
+			configure: func(t *testing.T, cfg *model.ServerConfiguration) {
+				signing := signerPublicJwk(t, cfg.SignerConfiguration)
+				signing["use"] = "sig"
+				cfg.EntityConfiguration.JWKs.Keys = []map[string]any{signing}
+			},
+			validate: func(t *testing.T, claims map[string]any) {
+				jwks := claims["jwks"].(map[string]any)
+				keys := jwks["keys"].([]any)
+				if len(keys) != 1 {
+					t.Errorf("expected the signing key not to be published twice, got %d keys", len(keys))
+				}
+			},
+		},
+		{
 			name: "nil trust mark issuer list is published as an empty array",
 			configure: func(_ *testing.T, cfg *model.ServerConfiguration) {
 				cfg.TrustMarkIssuerRetriever = issuanceTrustMarkIssuerRetriever{
@@ -229,6 +273,9 @@ func TestNew_DoesNotMutateTheSuppliedConfiguration(t *testing.T) {
 
 	signerConfiguration, _ := issuanceSigner(t)
 	federationMetadata := model.FederationMetadata{"organization_name": "Example"}
+	_, spareKey := issuanceSigner(t)
+	callerKeys := make([]map[string]any, 1, 8)
+	callerKeys[0] = spareKey
 	cfg := model.ServerConfiguration{
 		EntityIdentifier:            identifier,
 		SignerConfiguration:         signerConfiguration,
@@ -236,6 +283,7 @@ func TestNew_DoesNotMutateTheSuppliedConfiguration(t *testing.T) {
 		IntermediateConfiguration:   &model.IntermediateConfiguration{},
 		EntityConfiguration: model.EntityStatement{
 			Metadata: &model.Metadata{FederationMetadata: &federationMetadata},
+			JWKs:     josemodel.Jwks{Keys: callerKeys},
 		},
 	}
 
@@ -262,7 +310,10 @@ func TestNew_DoesNotMutateTheSuppliedConfiguration(t *testing.T) {
 	if _, present := federationMetadata["federation_fetch_endpoint"]; present {
 		t.Errorf("expected no endpoints written into the caller's map, got %v", federationMetadata)
 	}
-	if len(cfg.EntityConfiguration.JWKs.Keys) != 0 {
+	if len(cfg.EntityConfiguration.JWKs.Keys) != 1 {
 		t.Errorf("expected the caller's jwks to be untouched, got %d keys", len(cfg.EntityConfiguration.JWKs.Keys))
+	}
+	if extra := callerKeys[:cap(callerKeys)][1]; extra != nil {
+		t.Errorf("expected nothing written into the caller's spare slice capacity, got %v", extra)
 	}
 }

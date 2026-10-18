@@ -235,7 +235,7 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 		federationMetadata["federation_trust_mark_endpoint"] = trimmed + "/trust-mark"
 	}
 
-	if len(federationMetadata) > 0 {
+	if len(federationMetadata) > 0 || metadata.FederationMetadata != nil {
 		metadata.FederationMetadata = &federationMetadata
 	}
 	if cfg.EntityConfiguration.Metadata != nil || len(federationMetadata) > 0 {
@@ -273,8 +273,8 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 	}
 
 	if existing, _ := jwks.RetrieveByKeyID(cfg.SignerConfiguration.KeyID); existing != nil {
-		if !publicParametersMatch(existing, *publicJWK) {
-			return nil, fmt.Errorf("a configured jwk uses the signing key ID %q but holds different key material, so the issued statement could not be verified", cfg.SignerConfiguration.KeyID)
+		if err := publishedKeyUsableForSigning(existing, *publicJWK); err != nil {
+			return nil, fmt.Errorf("a configured jwk uses the signing key ID %q but %s, so the issued statement could not be verified", cfg.SignerConfiguration.KeyID, err.Error())
 		}
 	} else {
 		jwks.Keys = append(jwks.Keys, *publicJWK)
@@ -294,8 +294,8 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 			(*apkJWK)["alg"] = signerConfiguration.Algorithm
 
 			if existing, _ := jwks.RetrieveByKeyID(signerConfiguration.KeyID); existing != nil {
-				if !publicParametersMatch(existing, *apkJWK) {
-					return nil, fmt.Errorf("subordinate signer key ID %q is already published with different key material, so statements signed with it could not be verified", signerConfiguration.KeyID)
+				if err := publishedKeyUsableForSigning(existing, *apkJWK); err != nil {
+					return nil, fmt.Errorf("subordinate signer key ID %q is already published but %s, so statements signed with it could not be verified", signerConfiguration.KeyID, err.Error())
 				}
 				continue
 			}
@@ -340,11 +340,21 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 	}, entityConfigurationMap, jwt.Opts{Algorithm: josemodel.GetAlgorithm(cfg.SignerConfiguration.Algorithm)})
 }
 
-func publicParametersMatch(a, b map[string]any) bool {
+func publishedKeyUsableForSigning(existing, intended map[string]any) error {
 	for _, claim := range []string{"kty", "crv", "x", "y", "n", "e"} {
-		if a[claim] != b[claim] {
-			return false
+		if existing[claim] != intended[claim] {
+			return fmt.Errorf("holds different key material")
 		}
 	}
-	return true
+	if use, present := existing["use"]; present {
+		if sUse, ok := use.(string); !ok || sUse != "sig" {
+			return fmt.Errorf("declares a 'use' of %v rather than \"sig\"", use)
+		}
+	}
+	if alg, present := existing["alg"]; present {
+		if alg != intended["alg"] {
+			return fmt.Errorf("declares an 'alg' of %v rather than %v", alg, intended["alg"])
+		}
+	}
+	return nil
 }

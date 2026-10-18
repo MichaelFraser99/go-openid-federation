@@ -413,7 +413,11 @@ func TestValidate(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			trustMark, authorizedIssuers, cfg := tt.setupTest()
-			result, err := Validate(context.Background(), cfg, trustMark, ValidateOptions{AuthorizedIssuers: authorizedIssuers}, nil)
+			result, err := Validate(context.Background(), cfg, trustMark, ValidateOptions{
+				ExpectedType:      "tm-123",
+				ExpectedSubject:   "https://entity.example.com",
+				AuthorizedIssuers: authorizedIssuers,
+			}, nil)
 			if tt.expectErr != "" {
 				if err == nil {
 					t.Fatalf("expected an error containing %q, got trust mark %v", tt.expectErr, result)

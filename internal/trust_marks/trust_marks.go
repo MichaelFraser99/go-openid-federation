@@ -13,6 +13,7 @@ import (
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
+	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
 	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
 	"github.com/MichaelFraser99/go-openid-federation/internal/trust_chain"
 	"github.com/MichaelFraser99/go-openid-federation/model"
@@ -73,6 +74,15 @@ type ValidateOptions struct {
 	issuerKeys *issuerKeyCache
 }
 
+func trustMarkTypeIsOwned(trustMarkOwners any, trustMarkType string) bool {
+	owners, ok := trustMarkOwners.(map[string]any)
+	if !ok {
+		return false
+	}
+	_, owned := owners[trustMarkType]
+	return owned
+}
+
 type issuerKeyResult struct {
 	keys *josemodel.Jwks
 	err  error
@@ -110,6 +120,11 @@ func FilterByTrusted(ctx context.Context, cfg model.Configuration, resolved *mod
 		authorizedIssuers, trusted := trustAnchorConfiguration.TrustMarkIssuers[tm.TrustMarkType]
 		if !trusted {
 			cfg.LogInfo(ctx, "trust mark type is not trusted by the trust anchor, omitting", slog.String("trust_mark_type", tm.TrustMarkType))
+			continue
+		}
+
+		if len(authorizedIssuers) == 0 && trustMarkTypeIsOwned(trustAnchorConfiguration.TrustMarkOwners, tm.TrustMarkType) {
+			cfg.LogInfo(ctx, "trust mark type is owned, so an unrestricted issuer list requires a delegation this library cannot yet validate, omitting", slog.String("trust_mark_type", tm.TrustMarkType))
 			continue
 		}
 
@@ -154,6 +169,13 @@ func issuerFederationKeys(ctx context.Context, cfg model.Configuration, issuer m
 // todo: validate the delegation claim against trust_mark_owners
 func Validate(ctx context.Context, cfg model.Configuration, trustMark string, opts ValidateOptions, cache *resolvecache.Cache) (*model.TrustMark, error) {
 	cfg.LogInfo(ctx, "validating trust mark", slog.String("trust_mark", trustMark))
+
+	if opts.ExpectedType == "" {
+		return nil, fmt.Errorf("an expected trust mark type must be supplied to validate a trust mark")
+	}
+	if opts.ExpectedSubject == "" {
+		return nil, fmt.Errorf("an expected trust mark subject must be supplied to validate a trust mark")
+	}
 
 	parts := strings.Split(trustMark, ".")
 	if len(parts) != 3 {
@@ -200,12 +222,12 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 		return nil, fmt.Errorf("invalid trust mark issuer: %v", err)
 	}
 
-	if opts.ExpectedType != "" && body.Type != opts.ExpectedType {
+	if body.Type != opts.ExpectedType {
 		cfg.LogError(ctx, "trust mark type does not match the type it is presented under", slog.String("signed_type", body.Type), slog.String("presented_type", opts.ExpectedType))
 		return nil, fmt.Errorf("trust mark type %q does not match the signed trust_mark_type %q", opts.ExpectedType, body.Type)
 	}
 
-	if opts.ExpectedSubject != "" && body.Sub != string(opts.ExpectedSubject) {
+	if body.Sub != string(opts.ExpectedSubject) {
 		cfg.LogError(ctx, "trust mark subject does not match the resolved subject", slog.String("trust_mark_sub", body.Sub), slog.String("expected_sub", string(opts.ExpectedSubject)))
 		return nil, fmt.Errorf("trust mark subject %q does not match the entity presenting it %q", body.Sub, opts.ExpectedSubject)
 	}
@@ -221,10 +243,10 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 		return nil, err
 	}
 
-	selectedKey, err := issuerKeys.RetrieveByKeyID(kid)
+	selectedKey, err := entity_statement.SelectKey(*issuerKeys, kid)
 	if err != nil {
-		cfg.LogError(ctx, "trust mark kid does not match a key published for the issuer", slog.String("kid", kid), slog.String("issuer", string(*parsedIssuer)))
-		return nil, fmt.Errorf("trust mark 'kid' %q does not match a federation entity key registered for issuer %s", kid, *parsedIssuer)
+		cfg.LogError(ctx, "trust mark kid does not match a key published for the issuer", slog.String("kid", kid), slog.String("issuer", string(*parsedIssuer)), slog.String("error", err.Error()))
+		return nil, fmt.Errorf("trust mark 'kid' %q does not match a federation entity key published by issuer %s: %s", kid, *parsedIssuer, err.Error())
 	}
 
 	head, _, err := jwt.Validate(trustMark, func() ([]crypto.PublicKey, error) {

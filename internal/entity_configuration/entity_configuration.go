@@ -9,7 +9,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"slices"
 	"strings"
 	"time"
 
@@ -192,34 +191,56 @@ func Validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 
 // New takes a given configuration struct and produces a signed Entity Configuration
 func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
-	cfg.EntityConfiguration.Sub = cfg.EntityIdentifier
-	cfg.EntityConfiguration.Iss = cfg.EntityIdentifier
-	cfg.EntityConfiguration.AuthorityHints = cfg.AuthorityHints
-	cfg.EntityConfiguration.TrustMarks = cfg.TrustMarks
-	cfg.EntityConfiguration.Iat = time.Now().UTC().Unix()
-	cfg.EntityConfiguration.Exp = time.Now().Add(cfg.EntityConfigurationLifetime).UTC().Unix()
+	entityConfiguration := cfg.EntityConfiguration
+	entityConfiguration.Sub = cfg.EntityIdentifier
+	entityConfiguration.Iss = cfg.EntityIdentifier
+	entityConfiguration.AuthorityHints = cfg.AuthorityHints
+	entityConfiguration.TrustMarks = cfg.TrustMarks
+	entityConfiguration.Iat = time.Now().UTC().Unix()
+	entityConfiguration.Exp = time.Now().Add(cfg.EntityConfigurationLifetime).UTC().Unix()
+	entityConfiguration.MetadataPolicy = nil
+	entityConfiguration.Constraints = nil
+	entityConfiguration.MetadataPolicyCrit = nil
+	entityConfiguration.SourceEndpoint = nil
+
+	metadata := model.Metadata{}
+	if cfg.EntityConfiguration.Metadata != nil {
+		metadata = *cfg.EntityConfiguration.Metadata
+	}
+
+	federationMetadata := model.FederationMetadata{}
+	if metadata.FederationMetadata != nil {
+		for claim, value := range *metadata.FederationMetadata {
+			federationMetadata[claim] = value
+		}
+	}
 
 	trimmed := strings.TrimSuffix(string(cfg.EntityIdentifier), "/")
 
-	if cfg.IntermediateConfiguration != nil { //if the entity can in theory issue subordinate statements, then we need to include the subordinate cfg
-		if cfg.EntityConfiguration.Metadata == nil || cfg.EntityConfiguration.Metadata.FederationMetadata == nil {
-			cfg.EntityConfiguration.Metadata = &model.Metadata{FederationMetadata: &model.FederationMetadata{}}
-		}
-		(*cfg.EntityConfiguration.Metadata.FederationMetadata)["federation_fetch_endpoint"] = trimmed + "/fetch"
-		(*cfg.EntityConfiguration.Metadata.FederationMetadata)["federation_list_endpoint"] = trimmed + "/list"
-		(*cfg.EntityConfiguration.Metadata.FederationMetadata)["federation_resolve_endpoint"] = trimmed + "/resolve"
+	if cfg.IntermediateConfiguration != nil {
+		federationMetadata["federation_fetch_endpoint"] = trimmed + "/fetch"
+		federationMetadata["federation_list_endpoint"] = trimmed + "/list"
+		federationMetadata["federation_resolve_endpoint"] = trimmed + "/resolve"
 		if cfg.Extensions.ExtendedListing.Enabled {
-			(*cfg.EntityConfiguration.Metadata.FederationMetadata)["federation_extended_list_endpoint"] = trimmed + "/extended-list"
+			federationMetadata["federation_extended_list_endpoint"] = trimmed + "/extended-list"
+		}
+		if cfg.Extensions.SubordinateStatus.Enabled {
+			federationMetadata["federation_subordinate_events_endpoint"] = trimmed + "/subordinate-status"
 		}
 	}
 
 	if cfg.TrustMarkRetriever != nil {
-		(*cfg.EntityConfiguration.Metadata.FederationMetadata)["federation_trust_mark_status_endpoint"] = trimmed + "/trust-mark-status"
-		(*cfg.EntityConfiguration.Metadata.FederationMetadata)["federation_trust_mark_list_endpoint"] = trimmed + "/trust-mark-list"
-		(*cfg.EntityConfiguration.Metadata.FederationMetadata)["federation_trust_mark_endpoint"] = trimmed + "/trust-mark"
+		federationMetadata["federation_trust_mark_status_endpoint"] = trimmed + "/trust-mark-status"
+		federationMetadata["federation_trust_mark_list_endpoint"] = trimmed + "/trust-mark-list"
+		federationMetadata["federation_trust_mark_endpoint"] = trimmed + "/trust-mark"
 	}
 
-	cfg.EntityConfiguration.MetadataPolicy = nil // not permitted on entity statements
+	if len(federationMetadata) > 0 {
+		metadata.FederationMetadata = &federationMetadata
+	}
+	if cfg.EntityConfiguration.Metadata != nil || len(federationMetadata) > 0 {
+		entityConfiguration.Metadata = &metadata
+	}
 
 	if cfg.SignerConfiguration.KeyID == "" {
 		return nil, fmt.Errorf("key ID cannot be empty")
@@ -232,25 +253,31 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 	(*publicJWK)["kid"] = cfg.SignerConfiguration.KeyID
 	(*publicJWK)["alg"] = cfg.SignerConfiguration.Algorithm
 
-	cfg.EntityConfiguration.JWKs.Opts.EnforceUniqueKIDs = true
-	if cfg.EntityConfiguration.JWKs.Keys == nil {
-		cfg.EntityConfiguration.JWKs.Keys = []map[string]any{
-			*publicJWK,
+	jwks := josemodel.Jwks{}
+	jwks.Opts.EnforceUniqueKIDs = true
+	seen := map[string]struct{}{}
+	for _, key := range cfg.EntityConfiguration.JWKs.Keys {
+		kid, ok := key["kid"]
+		if !ok {
+			return nil, fmt.Errorf("all provided jwk values in entity cfg must have a `kid` claim - missing from one or more")
+		}
+		sKid, ok := kid.(string)
+		if !ok {
+			return nil, fmt.Errorf("one or more provided jwk values have a malformed `kid` claim")
+		}
+		if _, duplicate := seen[sKid]; duplicate {
+			return nil, fmt.Errorf("all provided jwk values in entity cfg must have unique `kid` claims - %q appears more than once", sKid)
+		}
+		seen[sKid] = struct{}{}
+		jwks.Keys = append(jwks.Keys, key)
+	}
+
+	if existing, _ := jwks.RetrieveByKeyID(cfg.SignerConfiguration.KeyID); existing != nil {
+		if !publicParametersMatch(existing, *publicJWK) {
+			return nil, fmt.Errorf("a configured jwk uses the signing key ID %q but holds different key material, so the issued statement could not be verified", cfg.SignerConfiguration.KeyID)
 		}
 	} else {
-		var keyIDs []string
-		for _, v := range cfg.EntityConfiguration.JWKs.Keys {
-			if kid, ok := v["kid"]; !ok {
-				return nil, fmt.Errorf("all provided jwk values in entity cfg must have a `kid` claim - missing from one or more")
-			} else if sKid, ok := kid.(string); !ok {
-				return nil, fmt.Errorf("one or more provided jwk values have a malformed `kid` claim")
-			} else {
-				keyIDs = append(keyIDs, sKid)
-			}
-		}
-		if !slices.Contains(keyIDs, cfg.SignerConfiguration.KeyID) { //only add if key not already included
-			cfg.EntityConfiguration.JWKs.Keys = append(cfg.EntityConfiguration.JWKs.Keys, *publicJWK)
-		}
+		jwks.Keys = append(jwks.Keys, *publicJWK)
 	}
 
 	if cfg.IntermediateConfiguration != nil {
@@ -266,19 +293,36 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 			(*apkJWK)["kid"] = signerConfiguration.KeyID
 			(*apkJWK)["alg"] = signerConfiguration.Algorithm
 
-			_ = cfg.EntityConfiguration.JWKs.Add(*apkJWK) // just omit if it can't be added
+			if existing, _ := jwks.RetrieveByKeyID(signerConfiguration.KeyID); existing != nil {
+				if !publicParametersMatch(existing, *apkJWK) {
+					return nil, fmt.Errorf("subordinate signer key ID %q is already published with different key material, so statements signed with it could not be verified", signerConfiguration.KeyID)
+				}
+				continue
+			}
+			if err := jwks.Add(*apkJWK); err != nil {
+				return nil, fmt.Errorf("failed to publish subordinate signer key %q: %s", signerConfiguration.KeyID, err.Error())
+			}
 		}
 	}
+
+	entityConfiguration.JWKs = jwks
 
 	if cfg.TrustMarkIssuerRetriever != nil {
 		trustMarkIssuerMap, err := cfg.TrustMarkIssuerRetriever.ListTrustMarkIssuers(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to list trust mark issuers: %s", err.Error())
 		}
-		cfg.EntityConfiguration.TrustMarkIssuers = trustMarkIssuerMap
+		trustMarkIssuers := make(map[string][]model.EntityIdentifier, len(trustMarkIssuerMap))
+		for trustMarkType, issuers := range trustMarkIssuerMap {
+			if issuers == nil {
+				issuers = []model.EntityIdentifier{}
+			}
+			trustMarkIssuers[trustMarkType] = issuers
+		}
+		entityConfiguration.TrustMarkIssuers = trustMarkIssuers
 	}
 
-	entityConfigurationBytes, err := json.Marshal(cfg.EntityConfiguration)
+	entityConfigurationBytes, err := json.Marshal(entityConfiguration)
 	if err != nil {
 		return nil, fmt.Errorf("failed to serialize entity cfg: %s", err.Error())
 	}
@@ -294,4 +338,13 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 		"typ": "entity-statement+jwt",
 		"alg": cfg.SignerConfiguration.Algorithm,
 	}, entityConfigurationMap, jwt.Opts{Algorithm: josemodel.GetAlgorithm(cfg.SignerConfiguration.Algorithm)})
+}
+
+func publicParametersMatch(a, b map[string]any) bool {
+	for _, claim := range []string{"kty", "crv", "x", "y", "n", "e"} {
+		if a[claim] != b[claim] {
+			return false
+		}
+	}
+	return true
 }

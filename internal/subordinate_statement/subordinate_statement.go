@@ -184,21 +184,32 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		return nil, fmt.Errorf("no jwk values provided for subject subordinate entity identifier")
 	}
 
+	seen := map[string]struct{}{}
 	for _, k := range subjectSubordinateConfiguration.JWKs.Keys {
-		if kid, ok := k["kid"]; !ok {
+		kid, ok := k["kid"]
+		if !ok {
 			return nil, fmt.Errorf("one or more of the provided subordinate configuration JWKs is missing the mandatory field 'kid'")
-		} else if _, ok := kid.(string); !ok {
+		}
+		sKid, ok := kid.(string)
+		if !ok {
 			return nil, fmt.Errorf("one or more of the provided subordinate configuration JWKs has a malformed 'kid' value")
 		}
+		if _, duplicate := seen[sKid]; duplicate {
+			return nil, fmt.Errorf("all provided subordinate configuration JWKs must have unique 'kid' values - %q appears more than once", sKid)
+		}
+		seen[sKid] = struct{}{}
 	}
 
 	subordinateStatement := model.EntityStatement{
-		Sub:            subjectIdentifier,
-		Iss:            configuration.EntityIdentifier,
-		Iat:            time.Now().UTC().Unix(),
-		Exp:            time.Now().Add(configuration.IntermediateConfiguration.SubordinateStatementLifetime).UTC().Unix(),
-		JWKs:           subjectSubordinateConfiguration.JWKs,
-		MetadataPolicy: &subjectSubordinateConfiguration.Policies,
+		Sub:  subjectIdentifier,
+		Iss:  configuration.EntityIdentifier,
+		Iat:  time.Now().UTC().Unix(),
+		Exp:  time.Now().Add(configuration.IntermediateConfiguration.SubordinateStatementLifetime).UTC().Unix(),
+		JWKs: subjectSubordinateConfiguration.JWKs,
+	}
+
+	if policy := subjectSubordinateConfiguration.Policies; policy.HasParameterPolicies() {
+		subordinateStatement.MetadataPolicy = &policy
 	}
 
 	if signerConfiguration.KeyID == "" {

@@ -807,6 +807,17 @@ func (m *MetadataPolicy) byEntityType() map[string]map[string]PolicyOperators {
 	return entries
 }
 
+func (m *MetadataPolicy) HasParameterPolicies() bool {
+	for _, parameters := range m.byEntityType() {
+		for _, operators := range parameters {
+			if len(operators.Metadata) > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (m *MetadataPolicy) setEntityType(entityType string, operators map[string]PolicyOperators) {
 	switch entityType {
 	case "federation_entity":

@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -62,8 +63,6 @@ func Issue(ctx context.Context, cfg model.ServerConfiguration, trustMarkIdentifi
 	return trustMark, nil
 }
 
-const MaxTrustMarkIssuersPerResolve = 20
-
 type ValidateOptions struct {
 	ExpectedType             string
 	ExpectedSubject          model.EntityIdentifier
@@ -90,11 +89,14 @@ type issuerKeyResult struct {
 
 type issuerKeyCache struct {
 	results map[model.EntityIdentifier]issuerKeyResult
+	limit   int
 }
 
-func newIssuerKeyCache() *issuerKeyCache {
-	return &issuerKeyCache{results: map[model.EntityIdentifier]issuerKeyResult{}}
+func newIssuerKeyCache(limit int) *issuerKeyCache {
+	return &issuerKeyCache{results: map[model.EntityIdentifier]issuerKeyResult{}, limit: limit}
 }
+
+var errTooManyTrustMarkIssuers = fmt.Errorf("too many distinct trust mark issuers")
 
 func (c *issuerKeyCache) lookup(issuer model.EntityIdentifier, resolve func() (*josemodel.Jwks, error)) (*josemodel.Jwks, error) {
 	if c == nil {
@@ -103,8 +105,8 @@ func (c *issuerKeyCache) lookup(issuer model.EntityIdentifier, resolve func() (*
 	if result, known := c.results[issuer]; known {
 		return result.keys, result.err
 	}
-	if len(c.results) >= MaxTrustMarkIssuersPerResolve {
-		return nil, fmt.Errorf("refusing to establish trust in more than %d distinct trust mark issuers for one subject", MaxTrustMarkIssuersPerResolve)
+	if len(c.results) >= c.limit {
+		return nil, errTooManyTrustMarkIssuers
 	}
 	keys, err := resolve()
 	c.results[issuer] = issuerKeyResult{keys: keys, err: err}
@@ -114,7 +116,8 @@ func (c *issuerKeyCache) lookup(issuer model.EntityIdentifier, resolve func() (*
 func FilterByTrusted(ctx context.Context, cfg model.Configuration, resolved *model.ResolveResponse, trustAnchorConfiguration model.EntityStatement, cache *resolvecache.Cache) error {
 	cfg.LogInfo(ctx, "filtering trust marks by those trusted by the trust anchor")
 
-	issuerKeys := newIssuerKeyCache()
+	limit := cfg.TrustMarkIssuerLimit()
+	issuerKeys := newIssuerKeyCache(limit)
 	trustedTrustMarks := make([]model.TrustMarkHolder, 0, len(resolved.TrustMarks))
 	for _, tm := range resolved.TrustMarks {
 		authorizedIssuers, trusted := trustAnchorConfiguration.TrustMarkIssuers[tm.TrustMarkType]
@@ -136,6 +139,10 @@ func FilterByTrusted(ctx context.Context, cfg model.Configuration, resolved *mod
 			TrustAnchorConfiguration: trustAnchorConfiguration,
 			issuerKeys:               issuerKeys,
 		}, cache)
+		if errors.Is(err, errTooManyTrustMarkIssuers) {
+			cfg.LogError(ctx, "subject presents trust marks from more distinct issuers than the configured limit", slog.Int("limit", limit), slog.String("subject", string(resolved.Sub)))
+			return model.NewServerError(fmt.Sprintf("subject %s presents trust marks from more than %d distinct issuers, which exceeds the configured limit", resolved.Sub, limit))
+		}
 		if err != nil {
 			cfg.LogInfo(ctx, "failed to validate trust mark", slog.String("trust_mark_type", tm.TrustMarkType), slog.String("trust_mark", tm.TrustMark), slog.String("error", err.Error()))
 			continue

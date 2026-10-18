@@ -37,9 +37,20 @@ type Configuration struct {
 	MaxTrustChainDepth int
 
 	MaxPeerResponseBytes int64
+
+	MaxTrustMarkIssuers int
 }
 
 const DefaultMaxPeerResponseBytes int64 = 1 << 20
+
+const DefaultMaxTrustMarkIssuers = 64
+
+func (cfg *Configuration) TrustMarkIssuerLimit() int {
+	if cfg.MaxTrustMarkIssuers > 0 {
+		return cfg.MaxTrustMarkIssuers
+	}
+	return DefaultMaxTrustMarkIssuers
+}
 
 func (cfg *Configuration) PeerResponseLimit() int64 {
 	limit := cfg.MaxPeerResponseBytes

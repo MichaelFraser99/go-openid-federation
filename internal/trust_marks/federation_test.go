@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -380,7 +381,7 @@ func TestFilterByTrusted_EstablishesTrustInEachIssuerOnce(t *testing.T) {
 	}
 }
 
-func TestFilterByTrusted_BoundsDistinctIssuersPerSubject(t *testing.T) {
+func TestFilterByTrusted_RefusesMoreIssuersThanTheLimit(t *testing.T) {
 	fed := newTrustMarkFederation(t, federationNode{name: "issuer"})
 
 	const (
@@ -388,38 +389,60 @@ func TestFilterByTrusted_BoundsDistinctIssuersPerSubject(t *testing.T) {
 		openTrustMark = "https://tm.example.com/open"
 	)
 
-	var fetches int
-	counting := fed.client()
-	counting.Transport = &countingTransport{inner: counting.Transport, path: "/.well-known/openid-federation", count: &fetches}
+	tests := []struct {
+		name      string
+		issuers   int
+		limit     int
+		expectErr bool
+	}{
+		{name: "within the limit", issuers: 4, limit: 8, expectErr: false},
+		{name: "exactly at the limit", issuers: 4, limit: 4, expectErr: false},
+		{name: "beyond the limit", issuers: 5, limit: 4, expectErr: true},
+	}
 
-	marks := make([]model.TrustMarkHolder, 0, MaxTrustMarkIssuersPerResolve*3)
-	for i := range MaxTrustMarkIssuersPerResolve * 3 {
-		marks = append(marks, model.TrustMarkHolder{
-			TrustMarkType: openTrustMark,
-			TrustMark:     federationTrustMark(t, fed.keys["issuer"], "test-key", fmt.Sprintf("https://attacker-%d.example.com", i), openTrustMark, string(subject)),
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var fetches int
+			counting := fed.client()
+			counting.Transport = &countingTransport{inner: counting.Transport, path: "/.well-known/openid-federation", count: &fetches}
+
+			marks := make([]model.TrustMarkHolder, 0, tc.issuers)
+			for i := range tc.issuers {
+				marks = append(marks, model.TrustMarkHolder{
+					TrustMarkType: openTrustMark,
+					TrustMark:     federationTrustMark(t, fed.keys["issuer"], "test-key", fmt.Sprintf("https://attacker-%d.example.com", i), openTrustMark, string(subject)),
+				})
+			}
+
+			resolved := &model.ResolveResponse{
+				Sub:        subject,
+				Exp:        time.Now().Add(24 * time.Hour).UTC().Unix(),
+				TrustMarks: marks,
+			}
+			trustAnchorConfiguration := model.EntityStatement{
+				Sub:              fed.id["trust_anchor"],
+				TrustMarkIssuers: map[string][]model.EntityIdentifier{openTrustMark: {}},
+			}
+
+			cfg := model.Configuration{HttpClient: counting, MaxTrustMarkIssuers: tc.limit}
+			err := FilterByTrusted(t.Context(), cfg, resolved, trustAnchorConfiguration, nil)
+
+			if tc.expectErr {
+				if err == nil {
+					t.Fatalf("expected the limit to be reported rather than marks silently dropped")
+				}
+				if !errors.Is(err, model.ErrServerError) {
+					t.Errorf("expected a server_error, got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+			if fetches > tc.limit {
+				t.Errorf("expected at most %d issuer lookups, got %d", tc.limit, fetches)
+			}
 		})
-	}
-
-	resolved := &model.ResolveResponse{
-		Sub:        subject,
-		Exp:        time.Now().Add(24 * time.Hour).UTC().Unix(),
-		TrustMarks: marks,
-	}
-	trustAnchorConfiguration := model.EntityStatement{
-		Sub:              fed.id["trust_anchor"],
-		TrustMarkIssuers: map[string][]model.EntityIdentifier{openTrustMark: {}},
-	}
-
-	cfg := model.Configuration{HttpClient: counting}
-	if err := FilterByTrusted(t.Context(), cfg, resolved, trustAnchorConfiguration, nil); err != nil {
-		t.Fatalf("expected no error from filtering, got %v", err)
-	}
-
-	if len(resolved.TrustMarks) != 0 {
-		t.Errorf("expected every unreachable issuer to be dropped, got %d trust marks", len(resolved.TrustMarks))
-	}
-	if fetches > MaxTrustMarkIssuersPerResolve {
-		t.Errorf("expected at most %d issuer lookups for one subject, got %d", MaxTrustMarkIssuersPerResolve, fetches)
 	}
 }
 

@@ -192,7 +192,7 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 		nextStep, err := subordinate_statement.Validate(cfg, previousStatement, trustChain[i])
 		if err != nil {
 			cfg.LogInfo(ctx, "failed to validate chain step", slog.Int("step", i), slog.String("error", err.Error()))
-			return nil, fmt.Errorf("error validating step in provided trust chain: %w", err)
+			return nil, fmt.Errorf("%w%s: %w", model.ErrInvalidTrustChain, "error validating step in provided trust chain", err)
 		}
 		processedChain = append(processedChain, *nextStep)
 	}
@@ -202,7 +202,7 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 	subjectEntityConfiguration, err := entity_configuration.Validate(ctx, cfg, immediateSuperiorStatement.Sub, trustChain[0])
 	if err != nil {
 		cfg.LogInfo(ctx, "failed to validate subject entity configuration", slog.String("error", err.Error()))
-		return nil, fmt.Errorf("error parsing trust chain subject entity configuration: %w", err)
+		return nil, fmt.Errorf("%w%s: %w", model.ErrInvalidTrustChain, "error parsing trust chain subject entity configuration", err)
 	}
 	if !slices.Contains(subjectEntityConfiguration.AuthorityHints, immediateSuperiorStatement.Iss) {
 		cfg.LogInfo(ctx, "subordinate statement issuer is not listed in the subject's authority_hints", slog.String("issuer", string(immediateSuperiorStatement.Iss)), slog.Any("authority_hints", subjectEntityConfiguration.AuthorityHints))

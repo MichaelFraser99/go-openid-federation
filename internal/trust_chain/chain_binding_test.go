@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -170,6 +171,46 @@ func TestBuildTrustChain_BindsSubjectToTheKeyRegisteredByItsSuperior(t *testing.
 			}
 			if err != nil {
 				t.Fatalf("expected the chain to build, got %v", err)
+			}
+		})
+	}
+}
+
+func TestResolveMetadata_RejectionsAreTypedAsInvalidTrustChain(t *testing.T) {
+	const (
+		leafID = model.EntityIdentifier("https://leaf.example.com")
+		taID   = model.EntityIdentifier("https://ta.example.com")
+	)
+
+	leafKey := bindingKey(t)
+	attackerKey := bindingKey(t)
+	taKey := bindingKey(t)
+
+	taEC := createEntityStatement(t, taID, taID, nil, taKey, true)
+	leafEC := createEntityStatement(t, leafID, leafID, []model.EntityIdentifier{taID}, leafKey, false)
+
+	tests := []struct {
+		name  string
+		chain []string
+	}{
+		{
+			name:  "a subordinate statement signed by the wrong key",
+			chain: []string{leafEC, createSubordinateStatement(t, taID, leafID, attackerKey, leafKey.Public()), taEC},
+		},
+		{
+			name:  "a subject entity configuration signed by the wrong key",
+			chain: []string{createEntityStatement(t, leafID, leafID, []model.EntityIdentifier{taID}, attackerKey, false), createSubordinateStatement(t, taID, leafID, taKey, leafKey.Public()), taEC},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ResolveMetadata(context.Background(), model.Configuration{}, leafID, tc.chain, resolvecache.New())
+			if err == nil {
+				t.Fatal("expected the chain to be rejected")
+			}
+			if !errors.Is(err, model.ErrInvalidTrustChain) {
+				t.Errorf("expected an invalid_trust_chain error so /resolve answers 400, got %v", err)
 			}
 		})
 	}

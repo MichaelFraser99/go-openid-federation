@@ -31,7 +31,7 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 
 	exp := model.CalculateChainExpiration(route)
 	if time.Now().UTC().Equal(time.Unix(exp, 0).UTC()) || time.Now().UTC().After(time.Unix(exp, 0).UTC()) {
-		return nil, nil, nil, fmt.Errorf("trust chain expired")
+		return nil, nil, nil, model.NewInvalidTrustChainError("trust chain expired")
 	}
 
 	for i := 0; i < len(route)-1; i++ {
@@ -43,20 +43,32 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 		parsedTrustChain = append(parsedTrustChain, *subordinateStatement)
 	}
 
-	if len(parsedTrustChain) < 2 {
+	trustChain = append(trustChain, signedRoute[len(signedRoute)-1])
+	parsedTrustChain = append(parsedTrustChain, route[len(route)-1])
+
+	if len(parsedTrustChain) < 3 {
 		return nil, nil, nil, model.NewInvalidTrustChainError("trust chain contains no subordinate statement about the subject")
 	}
 
-	subjectKid, _, _, err := entity_statement.ExtractDetails(trustChain[0])
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("subject entry in chain malformed: %s", err.Error())
-	}
-	if err = entity_statement.VerifyAgainstJwks(trustChain[0], *subjectKid, parsedTrustChain[1].JWKs); err != nil {
-		cfg.LogInfo(ctx, "subject entity configuration not signed by a key published for it by its superior", slog.String("kid", *subjectKid), slog.String("error", err.Error()))
-		return nil, nil, nil, model.NewInvalidTrustChainError(fmt.Sprintf("subject entity configuration is not signed by the key registered for it in the subordinate statement above it: %s", err.Error()))
+	if err = verifyChainLinks(ctx, cfg, trustChain, parsedTrustChain); err != nil {
+		return nil, nil, nil, err
 	}
 
-	return append(trustChain, signedRoute[len(signedRoute)-1]), append(parsedTrustChain, route[len(route)-1]), &exp, nil
+	return trustChain, parsedTrustChain, &exp, nil
+}
+
+func verifyChainLinks(ctx context.Context, cfg model.Configuration, signedChain []string, parsedChain []model.EntityStatement) error {
+	for i := 0; i < len(signedChain)-1; i++ {
+		kid, _, _, err := entity_statement.ExtractDetails(signedChain[i])
+		if err != nil {
+			return model.NewInvalidTrustChainError(fmt.Sprintf("entry %d in the trust chain is malformed: %s", i, err.Error()))
+		}
+		if err = entity_statement.VerifyAgainstJwks(signedChain[i], *kid, parsedChain[i+1].JWKs); err != nil {
+			cfg.LogInfo(ctx, "trust chain entry not signed by a key published in the statement above it", slog.Int("entry", i), slog.String("kid", *kid), slog.String("error", err.Error()))
+			return model.NewInvalidTrustChainError(fmt.Sprintf("entry %d in the trust chain is not signed by a key published for it in the statement above it: %s", i, err.Error()))
+		}
+	}
+	return nil
 }
 
 func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target model.EntityIdentifier, checked []model.EntityIdentifier, path []model.EntityStatement, signedPath []string, cache *resolvecache.Cache, deadEnds map[model.EntityIdentifier]struct{}) ([]string, []model.EntityStatement, bool, error) {
@@ -128,13 +140,13 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 
 	if len(trustChain) == 0 {
 		cfg.LogInfo(ctx, "trust chain validation failed: empty chain", slog.String("issuer", string(issuerEntityIdentifier)))
-		return nil, fmt.Errorf("trust chain must have at least 1 entry")
+		return nil, model.NewInvalidTrustChainError("trust chain must have at least 1 entry")
 	}
 
 	_, sub, iss, err := entity_statement.ExtractDetails(trustChain[len(trustChain)-1])
 	if err != nil {
 		cfg.LogInfo(ctx, "failed to extract details from final chain entry", slog.String("error", err.Error()))
-		return nil, fmt.Errorf("final entry in chain malformed: %s", err.Error())
+		return nil, model.NewInvalidTrustChainError(fmt.Sprintf("final entry in chain malformed: %s", err.Error()))
 	}
 	parsedSub, err := model.ValidateEntityIdentifier(*sub)
 	if err != nil {
@@ -217,7 +229,7 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 	subjectKid, _, _, err := entity_statement.ExtractDetails(trustChain[0])
 	if err != nil {
 		cfg.LogInfo(ctx, "failed to extract subject kid", slog.String("error", err.Error()))
-		return nil, fmt.Errorf("subject entry in chain malformed: %s", err.Error())
+		return nil, model.NewInvalidTrustChainError(fmt.Sprintf("subject entry in chain malformed: %s", err.Error()))
 	}
 
 	cfg.LogInfo(ctx, "verifying subject entity configuration against the key published by its superior", slog.String("kid", *subjectKid))
@@ -231,7 +243,7 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 	cfg.LogInfo(ctx, "checking chain expiration", slog.Int64("exp", exp), slog.Int64("now", time.Now().UTC().Unix()))
 	if time.Now().UTC().Equal(time.Unix(exp, 0)) || time.Now().UTC().After(time.Unix(exp, 0)) {
 		cfg.LogInfo(ctx, "trust chain has expired", slog.Int64("exp", exp))
-		return nil, fmt.Errorf("trust chain expired")
+		return nil, model.NewInvalidTrustChainError("trust chain expired")
 	}
 
 	result := &model.ResolveResponse{

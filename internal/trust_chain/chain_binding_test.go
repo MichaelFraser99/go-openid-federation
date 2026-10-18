@@ -215,3 +215,147 @@ func TestResolveMetadata_RejectionsAreTypedAsInvalidTrustChain(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildTrustChain_VerifiesEveryLinkAgainstTheStatementAboveIt(t *testing.T) {
+	leafKey := bindingKey(t)
+	taKey := bindingKey(t)
+
+	genuineIntKey := bindingKey(t)
+	intAttackerKey := bindingKey(t)
+	leafAttackerKey := bindingKey(t)
+
+	var leafID, intID, taID model.EntityIdentifier
+	var intECSigner, leafECSigner *rsa.PrivateKey
+	var intRegisteredKey, leafRegisteredKey *rsa.PrivateKey
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/entity-statement+jwt")
+		switch r.URL.Path {
+		case "/leaf/.well-known/openid-federation":
+			w.Write([]byte(createEntityStatement(t, leafID, leafID, []model.EntityIdentifier{intID}, leafECSigner, false))) //nolint:errcheck
+		case "/int/.well-known/openid-federation":
+			w.Write([]byte(createEntityStatement(t, intID, intID, []model.EntityIdentifier{taID}, intECSigner, true))) //nolint:errcheck
+		case "/ta/.well-known/openid-federation":
+			w.Write([]byte(createEntityStatement(t, taID, taID, nil, taKey, true))) //nolint:errcheck
+		case "/int/fetch":
+			w.Write([]byte(createSubordinateStatement(t, intID, leafID, intECSigner, leafRegisteredKey.Public()))) //nolint:errcheck
+		case "/ta/fetch":
+			w.Write([]byte(createSubordinateStatement(t, taID, intID, taKey, intRegisteredKey.Public()))) //nolint:errcheck
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	leafID = model.EntityIdentifier(server.URL + "/leaf")
+	intID = model.EntityIdentifier(server.URL + "/int")
+	taID = model.EntityIdentifier(server.URL + "/ta")
+	cfg := model.Configuration{HttpClient: server.Client()}
+
+	tests := []struct {
+		name string
+		// what the trust anchor registered for the intermediate
+		intRegistered *rsa.PrivateKey
+		// what key actually signs the intermediate's served configuration
+		intEC *rsa.PrivateKey
+		// what the intermediate registered for the leaf, and what signs the leaf's configuration
+		leafRegistered *rsa.PrivateKey
+		leafEC         *rsa.PrivateKey
+		expectErr      bool
+	}{
+		{
+			name:           "a genuine three level chain builds",
+			intRegistered:  genuineIntKey,
+			intEC:          genuineIntKey,
+			leafRegistered: leafKey,
+			leafEC:         leafKey,
+			expectErr:      false,
+		},
+		{
+			name:           "an intermediate configuration signed by a key the anchor never registered is rejected",
+			intRegistered:  genuineIntKey,
+			intEC:          intAttackerKey,
+			leafRegistered: leafAttackerKey,
+			leafEC:         leafAttackerKey,
+			expectErr:      true,
+		},
+		{
+			name:           "a leaf configuration signed by a key its superior never registered is rejected",
+			intRegistered:  genuineIntKey,
+			intEC:          genuineIntKey,
+			leafRegistered: leafKey,
+			leafEC:         leafAttackerKey,
+			expectErr:      true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			intRegisteredKey, intECSigner = tc.intRegistered, tc.intEC
+			leafRegisteredKey, leafECSigner = tc.leafRegistered, tc.leafEC
+
+			_, parsed, _, err := BuildTrustChain(context.Background(), cfg, leafID, taID, resolvecache.New())
+			if tc.expectErr {
+				if err == nil {
+					t.Fatalf("expected the chain build to be rejected, got %d statements", len(parsed))
+				}
+				if !errors.Is(err, model.ErrInvalidTrustChain) {
+					t.Errorf("expected an invalid_trust_chain error, got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("expected the chain to build, got %v", err)
+			}
+			if len(parsed) != 4 {
+				t.Errorf("expected a four entry chain, got %d", len(parsed))
+			}
+		})
+	}
+}
+
+func TestResolveMetadata_AllRejectionsAreTypedAsInvalidTrustChain(t *testing.T) {
+	const (
+		leafID = model.EntityIdentifier("https://leaf.example.com")
+		taID   = model.EntityIdentifier("https://ta.example.com")
+	)
+
+	leafKey := bindingKey(t)
+	taKey := bindingKey(t)
+	taEC := createEntityStatement(t, taID, taID, nil, taKey, true)
+	subordinateStatement := createSubordinateStatement(t, taID, leafID, taKey, leafKey.Public())
+
+	tests := []struct {
+		name  string
+		chain []string
+	}{
+		{
+			name:  "an empty chain",
+			chain: []string{},
+		},
+		{
+			name:  "a malformed final entry",
+			chain: []string{"not.a.jwt"},
+		},
+		{
+			name:  "a malformed subject entry",
+			chain: []string{"not.a.jwt", subordinateStatement, taEC},
+		},
+		{
+			name:  "a subject entity configuration that fails to parse",
+			chain: []string{createEntityStatement(t, leafID, taID, []model.EntityIdentifier{taID}, leafKey, false), subordinateStatement, taEC},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ResolveMetadata(context.Background(), model.Configuration{}, leafID, tc.chain, resolvecache.New())
+			if err == nil {
+				t.Fatal("expected the chain to be rejected")
+			}
+			if !errors.Is(err, model.ErrInvalidTrustChain) {
+				t.Errorf("expected an invalid_trust_chain error so /resolve answers 400, got %v", err)
+			}
+		})
+	}
+}

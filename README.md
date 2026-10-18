@@ -396,7 +396,9 @@ Trust marks in a resolve response are filtered against the trust anchor's `trust
 
 `Client.ResolveMetadata` takes a chain the caller supplies, such as one received in a peer's `trust_chain` JWS header. It verifies every link in that chain, but it cannot yet check which trust anchor the chain ends in, because trust anchors and their keys are not configurable. A chain that ends in a self-signed entity configuration is therefore accepted, and an attacker who supplies one needs no key material to have their own metadata returned for any subject they name.
 
-Do not pass a chain from an untrusted source to `Client.ResolveMetadata`. Build the chain yourself with `Client.BuildTrustChain`, naming the trust anchor, and resolve that. Chains the library fetches itself are verified from the anchor the caller named.
+Do not pass a chain from an untrusted source to `Client.ResolveMetadata`. Build the chain yourself with `Client.BuildTrustChain`, naming the trust anchor, and resolve that.
+
+`BuildTrustChain` verifies every link as section 10.2 requires: each statement is signed by a key published for it in the statement above. It stops short only of the last step, confirming that the anchor at the top is one you trust, which needs the trust anchor configuration that is not yet available.
 
 ## Errors
 

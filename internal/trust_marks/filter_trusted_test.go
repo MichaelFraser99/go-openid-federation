@@ -241,3 +241,18 @@ func TestValidate_RequiresAnExpectedTypeAndSubject(t *testing.T) {
 		})
 	}
 }
+
+func TestFilterByTrusted_IntermediateAndIssuerHostTakeoverForgesMark(t *testing.T) {
+	f := newRvFed(t, map[string]string{"int": "ta", "issuer": "int"})
+	genuineInt := f.ecKey["int"]
+	intAttacker := rvKey(t)
+	issuerAttacker := rvKey(t)
+	f.ssKey["int"] = genuineInt
+	f.ecKey["int"] = intAttacker
+	f.ecKey["issuer"] = issuerAttacker
+	ta := f.taConfig(t, map[string][]model.EntityIdentifier{rvType: {model.EntityIdentifier(f.id("issuer"))}})
+	tm := federationTrustMark(t, issuerAttacker, "test-key", f.id("issuer"), rvType, rvSub)
+	if got := f.filter(t, ta, model.TrustMarkHolder{TrustMarkType: rvType, TrustMark: tm}); len(got) != 0 {
+		t.Fatalf("FORGERY: mark signed by an attacker holding no genuine key was kept")
+	}
+}

@@ -273,7 +273,7 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 	}
 
 	if existing, _ := jwks.RetrieveByKeyID(cfg.SignerConfiguration.KeyID); existing != nil {
-		if err := publishedKeyUsableForSigning(existing, *publicJWK); err != nil {
+		if err := publishedKeyUsableForSigning(existing, *publicJWK, cfg.SignerConfiguration.Signer.Public()); err != nil {
 			return nil, fmt.Errorf("a configured jwk uses the signing key ID %q but %s, so the issued statement could not be verified", cfg.SignerConfiguration.KeyID, err.Error())
 		}
 	} else {
@@ -294,7 +294,7 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 			(*apkJWK)["alg"] = signerConfiguration.Algorithm
 
 			if existing, _ := jwks.RetrieveByKeyID(signerConfiguration.KeyID); existing != nil {
-				if err := publishedKeyUsableForSigning(existing, *apkJWK); err != nil {
+				if err := publishedKeyUsableForSigning(existing, *apkJWK, signerConfiguration.Signer.Public()); err != nil {
 					return nil, fmt.Errorf("subordinate signer key ID %q is already published but %s, so statements signed with it could not be verified", signerConfiguration.KeyID, err.Error())
 				}
 				continue
@@ -340,12 +340,29 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 	}, entityConfigurationMap, jwt.Opts{Algorithm: josemodel.GetAlgorithm(cfg.SignerConfiguration.Algorithm)})
 }
 
-func publishedKeyUsableForSigning(existing, intended map[string]any) error {
-	for _, claim := range []string{"kty", "crv", "x", "y", "n", "e"} {
-		if existing[claim] != intended[claim] {
-			return fmt.Errorf("holds different key material")
+type publicKeyComparer interface {
+	Equal(crypto.PublicKey) bool
+}
+
+func publishedKeyUsableForSigning(existing, intended map[string]any, signerPublicKey crypto.PublicKey) error {
+	if kty, ok := existing["kty"].(string); !ok || kty == "" {
+		return fmt.Errorf("has a missing or malformed 'kty' claim")
+	}
+	if crv, present := existing["crv"]; present {
+		if _, ok := crv.(string); !ok {
+			return fmt.Errorf("has a malformed 'crv' claim")
 		}
 	}
+
+	publishedKey, err := jwk.PublicFromJwk(existing)
+	if err != nil {
+		return fmt.Errorf("is not a usable jwk: %s", err.Error())
+	}
+	comparer, ok := publishedKey.(publicKeyComparer)
+	if !ok || !comparer.Equal(signerPublicKey) {
+		return fmt.Errorf("holds different key material")
+	}
+
 	if use, present := existing["use"]; present {
 		if sUse, ok := use.(string); !ok || sUse != "sig" {
 			return fmt.Errorf("declares a 'use' of %v rather than \"sig\"", use)

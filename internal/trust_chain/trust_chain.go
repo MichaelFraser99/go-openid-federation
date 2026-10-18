@@ -147,10 +147,10 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 		}
 		processedChain = append(processedChain, *response)
 	} else {
-		cfg.LogInfo(ctx, "retrieving subject entity configuration", slog.String("subject", string(*parsedSub)))
-		signedEntityConfiguration, entityConfiguration, err := entity_configuration.Retrieve(ctx, cfg, *parsedSub, cache)
+		cfg.LogInfo(ctx, "retrieving omitted trust anchor entity configuration", slog.String("trust_anchor", string(*parsedIss)))
+		signedEntityConfiguration, entityConfiguration, err := entity_configuration.Retrieve(ctx, cfg, *parsedIss, cache)
 		if err != nil {
-			cfg.LogInfo(ctx, "failed to retrieve subject entity configuration", slog.String("subject", string(*parsedSub)), slog.String("error", err.Error()))
+			cfg.LogInfo(ctx, "failed to retrieve trust anchor entity configuration", slog.String("trust_anchor", string(*parsedIss)), slog.String("error", err.Error()))
 			return nil, err
 		}
 		trustChain = append(trustChain, *signedEntityConfiguration)
@@ -190,6 +190,12 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 		cfg.LogInfo(ctx, "failed to validate subject entity configuration", slog.String("error", err.Error()))
 		return nil, fmt.Errorf("error parsing trust chain subject entity configuration: %s", err.Error())
 	}
+	immediateSuperiorStatement := processedChain[len(processedChain)-1]
+	if !slices.Contains(subjectEntityConfiguration.AuthorityHints, immediateSuperiorStatement.Iss) {
+		cfg.LogInfo(ctx, "subordinate statement issuer is not listed in the subject's authority_hints", slog.String("issuer", string(immediateSuperiorStatement.Iss)), slog.Any("authority_hints", subjectEntityConfiguration.AuthorityHints))
+		return nil, model.NewInvalidTrustChainError(fmt.Sprintf("subordinate statement issuer %s is not listed in the authority_hints of subject %s", immediateSuperiorStatement.Iss, subjectEntityConfiguration.Sub))
+	}
+
 	processedChain = append(processedChain, *subjectEntityConfiguration)
 
 	slices.Reverse(processedChain)
@@ -201,22 +207,12 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 		return nil, fmt.Errorf("subject entry in chain malformed: %s", err.Error())
 	}
 
-	cfg.LogInfo(ctx, "verifying subject key in subordinate statement", slog.String("kid", *subjectKid))
-	found := false
-	for _, issuerKey := range processedChain[1].JWKs.Keys {
-		if issuerKid, ok := issuerKey["kid"]; !ok {
-			cfg.LogInfo(ctx, "subordinate statement contains key without kid claim")
-			return nil, fmt.Errorf("one or more keys in trust chain missing required 'kid' claim")
-		} else if issuerKid == *subjectKid {
-			found = true
-			break
-		}
+	cfg.LogInfo(ctx, "verifying subject entity configuration against the key published by its superior", slog.String("kid", *subjectKid))
+	if err = entity_statement.VerifyAgainstJwks(trustChain[0], *subjectKid, processedChain[1].JWKs); err != nil {
+		cfg.LogInfo(ctx, "subject entity configuration not signed by a key published for it by its superior", slog.String("kid", *subjectKid), slog.String("error", err.Error()))
+		return nil, model.NewInvalidTrustChainError(fmt.Sprintf("subject entity configuration is not signed by the key registered for it in the subordinate statement above it: %s", err.Error()))
 	}
-	if !found {
-		cfg.LogInfo(ctx, "subject key not found in subordinate statement", slog.String("kid", *subjectKid))
-		return nil, fmt.Errorf("subordinate statment for subject entity does not contain the key used to sign the subject entity's Entity Configuration")
-	}
-	cfg.LogInfo(ctx, "subject key verified in subordinate statement", slog.String("kid", *subjectKid))
+	cfg.LogInfo(ctx, "subject entity configuration verified against superior's published key", slog.String("kid", *subjectKid))
 
 	exp := model.CalculateChainExpiration(processedChain)
 	cfg.LogInfo(ctx, "checking chain expiration", slog.Int64("exp", exp), slog.Int64("now", time.Now().UTC().Unix()))

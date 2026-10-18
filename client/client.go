@@ -47,5 +47,8 @@ func (c *Client) ResolveMetadata(ctx context.Context, subject string, trustChain
 	if err != nil {
 		return nil, err
 	}
+	if resolved.Sub != *parsedSubject {
+		return nil, model.NewInvalidTrustChainError(fmt.Sprintf("provided trust chain resolves metadata for %s, not the requested subject %s", resolved.Sub, *parsedSubject))
+	}
 	return resolved.Metadata, nil
 }

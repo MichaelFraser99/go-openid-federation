@@ -2,7 +2,6 @@ package entity_configuration
 
 import (
 	"context"
-	"crypto"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -14,9 +13,9 @@ import (
 	"time"
 
 	"github.com/MichaelFraser99/go-jose/jwk"
-	"github.com/MichaelFraser99/go-jose/jws"
 	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
+	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
 	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
@@ -132,34 +131,8 @@ func Validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 		return nil, fmt.Errorf("invalid 'jwks' claim format: %s", err.Error())
 	}
 
-	if _, _, err = jws.VerifyCompactSerialization(entityConfigurationJwt, func() ([]crypto.PublicKey, error) {
-		keys := map[string]map[string]any{}
-		for _, key := range parsedJwks.Keys {
-			if keyKid, ok := key["kid"]; !ok {
-				return nil, fmt.Errorf("one or more entries in the included 'jwks' is missing the mandatory 'kid' claim")
-			} else {
-				sKeyID, ok := keyKid.(string)
-				if !ok {
-					return nil, fmt.Errorf("one or more entries in the included 'jwks' has a malformed 'kid' claim")
-				} else {
-					if keys[sKeyID] != nil {
-						return nil, fmt.Errorf("all entries in the included 'jwks' must have unique 'kid' values")
-					}
-					keys[sKeyID] = key
-				}
-			}
-		}
-		selectedKey := keys[sKid]
-		if selectedKey == nil {
-			return nil, fmt.Errorf("no matching key found in the included 'jwks'")
-		}
-		pubKey, err := jwk.PublicFromJwk(selectedKey)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse selected public key from 'jwks' as a valid jwk: %s", err.Error())
-		}
-		return []crypto.PublicKey{pubKey}, nil
-	}, nil); err != nil {
-		return nil, fmt.Errorf("failed to verify JWT signature: %s", err.Error())
+	if err = entity_statement.VerifyAgainstJwks(entityConfigurationJwt, sKid, parsedJwks); err != nil {
+		return nil, err
 	}
 	//todo: validate optional claims
 

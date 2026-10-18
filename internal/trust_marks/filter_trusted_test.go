@@ -3,6 +3,7 @@ package trust_marks
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -254,5 +255,29 @@ func TestFilterByTrusted_IntermediateAndIssuerHostTakeoverForgesMark(t *testing.
 	tm := federationTrustMark(t, issuerAttacker, "test-key", f.id("issuer"), rvType, rvSub)
 	if got := f.filter(t, ta, model.TrustMarkHolder{TrustMarkType: rvType, TrustMark: tm}); len(got) != 0 {
 		t.Fatalf("FORGERY: mark signed by an attacker holding no genuine key was kept")
+	}
+}
+
+func TestFilterByTrusted_IssuerLimitErrorLeavesNoUnverifiedMarks(t *testing.T) {
+	f := newRvFed(t, map[string]string{})
+	ta := f.taConfig(t, map[string][]model.EntityIdentifier{rvType: {}})
+
+	marks := []model.TrustMarkHolder{{
+		TrustMarkType: rvType,
+		TrustMark:     federationTrustMark(t, f.ecKey["ta"], "test-key", f.id("ta"), rvType, rvSub),
+	}}
+	for i := range 2 {
+		parts := strings.Split(federationTrustMark(t, f.ecKey["ta"], "test-key", fmt.Sprintf("https://junk-%d.invalid", i), rvType, rvSub), ".")
+		marks = append(marks, model.TrustMarkHolder{TrustMarkType: rvType, TrustMark: parts[0] + "." + parts[1] + ".AAAA"})
+	}
+
+	resolved := &model.ResolveResponse{Sub: rvSub, Exp: time.Now().Add(24 * time.Hour).Unix(), TrustMarks: marks}
+
+	err := FilterByTrusted(t.Context(), model.Configuration{HttpClient: f.server.Client(), MaxTrustMarkIssuers: 2}, resolved, ta, nil)
+	if err == nil {
+		t.Fatalf("expected the issuer limit to be reported")
+	}
+	if len(resolved.TrustMarks) != 0 {
+		t.Errorf("expected no unverified trust marks left on the response after the limit error, got %d", len(resolved.TrustMarks))
 	}
 }

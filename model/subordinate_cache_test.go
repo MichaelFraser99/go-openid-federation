@@ -148,4 +148,10 @@ func TestConfiguration_TrustMarkIssuerLimit(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("the default admits a realistic number of accreditations", func(t *testing.T) {
+		if DefaultMaxTrustMarkIssuers < 32 {
+			t.Errorf("a subject with a few dozen trust mark issuers must resolve without configuration, so the default must not drop below 32, got %d", DefaultMaxTrustMarkIssuers)
+		}
+	})
 }

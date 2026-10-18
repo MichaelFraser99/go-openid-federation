@@ -6,47 +6,47 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync/atomic"
 	"testing"
+	"time"
 
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
 func TestRetrieve_BoundsPeerResponseBodySize(t *testing.T) {
+	const limit int64 = 4096
+
 	tests := []struct {
 		name      string
-		limit     int64
-		bodyBytes int
+		bodyBytes int64
 		expectErr bool
 	}{
-		{name: "a response within the limit is read", limit: 4096, bodyBytes: 512, expectErr: false},
-		{name: "a response exactly at the limit is read", limit: 4096, bodyBytes: 4096, expectErr: false},
-		{name: "a response over the limit is refused", limit: 4096, bodyBytes: 1 << 20, expectErr: true},
+		{name: "well under the limit is read", bodyBytes: 512, expectErr: false},
+		{name: "one byte under the limit is read", bodyBytes: limit - 1, expectErr: false},
+		{name: "exactly at the limit is read", bodyBytes: limit, expectErr: false},
+		{name: "one byte over the limit is refused", bodyBytes: limit + 1, expectErr: true},
+		{name: "far over the limit is refused", bodyBytes: 1 << 20, expectErr: true},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			var served atomic.Int64
 			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/entity-statement+jwt")
 				remaining := tc.bodyBytes
 				for remaining > 0 {
-					chunk := 1024
+					chunk := int64(1024)
 					if remaining < chunk {
 						chunk = remaining
 					}
-					n, err := w.Write([]byte(strings.Repeat("a", chunk)))
-					served.Add(int64(n))
-					remaining -= chunk
-					if err != nil {
+					if _, err := w.Write([]byte(strings.Repeat("a", int(chunk)))); err != nil {
 						return
 					}
+					remaining -= chunk
 				}
 			}))
 			t.Cleanup(server.Close)
 
-			cfg := model.Configuration{HttpClient: server.Client(), MaxPeerResponseBytes: tc.limit}
+			cfg := model.Configuration{HttpClient: server.Client(), MaxPeerResponseBytes: limit}
 			issuer := model.EntityStatement{
 				Iss: model.EntityIdentifier(server.URL),
 				Sub: model.EntityIdentifier(server.URL),
@@ -60,18 +60,60 @@ func TestRetrieve_BoundsPeerResponseBodySize(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected an error, since the served body is not a valid subordinate statement")
 			}
-			if tc.expectErr {
-				if !strings.Contains(err.Error(), "response limit") {
-					t.Fatalf("expected the response limit to be reported, got %v", err)
-				}
-				if streamed := served.Load(); streamed >= int64(tc.bodyBytes) {
-					t.Errorf("expected the read to stop early, the peer streamed the whole %d byte body", streamed)
-				}
-				return
+
+			reportsLimit := strings.Contains(err.Error(), "response limit")
+			if tc.expectErr && !reportsLimit {
+				t.Fatalf("expected the response limit to be reported for a %d byte body, got %v", tc.bodyBytes, err)
 			}
-			if strings.Contains(err.Error(), "response limit") {
-				t.Fatalf("expected a response within the limit to be read, got %v", err)
+			if !tc.expectErr && reportsLimit {
+				t.Fatalf("expected a %d byte body within the %d byte limit to be read, got %v", tc.bodyBytes, limit, err)
 			}
 		})
+	}
+}
+
+func TestRetrieve_StopsReadingAtTheLimitRatherThanBuffering(t *testing.T) {
+	const limit int64 = 4096
+
+	released := make(chan struct{})
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/entity-statement+jwt")
+		if _, err := w.Write([]byte(strings.Repeat("a", int(limit+1)))); err != nil {
+			return
+		}
+		w.(http.Flusher).Flush()
+		select {
+		case <-released:
+		case <-time.After(30 * time.Second):
+		}
+	}))
+	t.Cleanup(func() {
+		close(released)
+		server.Close()
+	})
+
+	cfg := model.Configuration{HttpClient: server.Client(), MaxPeerResponseBytes: limit}
+	issuer := model.EntityStatement{
+		Iss: model.EntityIdentifier(server.URL),
+		Sub: model.EntityIdentifier(server.URL),
+		Metadata: &model.Metadata{FederationMetadata: &model.FederationMetadata{
+			"federation_fetch_endpoint": fmt.Sprintf("%s/fetch", server.URL),
+		}},
+		JWKs: josemodel.Jwks{},
+	}
+
+	returned := make(chan error, 1)
+	go func() {
+		_, _, err := Retrieve(context.Background(), cfg, issuer, "https://leaf.example.com")
+		returned <- err
+	}()
+
+	select {
+	case err := <-returned:
+		if err == nil || !strings.Contains(err.Error(), "response limit") {
+			t.Fatalf("expected the response limit to be reported, got %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Retrieve did not return while the peer was still holding the response open, so the read is not bounded by the limit")
 	}
 }

@@ -7,11 +7,9 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
+	"strings"
 	"testing"
 
-	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
@@ -354,6 +352,7 @@ func TestValidate(t *testing.T) {
 	tests := map[string]struct {
 		setupTest func() (trustMark string, authorizedIssuers []model.EntityIdentifier, cfg model.Configuration)
 		validate  func(t *testing.T, result *model.TrustMark, err error)
+		expectErr string
 	}{
 		"validates trust mark with invalid JWT structure - too few parts": {
 			setupTest: func() (string, []model.EntityIdentifier, model.Configuration) {
@@ -367,50 +366,34 @@ func TestValidate(t *testing.T) {
 		},
 		"fails validation when JWT body is not valid base64": {
 			setupTest: func() (string, []model.EntityIdentifier, model.Configuration) {
-				head := base64.RawURLEncoding.EncodeToString([]byte(`{"typ":"trust-mark+jwt"}`))
+				head := base64.RawURLEncoding.EncodeToString([]byte(`{"typ":"trust-mark+jwt","kid":"test-key"}`))
 				return head + ".invalid-base64!@#.signature", []model.EntityIdentifier{"https://issuer.example.com"}, model.Configuration{}
 			},
-			validate: func(t *testing.T, result *model.TrustMark, err error) {
-				if err == nil {
-					t.Fatal("expected error for invalid base64 body, got nil")
-				}
-			},
+			expectErr: "failed to decode JWT body",
 		},
 		"fails validation when JWT body is not valid JSON": {
 			setupTest: func() (string, []model.EntityIdentifier, model.Configuration) {
-				head := base64.RawURLEncoding.EncodeToString([]byte(`{"typ":"trust-mark+jwt"}`))
+				head := base64.RawURLEncoding.EncodeToString([]byte(`{"typ":"trust-mark+jwt","kid":"test-key"}`))
 				body := base64.RawURLEncoding.EncodeToString([]byte("not valid json"))
 				return head + "." + body + ".signature", []model.EntityIdentifier{"https://issuer.example.com"}, model.Configuration{}
 			},
-			validate: func(t *testing.T, result *model.TrustMark, err error) {
-				if err == nil {
-					t.Fatal("expected error for invalid JSON body, got nil")
-				}
-			},
+			expectErr: "failed to unmarshal JWT body",
 		},
 		"fails validation when issuer claim is missing": {
 			setupTest: func() (string, []model.EntityIdentifier, model.Configuration) {
-				head := base64.RawURLEncoding.EncodeToString([]byte(`{"typ":"trust-mark+jwt"}`))
+				head := base64.RawURLEncoding.EncodeToString([]byte(`{"typ":"trust-mark+jwt","kid":"test-key"}`))
 				body := base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"https://entity.example.com"}`))
 				return head + "." + body + ".signature", []model.EntityIdentifier{"https://issuer.example.com"}, model.Configuration{}
 			},
-			validate: func(t *testing.T, result *model.TrustMark, err error) {
-				if err == nil {
-					t.Fatal("expected error for missing issuer, got nil")
-				}
-			},
+			expectErr: "missing or invalid required field 'iss'",
 		},
 		"fails validation when issuer is not a valid entity identifier": {
 			setupTest: func() (string, []model.EntityIdentifier, model.Configuration) {
-				head := base64.RawURLEncoding.EncodeToString([]byte(`{"typ":"trust-mark+jwt"}`))
-				body := base64.RawURLEncoding.EncodeToString([]byte(`{"iss":"not a valid url","sub":"https://entity.example.com"}`))
+				head := base64.RawURLEncoding.EncodeToString([]byte(`{"typ":"trust-mark+jwt","kid":"test-key"}`))
+				body := base64.RawURLEncoding.EncodeToString([]byte(`{"iss":"not a valid url","sub":"https://entity.example.com","trust_mark_type":"https://tm.example.com/a","iat":1}`))
 				return head + "." + body + ".signature", []model.EntityIdentifier{"https://issuer.example.com"}, model.Configuration{}
 			},
-			validate: func(t *testing.T, result *model.TrustMark, err error) {
-				if err == nil {
-					t.Fatal("expected error for invalid entity identifier, got nil")
-				}
-			},
+			expectErr: "invalid trust mark issuer",
 		},
 		"fails validation when issuer is not in authorized list": {
 			setupTest: func() (string, []model.EntityIdentifier, model.Configuration) {
@@ -430,7 +413,20 @@ func TestValidate(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			trustMark, authorizedIssuers, cfg := tt.setupTest()
-			result, err := Validate(context.Background(), cfg, trustMark, authorizedIssuers, nil)
+			result, err := Validate(context.Background(), cfg, trustMark, ValidateOptions{
+				ExpectedType:      "tm-123",
+				ExpectedSubject:   "https://entity.example.com",
+				AuthorizedIssuers: authorizedIssuers,
+			}, nil)
+			if tt.expectErr != "" {
+				if err == nil {
+					t.Fatalf("expected an error containing %q, got trust mark %v", tt.expectErr, result)
+				}
+				if !strings.Contains(err.Error(), tt.expectErr) {
+					t.Fatalf("expected an error containing %q, got %v", tt.expectErr, err)
+				}
+				return
+			}
 			tt.validate(t, result, err)
 		})
 	}
@@ -483,69 +479,13 @@ func createTrustMarkJWTWithExp(t *testing.T, issuer, trustMarkType, sub string, 
 	return *token
 }
 
-// Helper to create an entity configuration for trust mark issuer
-func createIssuerEntityConfiguration(t *testing.T, iss model.EntityIdentifier, signer crypto.Signer) string {
-	t.Helper()
-
-	publicJWK, err := jwk.PublicJwk(signer.Public())
-	if err != nil {
-		t.Fatalf("failed to create public JWK: %v", err)
-	}
-	(*publicJWK)["kid"] = "test-key"
-
-	body := map[string]any{
-		"iss": string(iss),
-		"sub": string(iss),
-		"iat": 1234567890,
-		"exp": 9999999999,
-		"jwks": map[string]any{
-			"keys": []any{*publicJWK},
-		},
-	}
-
-	head := map[string]any{
-		"kid": "test-key",
-		"typ": "entity-statement+jwt",
-		"alg": "RS256",
-	}
-
-	token, err := jwt.New(signer, head, body, jwt.Opts{Algorithm: josemodel.RS256})
-	if err != nil {
-		t.Fatalf("failed to create entity configuration: %v", err)
-	}
-
-	return *token
-}
-
 func TestFilterByTrusted(t *testing.T) {
-	// Generate test keys for issuers
-	issuer1Key, _ := rsa.GenerateKey(rand.Reader, 2048)
-	issuer2Key, _ := rsa.GenerateKey(rand.Reader, 2048)
+	fed := newTrustMarkFederation(t, federationNode{name: "issuer1"}, federationNode{name: "issuer2"})
 
-	var issuer1ID, issuer2ID model.EntityIdentifier
-
-	// Set up test server for issuer1
-	issuer1Server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/.well-known/openid-federation" {
-			w.Header().Set("Content-Type", "application/entity-statement+jwt")
-			w.Write([]byte(createIssuerEntityConfiguration(t, issuer1ID, issuer1Key))) //nolint:errcheck
-		}
-	}))
-	defer issuer1Server.Close()
-	issuer1ID = model.EntityIdentifier(issuer1Server.URL)
-
-	// Set up test server for issuer2
-	issuer2Server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/.well-known/openid-federation" {
-			w.Header().Set("Content-Type", "application/entity-statement+jwt")
-			w.Write([]byte(createIssuerEntityConfiguration(t, issuer2ID, issuer2Key))) //nolint:errcheck
-		}
-	}))
-	defer issuer2Server.Close()
-	issuer2ID = model.EntityIdentifier(issuer2Server.URL)
-
-	// Create a shared HTTP client that works for both test servers
-	sharedClient := issuer1Server.Client()
+	issuer1Key, issuer2Key := fed.keys["issuer1"], fed.keys["issuer2"]
+	issuer1ID, issuer2ID := fed.id["issuer1"], fed.id["issuer2"]
+	trustAnchorID := fed.id["trust_anchor"]
+	sharedClient := fed.client()
 
 	subjectID := "https://subject.example.com"
 
@@ -559,6 +499,7 @@ func TestFilterByTrusted(t *testing.T) {
 				trustMark2 := createTrustMarkJWT(t, string(issuer2ID), "untrusted-mark", subjectID, issuer2Key)
 
 				resolved := &model.ResolveResponse{
+					Sub: model.EntityIdentifier(subjectID),
 					TrustMarks: []model.TrustMarkHolder{
 						{TrustMarkType: "trusted-mark", TrustMark: trustMark1},
 						{TrustMarkType: "untrusted-mark", TrustMark: trustMark2},
@@ -566,6 +507,7 @@ func TestFilterByTrusted(t *testing.T) {
 				}
 
 				trustAnchorConfig := model.EntityStatement{
+					Sub: trustAnchorID,
 					TrustMarkIssuers: map[string][]model.EntityIdentifier{
 						"trusted-mark": {issuer1ID},
 					},
@@ -593,6 +535,7 @@ func TestFilterByTrusted(t *testing.T) {
 				trustMark2 := createTrustMarkJWT(t, string(issuer2ID), "trusted-mark-2", subjectID, issuer2Key)
 
 				resolved := &model.ResolveResponse{
+					Sub: model.EntityIdentifier(subjectID),
 					TrustMarks: []model.TrustMarkHolder{
 						{TrustMarkType: "trusted-mark-1", TrustMark: trustMark1},
 						{TrustMarkType: "trusted-mark-2", TrustMark: trustMark2},
@@ -600,6 +543,7 @@ func TestFilterByTrusted(t *testing.T) {
 				}
 
 				trustAnchorConfig := model.EntityStatement{
+					Sub: trustAnchorID,
 					TrustMarkIssuers: map[string][]model.EntityIdentifier{
 						"trusted-mark-1": {issuer1ID},
 						"trusted-mark-2": {issuer2ID},
@@ -624,12 +568,14 @@ func TestFilterByTrusted(t *testing.T) {
 				trustMark := createTrustMarkJWTWithExp(t, string(issuer1ID), "trusted-mark", subjectID, issuer1Key, model.Pointer(int64(8000000000)))
 
 				resolved := &model.ResolveResponse{
+					Sub: model.EntityIdentifier(subjectID),
 					Exp: 9999999999,
 					TrustMarks: []model.TrustMarkHolder{
 						{TrustMarkType: "trusted-mark", TrustMark: trustMark},
 					},
 				}
 				trustAnchorConfig := model.EntityStatement{
+					Sub: trustAnchorID,
 					TrustMarkIssuers: map[string][]model.EntityIdentifier{
 						"trusted-mark": {issuer1ID},
 					},
@@ -650,12 +596,14 @@ func TestFilterByTrusted(t *testing.T) {
 				trustMark := createTrustMarkJWTWithExp(t, string(issuer1ID), "trusted-mark", subjectID, issuer1Key, model.Pointer(int64(9999999999)))
 
 				resolved := &model.ResolveResponse{
+					Sub: model.EntityIdentifier(subjectID),
 					Exp: 8000000000,
 					TrustMarks: []model.TrustMarkHolder{
 						{TrustMarkType: "trusted-mark", TrustMark: trustMark},
 					},
 				}
 				trustAnchorConfig := model.EntityStatement{
+					Sub: trustAnchorID,
 					TrustMarkIssuers: map[string][]model.EntityIdentifier{
 						"trusted-mark": {issuer1ID},
 					},
@@ -676,12 +624,14 @@ func TestFilterByTrusted(t *testing.T) {
 				trustMark := createTrustMarkJWTWithExp(t, string(issuer1ID), "trusted-mark", subjectID, issuer1Key, nil)
 
 				resolved := &model.ResolveResponse{
+					Sub: model.EntityIdentifier(subjectID),
 					Exp: 8000000000,
 					TrustMarks: []model.TrustMarkHolder{
 						{TrustMarkType: "trusted-mark", TrustMark: trustMark},
 					},
 				}
 				trustAnchorConfig := model.EntityStatement{
+					Sub: trustAnchorID,
 					TrustMarkIssuers: map[string][]model.EntityIdentifier{
 						"trusted-mark": {issuer1ID},
 					},
@@ -700,9 +650,11 @@ func TestFilterByTrusted(t *testing.T) {
 		"handles empty trust marks list": {
 			setupTest: func() (*model.ResolveResponse, model.EntityStatement, model.Configuration) {
 				resolved := &model.ResolveResponse{
+					Sub:        model.EntityIdentifier(subjectID),
 					TrustMarks: []model.TrustMarkHolder{},
 				}
 				trustAnchorConfig := model.EntityStatement{
+					Sub:              trustAnchorID,
 					TrustMarkIssuers: map[string][]model.EntityIdentifier{},
 				}
 				cfg := model.Configuration{}

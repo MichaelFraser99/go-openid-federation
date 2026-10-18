@@ -128,3 +128,30 @@ func TestIntermediateConfiguration_GetSubordinatesReturnsACopy(t *testing.T) {
 		t.Errorf("expected writes to the returned map not to reach the cache, got %d subordinates", len(again))
 	}
 }
+
+func TestConfiguration_TrustMarkIssuerLimit(t *testing.T) {
+	tests := []struct {
+		name       string
+		configured int
+		expect     int
+	}{
+		{name: "zero applies the default", configured: 0, expect: DefaultMaxTrustMarkIssuers},
+		{name: "negative applies the default", configured: -1, expect: DefaultMaxTrustMarkIssuers},
+		{name: "an explicit value is honoured", configured: 4, expect: 4},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := Configuration{MaxTrustMarkIssuers: tc.configured}
+			if got := cfg.TrustMarkIssuerLimit(); got != tc.expect {
+				t.Errorf("expected limit %d, got %d", tc.expect, got)
+			}
+		})
+	}
+
+	t.Run("the default admits a realistic number of accreditations", func(t *testing.T) {
+		if DefaultMaxTrustMarkIssuers < 32 {
+			t.Errorf("a subject with a few dozen trust mark issuers must resolve without configuration, so the default must not drop below 32, got %d", DefaultMaxTrustMarkIssuers)
+		}
+	})
+}

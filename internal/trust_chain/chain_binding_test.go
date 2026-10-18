@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
@@ -115,5 +117,60 @@ func TestResolveMetadata_FetchesOmittedTrustAnchorConfiguration(t *testing.T) {
 	}
 	if leafHits != 0 {
 		t.Errorf("expected the subject's entity configuration not to be fetched, got %d fetches", leafHits)
+	}
+}
+
+func TestBuildTrustChain_BindsSubjectToTheKeyRegisteredByItsSuperior(t *testing.T) {
+	leafKey := bindingKey(t)
+	attackerKey := bindingKey(t)
+	taKey := bindingKey(t)
+
+	var leafID, taID model.EntityIdentifier
+	var leafSigner *rsa.PrivateKey
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/leaf/.well-known/openid-federation":
+			w.Header().Set("Content-Type", "application/entity-statement+jwt")
+			w.Write([]byte(createEntityStatement(t, leafID, leafID, []model.EntityIdentifier{taID}, leafSigner, false))) //nolint:errcheck
+		case "/ta/.well-known/openid-federation":
+			w.Header().Set("Content-Type", "application/entity-statement+jwt")
+			w.Write([]byte(createEntityStatement(t, taID, taID, nil, taKey, true))) //nolint:errcheck
+		case "/ta/fetch":
+			w.Header().Set("Content-Type", "application/entity-statement+jwt")
+			w.Write([]byte(createSubordinateStatement(t, taID, leafID, taKey, leafKey.Public()))) //nolint:errcheck
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	leafID = model.EntityIdentifier(server.URL + "/leaf")
+	taID = model.EntityIdentifier(server.URL + "/ta")
+	cfg := model.Configuration{HttpClient: server.Client()}
+
+	tests := []struct {
+		name      string
+		signer    *rsa.PrivateKey
+		expectErr bool
+	}{
+		{name: "leaf signed by the key its superior registered is accepted", signer: leafKey, expectErr: false},
+		{name: "leaf signed by another key under the registered kid is rejected", signer: attackerKey, expectErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			leafSigner = tc.signer
+			_, parsed, _, err := BuildTrustChain(context.Background(), cfg, leafID, taID, resolvecache.New())
+			if tc.expectErr {
+				if err == nil {
+					t.Fatalf("expected the chain build to be rejected, got %d statements", len(parsed))
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("expected the chain to build, got %v", err)
+			}
+		})
 	}
 }

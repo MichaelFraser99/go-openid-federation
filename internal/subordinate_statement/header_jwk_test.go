@@ -35,10 +35,6 @@ func testPublicJwk(t *testing.T, pub crypto.PublicKey, kid string) map[string]an
 
 func testIssuerStatement(t *testing.T, iss model.EntityIdentifier, keys ...map[string]any) model.EntityStatement {
 	t.Helper()
-	anyKeys := make([]any, len(keys))
-	for i, k := range keys {
-		anyKeys[i] = k
-	}
 	return model.EntityStatement{
 		Iss:  iss,
 		Sub:  iss,

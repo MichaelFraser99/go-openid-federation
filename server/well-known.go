@@ -10,7 +10,10 @@ import (
 func (s *Server) HandleWellKnown(w http.ResponseWriter, r *http.Request) ResponseFunc {
 	ctx := r.Context()
 
-	entityConfiguration, err := entity_configuration.New(ctx, s.cfg)
+	cfg := s.cfg
+	cfg.AuthorityHints = s.AuthorityHints()
+
+	entityConfiguration, err := entity_configuration.New(ctx, cfg)
 	if err != nil {
 		s.cfg.LogInfo(ctx, "error generating entity cfg", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, err)

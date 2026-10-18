@@ -61,9 +61,13 @@ func fetch(ctx context.Context, cfg model.Configuration, entityIdentifier model.
 		return nil, nil, fmt.Errorf("invalid Content-Type response from %q's entity configuration: %s", entityIdentifier, response.Header.Get("Content-Type"))
 	}
 
-	responseBytes, err := io.ReadAll(response.Body)
+	limit := cfg.PeerResponseLimit()
+	responseBytes, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read %q's entity configuration response body: %s", entityIdentifier, err.Error())
+	}
+	if int64(len(responseBytes)) > limit {
+		return nil, nil, fmt.Errorf("%q's entity configuration exceeded the %d byte response limit", entityIdentifier, limit)
 	}
 
 	entityConfiguration, err := Validate(ctx, cfg, entityIdentifier, string(responseBytes))

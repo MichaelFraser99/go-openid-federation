@@ -21,7 +21,7 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 		return nil, nil, nil, fmt.Errorf("target leaf entity identifier must not match target trust anchor entity identifier")
 	}
 
-	signedRoute, route, _, err := ChainUpOne(ctx, cfg, targetLeafEntityIdentifier, targetTrustAnchorEntityIdentifier, []model.EntityIdentifier{}, []model.EntityStatement{}, []string{}, cache, map[model.EntityIdentifier]struct{}{})
+	signedRoute, route, _, err := ChainUpOne(ctx, cfg, targetLeafEntityIdentifier, targetTrustAnchorEntityIdentifier, []model.EntityIdentifier{}, []model.EntityStatement{}, []string{}, cache, map[DeadEnd]struct{}{})
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -46,15 +46,34 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 	return append(trustChain, signedRoute[len(signedRoute)-1]), append(parsedTrustChain, route[len(route)-1]), &exp, nil
 }
 
-func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target model.EntityIdentifier, checked []model.EntityIdentifier, path []model.EntityStatement, signedPath []string, cache *resolvecache.Cache, deadEnds map[model.EntityIdentifier]struct{}) ([]string, []model.EntityStatement, bool, error) {
+type DeadEnd struct {
+	Subject   model.EntityIdentifier
+	Remaining int
+}
+
+func deadEndKey(cfg model.Configuration, subject model.EntityIdentifier, depth int) DeadEnd {
+	key := DeadEnd{Subject: subject}
+	if cfg.MaxTrustChainDepth > 0 {
+		key.Remaining = cfg.MaxTrustChainDepth - depth
+	}
+	return key
+}
+
+func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target model.EntityIdentifier, checked []model.EntityIdentifier, path []model.EntityStatement, signedPath []string, cache *resolvecache.Cache, deadEnds map[DeadEnd]struct{}) ([]string, []model.EntityStatement, bool, error) {
 	cfg.LogInfo(ctx, "walking trust chain", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Any("checked", checked), slog.Any("path", path), slog.Any("signed_path", signedPath))
+
+	if err := ctx.Err(); err != nil {
+		cfg.LogInfo(ctx, "abandoning trust chain walk", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.String("error", err.Error()))
+		return signedPath, path, false, err
+	}
 
 	if cfg.MaxTrustChainDepth > 0 && len(path) >= cfg.MaxTrustChainDepth {
 		cfg.LogInfo(ctx, "reached configured maximum trust chain depth", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Int("max_depth", cfg.MaxTrustChainDepth))
 		return signedPath, path, true, model.NewInvalidTrustAnchorError("unable to build trust chain from specified 'sub' to specified 'trust_anchor'")
 	}
 
-	if _, dead := deadEnds[subject]; dead {
+	subjectKey := deadEndKey(cfg, subject, len(path))
+	if _, dead := deadEnds[subjectKey]; dead {
 		cfg.LogInfo(ctx, "skipping entity already proven not to reach the trust anchor", slog.String("subject", string(subject)), slog.String("target", string(target)))
 		return signedPath, path, false, model.NewInvalidTrustAnchorError("unable to build trust chain from specified 'sub' to specified 'trust_anchor'")
 	}
@@ -62,7 +81,10 @@ func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 	signedSubjectEntityStatement, subjectEntityStatement, err := entity_configuration.Retrieve(ctx, cfg, subject, cache)
 	if err != nil {
 		cfg.LogInfo(ctx, "entity configuration unusable", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.String("error", err.Error()))
-		deadEnds[subject] = struct{}{}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return signedPath, path, false, ctxErr
+		}
+		deadEnds[subjectKey] = struct{}{}
 		if errors.Is(err, model.ErrInvalidMetadata) {
 			return signedPath, path, false, model.NewInvalidMetadataError(fmt.Sprintf("entity configuration for %s failed validation: %s", subject, err.Error()))
 		}
@@ -88,7 +110,7 @@ func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 			break
 		} else if slices.Contains(checked, trustIssuer) {
 			tainted = true
-		} else if _, dead := deadEnds[trustIssuer]; !dead {
+		} else if _, dead := deadEnds[deadEndKey(cfg, trustIssuer, len(path))]; !dead {
 			toCheck = append(toCheck, trustIssuer)
 		}
 	}
@@ -101,12 +123,13 @@ func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 		if err == nil {
 			return signedPath, path, false, nil
 		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return signedPath, path, false, ctxErr
+		}
 		tainted = tainted || childTainted
 	}
 	cfg.LogInfo(ctx, "dead end in path traversal", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Any("checked", checked), slog.Any("path", path), slog.Any("signed_path", signedPath))
-	if !tainted {
-		deadEnds[subject] = struct{}{}
-	}
+	deadEnds[subjectKey] = struct{}{}
 	return signedPath[:len(signedPath)-1], path[:len(path)-1], tainted, model.NewInvalidTrustAnchorError("unable to build trust chain from specified 'sub' to specified 'trust_anchor'")
 }
 

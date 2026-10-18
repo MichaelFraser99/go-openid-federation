@@ -57,9 +57,13 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 		return nil, nil, fmt.Errorf("invalid Content-Type response from %q's federation fetch response: %s", issuer.Sub, response.Header.Get("Content-Type"))
 	}
 
-	responseBytes, err := io.ReadAll(response.Body)
+	limit := cfg.PeerResponseLimit()
+	responseBytes, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read %q's federation fetch response body: %s", issuer.Sub, err.Error())
+	}
+	if int64(len(responseBytes)) > limit {
+		return nil, nil, fmt.Errorf("%q's federation fetch response exceeded the %d byte response limit", issuer.Sub, limit)
 	}
 
 	subordinateStatement, err := Validate(cfg, issuer, string(responseBytes))

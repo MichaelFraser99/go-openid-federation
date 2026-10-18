@@ -7,17 +7,23 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
 
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
 type Server struct {
-	cfg model.ServerConfiguration
+	cfg            model.ServerConfiguration
+	mu             sync.RWMutex
+	authorityHints []model.EntityIdentifier
 }
 
 func NewServer(configuration model.ServerConfiguration) *Server {
 	configuration.EntityConfiguration.JWKs.Opts.EnforceUniqueKIDs = true
-	return &Server{cfg: configuration}
+	hints := make([]model.EntityIdentifier, len(configuration.AuthorityHints))
+	copy(hints, configuration.AuthorityHints)
+	configuration.AuthorityHints = nil
+	return &Server{cfg: configuration, authorityHints: hints}
 }
 
 // SetEntityIdentifier
@@ -41,7 +47,17 @@ func (s *Server) SetHttpClient(client *http.Client) {
 //
 //	Adds an authority hint to a running server
 func (s *Server) AddAuthorityHint(entityIdentifier model.EntityIdentifier) {
-	s.cfg.AuthorityHints = append(s.cfg.AuthorityHints, entityIdentifier)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	hints := make([]model.EntityIdentifier, len(s.authorityHints), len(s.authorityHints)+1)
+	copy(hints, s.authorityHints)
+	s.authorityHints = append(hints, entityIdentifier)
+}
+
+func (s *Server) AuthorityHints() []model.EntityIdentifier {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.authorityHints
 }
 
 func (s *Server) resolveEntityIdentifier(ctx context.Context, param model.EntityIdentifierParam, raw string) (*model.EntityIdentifier, error) {

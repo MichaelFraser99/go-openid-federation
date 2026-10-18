@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"reflect"
 	"slices"
+	"sync"
 	"time"
 
 	josemodel "github.com/MichaelFraser99/go-jose/model"
@@ -33,6 +34,20 @@ type Configuration struct {
 	// constraint; set it according to how deep legitimate Trust Chains are in your federation
 	// (a tightly walled-garden federation can set a low value, an open one may leave it unset).
 	MaxTrustChainDepth int
+
+	// MaxPeerResponseBytes bounds how much of a peer's Entity Statement response the library
+	// will read into memory. Zero (the default) applies DefaultMaxPeerResponseBytes. An Entity
+	// Statement is a compact JWS of a few kilobytes, so the default leaves generous headroom.
+	MaxPeerResponseBytes int64
+}
+
+const DefaultMaxPeerResponseBytes int64 = 1 << 20
+
+func (cfg *Configuration) PeerResponseLimit() int64 {
+	if cfg.MaxPeerResponseBytes > 0 {
+		return cfg.MaxPeerResponseBytes
+	}
+	return DefaultMaxPeerResponseBytes
 }
 
 func (cfg *Configuration) LogInfo(ctx context.Context, msg string, args ...any) {
@@ -71,7 +86,14 @@ func (cfg *ServerConfiguration) GetSubordinates(ctx context.Context) (map[Entity
 	if cfg.MetadataRetriever != nil {
 		return cfg.MetadataRetriever.GetSubordinates(ctx)
 	}
-	return cfg.IntermediateConfiguration.subordinates, nil
+	i := cfg.IntermediateConfiguration
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	subordinates := make(map[EntityIdentifier]*SubordinateConfiguration, len(i.subordinates))
+	for identifier, subordinate := range i.subordinates {
+		subordinates[identifier] = subordinate
+	}
+	return subordinates, nil
 }
 
 func (cfg *ServerConfiguration) GetSubordinateJWKs(ctx context.Context) ([]SignerConfiguration, error) {
@@ -94,24 +116,39 @@ func (cfg *ServerConfiguration) GetSubordinateJWKs(ctx context.Context) ([]Signe
 }
 
 func (cfg *ServerConfiguration) GetSubordinate(ctx context.Context, identifier EntityIdentifier) (*SubordinateConfiguration, error) {
-	if cfg.IntermediateConfiguration.subordinates == nil {
-		cfg.IntermediateConfiguration.subordinates = map[EntityIdentifier]*SubordinateConfiguration{}
+	i := cfg.IntermediateConfiguration
+
+	i.mu.RLock()
+	cached := i.subordinates[identifier]
+	i.mu.RUnlock()
+
+	if cached != nil && time.Now().UTC().Before(time.Unix(cached.CachedAt, 0).Add(i.SubordinateCacheTime).UTC()) {
+		return cached, nil
 	}
 
-	if cfg.IntermediateConfiguration.subordinates[identifier] != nil && time.Now().UTC().Before(time.Unix(cfg.IntermediateConfiguration.subordinates[identifier].CachedAt, 0).Add(cfg.IntermediateConfiguration.SubordinateCacheTime).UTC()) {
-		return cfg.IntermediateConfiguration.subordinates[identifier], nil
-	} else if cfg.MetadataRetriever != nil {
-		entity, err := cfg.MetadataRetriever.GetSubordinate(ctx, identifier)
-		if err != nil {
-			return nil, err
-		} else {
-			cfg.IntermediateConfiguration.subordinates[identifier] = entity
-			cfg.IntermediateConfiguration.subordinates[identifier].CachedAt = time.Now().UTC().Unix()
-		}
-		return cfg.IntermediateConfiguration.subordinates[identifier], nil
-	} else {
+	if cfg.MetadataRetriever == nil {
 		return nil, fmt.Errorf("subordinate entity %s not found", identifier)
 	}
+
+	entity, err := cfg.MetadataRetriever.GetSubordinate(ctx, identifier)
+	if err != nil {
+		return nil, err
+	}
+	if entity == nil {
+		return nil, fmt.Errorf("subordinate entity %s not found", identifier)
+	}
+
+	stored := *entity
+	stored.CachedAt = time.Now().UTC().Unix()
+
+	i.mu.Lock()
+	if i.subordinates == nil {
+		i.subordinates = map[EntityIdentifier]*SubordinateConfiguration{}
+	}
+	i.subordinates[identifier] = &stored
+	i.mu.Unlock()
+
+	return &stored, nil
 }
 
 type Retriever interface {
@@ -185,23 +222,29 @@ type ExtendedListingConfiguration struct {
 }
 
 type IntermediateConfiguration struct {
+	mu                           sync.RWMutex
 	subordinates                 map[EntityIdentifier]*SubordinateConfiguration
 	SubordinateStatementLifetime time.Duration
 	SubordinateCacheTime         time.Duration
 }
 
 func (i *IntermediateConfiguration) FlushCache() {
+	i.mu.Lock()
+	defer i.mu.Unlock()
 	i.subordinates = map[EntityIdentifier]*SubordinateConfiguration{}
 }
 
 func (i *IntermediateConfiguration) AddSubordinate(identifier EntityIdentifier, subordinateConfiguration *SubordinateConfiguration) {
+	stored := *subordinateConfiguration
+	stored.JWKs.Opts.EnforceUniqueKIDs = true
+	stored.CachedAt = time.Now().UTC().Unix()
+
+	i.mu.Lock()
+	defer i.mu.Unlock()
 	if i.subordinates == nil {
 		i.subordinates = map[EntityIdentifier]*SubordinateConfiguration{}
 	}
-	subordinateConfiguration.JWKs.Opts.EnforceUniqueKIDs = true
-	subordinateConfiguration.CachedAt = time.Now().UTC().Unix()
-
-	i.subordinates[identifier] = subordinateConfiguration
+	i.subordinates[identifier] = &stored
 }
 
 type SubordinateConfiguration struct {

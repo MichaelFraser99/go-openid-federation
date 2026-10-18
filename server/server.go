@@ -57,7 +57,9 @@ func (s *Server) AddAuthorityHint(entityIdentifier model.EntityIdentifier) {
 func (s *Server) AuthorityHints() []model.EntityIdentifier {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.authorityHints
+	hints := make([]model.EntityIdentifier, len(s.authorityHints))
+	copy(hints, s.authorityHints)
+	return hints
 }
 
 func (s *Server) resolveEntityIdentifier(ctx context.Context, param model.EntityIdentifierParam, raw string) (*model.EntityIdentifier, error) {

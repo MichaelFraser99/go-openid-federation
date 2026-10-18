@@ -46,6 +46,10 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 	return append(trustChain, signedRoute[len(signedRoute)-1]), append(parsedTrustChain, route[len(route)-1]), &exp, nil
 }
 
+func walkNotCompleted(err error) error {
+	return fmt.Errorf("%w%s: %w", model.ErrTemporarilyUnavailable, "trust chain walk did not complete", err)
+}
+
 type DeadEnd struct {
 	Subject   model.EntityIdentifier
 	Remaining int
@@ -64,7 +68,7 @@ func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 
 	if err := ctx.Err(); err != nil {
 		cfg.LogInfo(ctx, "abandoning trust chain walk", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.String("error", err.Error()))
-		return signedPath, path, false, err
+		return signedPath, path, false, walkNotCompleted(err)
 	}
 
 	if cfg.MaxTrustChainDepth > 0 && len(path) >= cfg.MaxTrustChainDepth {
@@ -82,7 +86,7 @@ func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 	if err != nil {
 		cfg.LogInfo(ctx, "entity configuration unusable", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.String("error", err.Error()))
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return signedPath, path, false, ctxErr
+			return signedPath, path, false, walkNotCompleted(ctxErr)
 		}
 		deadEnds[subjectKey] = struct{}{}
 		if errors.Is(err, model.ErrInvalidMetadata) {
@@ -124,7 +128,7 @@ func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 			return signedPath, path, false, nil
 		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return signedPath, path, false, ctxErr
+			return signedPath, path, false, walkNotCompleted(ctxErr)
 		}
 		tainted = tainted || childTainted
 	}

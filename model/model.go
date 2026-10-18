@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"reflect"
 	"slices"
@@ -35,19 +36,20 @@ type Configuration struct {
 	// (a tightly walled-garden federation can set a low value, an open one may leave it unset).
 	MaxTrustChainDepth int
 
-	// MaxPeerResponseBytes bounds how much of a peer's Entity Statement response the library
-	// will read into memory. Zero (the default) applies DefaultMaxPeerResponseBytes. An Entity
-	// Statement is a compact JWS of a few kilobytes, so the default leaves generous headroom.
 	MaxPeerResponseBytes int64
 }
 
 const DefaultMaxPeerResponseBytes int64 = 1 << 20
 
 func (cfg *Configuration) PeerResponseLimit() int64 {
-	if cfg.MaxPeerResponseBytes > 0 {
-		return cfg.MaxPeerResponseBytes
+	limit := cfg.MaxPeerResponseBytes
+	if limit <= 0 {
+		limit = DefaultMaxPeerResponseBytes
 	}
-	return DefaultMaxPeerResponseBytes
+	if limit > math.MaxInt64-1 {
+		limit = math.MaxInt64 - 1
+	}
+	return limit
 }
 
 func (cfg *Configuration) LogInfo(ctx context.Context, msg string, args ...any) {

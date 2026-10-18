@@ -2,6 +2,7 @@ package entity_configuration
 
 import (
 	"context"
+	"crypto"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"

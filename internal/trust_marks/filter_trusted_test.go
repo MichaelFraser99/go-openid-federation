@@ -36,12 +36,6 @@ func rvKey(t *testing.T) *rsa.PrivateKey {
 
 func (f *rvFed) id(name string) string { return f.server.URL + "/" + name }
 
-func (f *rvFed) count(path string) int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.hits[path]
-}
-
 func newRvFed(t *testing.T, superior map[string]string) *rvFed {
 	t.Helper()
 	f := &rvFed{ecKey: map[string]*rsa.PrivateKey{}, ssKey: map[string]*rsa.PrivateKey{}, superior: superior, ssSigner: map[string]*rsa.PrivateKey{}, hits: map[string]int{}}

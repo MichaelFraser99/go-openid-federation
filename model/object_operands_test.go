@@ -233,3 +233,49 @@ func TestApplyPolicy_EmptyEntityTypeObjectDoesNotPanic(t *testing.T) {
 		})
 	}
 }
+
+func TestContainsDeepEqual_NilCandidate(t *testing.T) {
+	tests := []struct {
+		name     string
+		haystack []any
+		needle   any
+		expect   bool
+	}{
+		{name: "a nil candidate against a string", haystack: []any{nil, "a"}, needle: "a", expect: true},
+		{name: "a nil candidate against an absent string", haystack: []any{nil, "a"}, needle: "b"},
+		{name: "a nil candidate against a nil needle", haystack: []any{nil}, needle: nil, expect: true},
+		{name: "a nil candidate against an object", haystack: []any{nil}, needle: map[string]any{"a": 1}},
+		{name: "a nil needle against an object candidate", haystack: []any{map[string]any{"a": 1}}, needle: nil},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("a nil operand value panicked, which peer JSON can produce: %v", r)
+				}
+			}()
+			if got := containsDeepEqual(tc.haystack, tc.needle); got != tc.expect {
+				t.Errorf("expected %v, got %v", tc.expect, got)
+			}
+		})
+	}
+}
+
+func TestProcessAndExtractPolicy_NullOperandValueDoesNotPanic(t *testing.T) {
+	var policy MetadataPolicy
+	if err := json.Unmarshal([]byte(`{"openid_relying_party":{"contacts":{"value":["a"],"subset_of":[null,"a"]}}}`), &policy); err != nil {
+		t.Fatalf("the policy fixture did not parse: %v", err)
+	}
+	subordinate := EntityStatement{Iss: "https://ta.example.com", Sub: "https://leaf.example.com", MetadataPolicy: &policy}
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("a null element in a peer supplied operand panicked: %v", r)
+		}
+	}()
+
+	if _, err := ProcessAndExtractPolicy([]EntityStatement{{}, subordinate, {}}); err != nil {
+		t.Logf("policy error, which is acceptable: %v", err)
+	}
+}

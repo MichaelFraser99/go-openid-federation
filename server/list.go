@@ -31,7 +31,7 @@ func (s *Server) List(w http.ResponseWriter, r *http.Request) ResponseFunc {
 		identifiers, err := listingRetriever.ListSubordinates(ctx, filter)
 		if err != nil {
 			s.cfg.LogInfo(ctx, "error listing subordinates", slog.String("error", err.Error()))
-			return s.RespondWithError(ctx, w, err)
+			return s.RespondWithError(ctx, w, s.retrieverError(err, subordinateListingUnavailableError))
 		}
 		return s.respondWithEntities(ctx, w, identifiers)
 	}
@@ -43,7 +43,6 @@ func (s *Server) List(w http.ResponseWriter, r *http.Request) ResponseFunc {
 
 	subordinates, err := s.cfg.GetSubordinates(ctx)
 	if err != nil {
-		err = s.retrieverError(err, subordinateListingUnavailableError)
 		s.cfg.LogError(ctx, "error retrieving subordinates", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(listingUnavailableError))
 	}

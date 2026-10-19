@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -331,6 +332,10 @@ func (r leakingEverythingRetriever) GetSubordinateStatus(context.Context, model.
 	return nil, r.err
 }
 
+func (r leakingEverythingRetriever) ListSubordinates(context.Context, model.SubordinateListingFilter) ([]model.EntityIdentifier, error) {
+	return nil, r.err
+}
+
 func TestServer_NoEndpointReflectsTheRetrieversMessage(t *testing.T) {
 	const secret = "dial tcp db.internal:5432: connect: refused for user admin password hunter2"
 
@@ -403,5 +408,136 @@ func TestServer_APanicInTheRecoveryPathStillAnswers(t *testing.T) {
 
 	if response.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", response.StatusCode)
+	}
+}
+
+func TestServer_RecoveryAppliesToEveryConfiguredRoute(t *testing.T) {
+	ts := contractServer(t, func(cfg *model.ServerConfiguration) {
+		cfg.MetadataRetriever = panickingRetriever{}
+		cfg.TrustMarkRetriever = panickingTrustMarkRetriever{}
+		cfg.EntityIdentifierResolver = panickingIdentifierResolver{}
+		cfg.Extensions = model.Extensions{
+			ExtendedListing:   model.ExtendedListingConfiguration{Enabled: true, SizeLimit: 10, MetadataRetriever: panickingExtendedRetriever{}},
+			SubordinateStatus: model.SubordinateStatusConfiguration{Enabled: true, MetadataRetriever: panickingStatusRetriever{}},
+		}
+	})
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		form   url.Values
+	}{
+		{name: "well known", method: http.MethodGet, path: "/.well-known/openid-federation"},
+		{name: "list", method: http.MethodGet, path: "/list"},
+		{name: "fetch", method: http.MethodGet, path: "/fetch?sub=https://leaf.example.com"},
+		{name: "resolve", method: http.MethodGet, path: "/resolve?sub=https://leaf.example.com&trust_anchor=https://ta.example.com"},
+		{name: "extended list", method: http.MethodGet, path: "/extended-list"},
+		{name: "subordinate status", method: http.MethodGet, path: "/subordinate-status?sub=https://leaf.example.com"},
+		{name: "trust mark", method: http.MethodGet, path: "/trust-mark?sub=https://leaf.example.com&trust_mark_type=https://tm.example.com/a"},
+		{name: "trust mark list", method: http.MethodGet, path: "/trust-mark-list?trust_mark_type=https://tm.example.com/a"},
+		{name: "trust mark status", method: http.MethodPost, path: "/trust-mark-status", form: url.Values{"trust_mark": {"a.b.c"}}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var body io.Reader
+			if tc.form != nil {
+				body = strings.NewReader(tc.form.Encode())
+			}
+			request, err := http.NewRequest(tc.method, ts.URL+tc.path, body)
+			if err != nil {
+				t.Fatalf("failed to build the request: %v", err)
+			}
+			if tc.form != nil {
+				request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			}
+
+			response, err := ts.Client().Do(request)
+			if err != nil {
+				t.Fatalf("this route is not wrapped by the recovery, so a panic dropped the connection: %v", err)
+			}
+			defer response.Body.Close() //nolint:errcheck
+
+			raw, err := io.ReadAll(response.Body)
+			if err != nil {
+				t.Fatalf("failed to read the response body: %v", err)
+			}
+			if !strings.Contains(string(raw), unexpectedFailureError) {
+				t.Fatalf("expected the recovery's own description, got %d with %s", response.StatusCode, raw)
+			}
+		})
+	}
+}
+
+type panickingExtendedRetriever struct{}
+
+func (panickingExtendedRetriever) GetExtendedSubordinates(context.Context, model.ExtendedListingFilter) (*model.ExtendedListingResponse, error) {
+	panic("the extended listing store exploded")
+}
+
+type panickingStatusRetriever struct{}
+
+func (panickingStatusRetriever) GetSubordinateStatus(context.Context, model.EntityIdentifier) (*model.SubordinateStatusResponse, error) {
+	panic("the status store exploded")
+}
+
+func TestServer_RecoveryAbortsWhenAskedTo(t *testing.T) {
+	mux := http.NewServeMux()
+	server := NewServer(model.ServerConfiguration{})
+	mux.HandleFunc("GET /abort", server.handle(func(http.ResponseWriter, *http.Request) ResponseFunc {
+		panic(http.ErrAbortHandler)
+	}))
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	if _, err := ts.Client().Get(ts.URL + "/abort"); err == nil {
+		t.Fatal("expected http.ErrAbortHandler to be re-panicked so net/http drops the response")
+	}
+}
+
+type panickingIdentifierResolver struct{}
+
+func (panickingIdentifierResolver) ResolveEntityIdentifier(context.Context, model.EntityIdentifierParam, string) (*model.EntityIdentifier, error) {
+	panic("the identifier resolver exploded")
+}
+
+func TestServer_SubordinateStatus_NormalisesAnAbsentEventList(t *testing.T) {
+	ts := contractServer(t, func(cfg *model.ServerConfiguration) {
+		cfg.Extensions = model.Extensions{
+			SubordinateStatus: model.SubordinateStatusConfiguration{
+				Enabled:           true,
+				MetadataRetriever: sharedStatusRetriever{shared: &model.SubordinateStatusResponse{}},
+			},
+		}
+	})
+
+	response, err := ts.Client().Get(ts.URL + "/subordinate-status?sub=https://leaf.example.com")
+	if err != nil {
+		t.Fatalf("the handler did not answer: %v", err)
+	}
+	defer response.Body.Close() //nolint:errcheck
+
+	raw, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatalf("failed to read the response body: %v", err)
+	}
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("expected a status response, got %d with %s", response.StatusCode, raw)
+	}
+
+	parts := strings.Split(string(raw), ".")
+	if len(parts) != 3 {
+		t.Fatalf("expected a three part JWT, got %s", raw)
+	}
+	body, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatalf("failed to decode the response body: %v", err)
+	}
+	if strings.Contains(string(body), `"federation_registration_events":null`) {
+		t.Errorf("expected an absent event list to be an empty array rather than null, got %s", body)
+	}
+	if !strings.Contains(string(body), `"federation_registration_events":[]`) {
+		t.Errorf("expected an empty event array, got %s", body)
 	}
 }

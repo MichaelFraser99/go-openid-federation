@@ -1233,13 +1233,6 @@ func marshalMetadataToMap(in map[string]any) map[string]any {
 			continue // non-slice nil values can be completely omitted
 		} else if nested, ok := v.(map[string]any); ok {
 			metadataMap[k] = marshalMetadataToMap(nested)
-		} else if reflect.TypeOf(v).Kind() == reflect.Map {
-			nestedValue := reflect.ValueOf(v)
-			converted := make(map[string]any, nestedValue.Len())
-			for _, key := range nestedValue.MapKeys() {
-				converted[fmt.Sprintf("%v", key.Interface())] = nestedValue.MapIndex(key).Interface()
-			}
-			metadataMap[k] = marshalMetadataToMap(converted)
 		} else if reflect.TypeOf(v).Kind() == reflect.Slice {
 			if reflect.ValueOf(v).Len() == 0 {
 				metadataMap[k] = []any{}

@@ -190,12 +190,13 @@ Takes `sub` as a required query parameter.
 Handlers do not write to the `http.ResponseWriter` directly. Each returns a `server.ResponseFunc`, a closure that performs the write when called:
 
 ```go
-h.HandleFunc("GET /fetch", func(w http.ResponseWriter, r *http.Request) { s.Fetch(w, r)() })
+mux := http.NewServeMux()
+server.Configure(mux)
 ```
 
 The response is determined before it is written, so a caller can run code between the two.
 
-Mounting a handler yourself this way skips the panic recovery that `Configure` installs. `Configure` wraps every route it registers, so a panic in a retriever answers 500 with a JSON error body rather than dropping the connection. A handler mounted by hand has no such wrapper, so recover in your own middleware if you take this route.
+Use `Configure` to mount the endpoints. It wraps every route it registers, so a panic in a retriever answers 500 with a JSON error body rather than dropping the connection. Mounting a handler by hand, as `func(w, r) { s.Fetch(w, r)() }`, has no such wrapper, so recover in your own middleware if you need to take that route.
 
 ## Configuration
 

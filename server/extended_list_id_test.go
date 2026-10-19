@@ -26,6 +26,7 @@ func TestServer_ExtendedList_MalformedEntityIdentifier(t *testing.T) {
 		entities     []map[string]any
 		expectStatus int
 		expectError  string
+		expectDesc   string
 	}{
 		{
 			name:         "an id that is a number",
@@ -44,6 +45,20 @@ func TestServer_ExtendedList_MalformedEntityIdentifier(t *testing.T) {
 			entities:     []map[string]any{{"id": map[string]any{}}},
 			expectStatus: http.StatusInternalServerError,
 			expectError:  "server_error",
+		},
+		{
+			name:         "a string id that is not an entity identifier",
+			entities:     []map[string]any{{"id": "not-an-entity-identifier"}},
+			expectStatus: http.StatusInternalServerError,
+			expectError:  "server_error",
+			expectDesc:   extendedListingUnavailableError,
+		},
+		{
+			name:         "a string id over plain http",
+			entities:     []map[string]any{{"id": "http://leaf.example.com"}},
+			expectStatus: http.StatusInternalServerError,
+			expectError:  "server_error",
+			expectDesc:   extendedListingUnavailableError,
 		},
 		{
 			name:         "an absent id",
@@ -79,7 +94,11 @@ func TestServer_ExtendedList_MalformedEntityIdentifier(t *testing.T) {
 			if err != nil {
 				t.Fatalf("the handler did not answer, which is what a panic looks like to a caller: %v", err)
 			}
-			validateErrorResponse(t, response, nil, tc.expectStatus, tc.expectError, extendedListingMalformedIdentifierError)
+			desc := tc.expectDesc
+			if desc == "" {
+				desc = extendedListingMalformedIdentifierError
+			}
+			validateErrorResponse(t, response, nil, tc.expectStatus, tc.expectError, desc)
 		})
 	}
 }

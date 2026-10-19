@@ -37,7 +37,7 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 	for i := 0; i < len(route)-1; i++ {
 		signedResponse, subordinateStatement, err := subordinate_statement.Retrieve(ctx, cfg, route[i+1], route[i].Sub)
 		if err != nil {
-			cfg.LogInfo(ctx, "subordinate statement unusable", slog.String("issuer", string(route[i+1].Sub)), slog.String("subject", string(route[i].Sub)), slog.String("error", err.Error()))
+			cfg.LogInfo(ctx, "subordinate statement unusable", slog.String("issuer", string(route[i+1].Sub)), slog.String("subject", string(route[i].Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return nil, nil, nil, walkNotCompleted(ctxErr)
 			}

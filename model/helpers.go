@@ -16,9 +16,6 @@ func ReMarshalJsonAsEntityMetadata[T any](data any) (*T, error) {
 		return nil, err
 	}
 	t := new(T)
-	if slices.Equal(bytes, []byte("{}")) {
-		return t, nil
-	}
 	err = json.Unmarshal(bytes, t)
 	if err != nil {
 		return nil, err
@@ -73,6 +70,31 @@ func sortByPriority(policies []MetadataPolicyOperator) []MetadataPolicyOperator 
 	return policies
 }
 
+func operandLength(value any) int {
+	if value == nil || reflect.TypeOf(value).Kind() != reflect.Slice {
+		return 1
+	}
+	return reflect.ValueOf(value).Len()
+}
+
+func verifyConflictWorkIsBounded(parameter string, operators []MetadataPolicyOperator) error {
+	lengths := make([]int, 0, len(operators))
+	for _, operator := range operators {
+		lengths = append(lengths, operandLength(operator.OperatorValue()))
+	}
+
+	comparisons := 0
+	for i := range lengths {
+		for j := i + 1; j < len(lengths); j++ {
+			comparisons += lengths[i] * lengths[j]
+			if comparisons > MaxPolicyComparisons {
+				return fmt.Errorf("the policy for %q requires more than %d operand comparisons to validate, which exceeds the limit this implementation applies", parameter, MaxPolicyComparisons)
+			}
+		}
+	}
+	return nil
+}
+
 func verifyScopeOperand(value any) error {
 	if value == nil {
 		return nil
@@ -98,6 +120,9 @@ func sortAndValidatePolicy(policy *MetadataPolicy) error {
 	}
 	for _, parameters := range policy.byEntityType() {
 		for parameter, operators := range parameters {
+			if err := verifyConflictWorkIsBounded(parameter, operators.Metadata); err != nil {
+				return err
+			}
 			if parameter == "scope" {
 				for _, operator := range operators.Metadata {
 					if operator.String() == "essential" {

@@ -95,6 +95,22 @@ func (s *Server) Configure(h *http.ServeMux) {
 	}
 }
 
+var classifiedErrors = []error{
+	model.ErrInvalidRequest, model.ErrInvalidClient, model.ErrInvalidIssuer,
+	model.ErrInvalidSubject, model.ErrInvalidTrustAnchor, model.ErrInvalidTrustChain,
+	model.ErrInvalidMetadata, model.ErrNotFound, model.ErrServerError,
+	model.ErrTemporarilyUnavailable, model.ErrUnsupportedParameter,
+}
+
+func (s *Server) retrieverError(err error, fallback string) error {
+	for _, classified := range classifiedErrors {
+		if errors.Is(err, classified) {
+			return err
+		}
+	}
+	return model.NewServerError(fallback)
+}
+
 const subordinateRetrievalFailureError = "unable to retrieve the subordinate configuration at this time"
 
 const unexpectedFailureError = "an unexpected failure occurred while serving this request"
@@ -103,6 +119,9 @@ func (s *Server) handle(handler func(http.ResponseWriter, *http.Request) Respons
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if recovered := recover(); recovered != nil {
+				if recovered == http.ErrAbortHandler {
+					panic(recovered)
+				}
 				s.cfg.LogError(r.Context(), "recovered from a panic while serving a federation endpoint",
 					slog.String("path", r.URL.Path),
 					slog.String("panic", fmt.Sprintf("%v", recovered)),
@@ -124,11 +143,7 @@ func (s *Server) loadSubordinate(ctx context.Context, identifier model.EntityIde
 			if errors.Is(err, model.ErrNotFound) {
 				return nil, &s.cfg.SignerConfiguration, nil
 			}
-			if errors.Is(err, model.ErrInvalidRequest) || errors.Is(err, model.ErrInvalidSubject) ||
-				errors.Is(err, model.ErrInvalidIssuer) || errors.Is(err, model.ErrTemporarilyUnavailable) {
-				return nil, &s.cfg.SignerConfiguration, err
-			}
-			return nil, &s.cfg.SignerConfiguration, model.NewServerError(subordinateRetrievalFailureError)
+			return nil, &s.cfg.SignerConfiguration, s.retrieverError(err, subordinateRetrievalFailureError)
 		}
 		if subordinate.SignerConfiguration != nil {
 			return subordinate, subordinate.SignerConfiguration, nil

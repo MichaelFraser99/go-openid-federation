@@ -195,6 +195,8 @@ h.HandleFunc("GET /fetch", func(w http.ResponseWriter, r *http.Request) { s.Fetc
 
 The response is determined before it is written, so a caller can run code between the two.
 
+Mounting a handler yourself this way skips the panic recovery that `Configure` installs. `Configure` wraps every route it registers, so a panic in a retriever answers 500 with a JSON error body rather than dropping the connection. A handler mounted by hand has no such wrapper, so recover in your own middleware if you take this route.
+
 ## Configuration
 
 ### ServerConfiguration
@@ -265,7 +267,7 @@ A retriever that returns `(nil, nil)` is treated the same way, so a store that s
 
 > **Breaking change.** Returning a bare `error` for an unknown subject now gives the caller a 500 rather than a 404. Earlier releases turned every retriever error into 404 `not_found`, which reported a store outage to federation peers as "this subordinate does not exist". If your retriever signals an unknown subject with a bare error — `sql.ErrNoRows`, an ORM's "record not found", or your own sentinel — wrap it with `model.NewNotFoundError(...)` or return `(nil, nil)`, or `/fetch` will answer 500 for every unknown subject.
 
-The text of an unclassified retriever error is never sent to the caller. It is logged, and the response carries a fixed description, because a driver error commonly contains a host name and a user name.
+The text of an unclassified retriever error is never sent to the caller, on any endpoint. It is logged, and the response carries a fixed description, because a driver error commonly contains a host name and a user name. An error carrying one of the `model.Err*` sentinels passes through unchanged, so returning `model.NewUnsupportedParameterError(...)` or `model.NewTemporarilyUnavailableError(...)` still chooses the status and description a peer sees.
 
 `ExtendedListingRetriever` is the exception, in two ways. An unknown subject there is an empty listing rather than an error, so return an empty `ImmediateSubordinateEntities`. And a nil response is **not** treated as not found: it answers `server_error`, because a listing retriever that returns nothing at all is a misconfiguration rather than a statement about any one subject.
 
@@ -510,7 +512,7 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | JWK sets whose keys omit `kty` | Accepted on read, so the fault surfaces at verification | [#146](https://github.com/MichaelFraser99/go-openid-federation/issues/146) |
 | A `jwks` member name that case-folds to `keys` | Supplies the verification keys through Go's case-insensitive decode | [#147](https://github.com/MichaelFraser99/go-openid-federation/issues/147) |
 | Object valued policy operands | Deduplicated by a lossy string hash at construction and in `add` and `superset_of`, so distinct objects collide, including nested ones | [#150](https://github.com/MichaelFraser99/go-openid-federation/issues/150) |
-| Policy operand count | Unbounded, and conflict detection is quadratic in it | [#151](https://github.com/MichaelFraser99/go-openid-federation/issues/151) |
+| Policy operand comparisons | Bounded by `model.MaxPolicyComparisons`, which is not configurable, and the bound is not applied to the merge path | [#151](https://github.com/MichaelFraser99/go-openid-federation/issues/151) |
 | Error classes on the fetch path | A peer's fault is reported as a server error | [#148](https://github.com/MichaelFraser99/go-openid-federation/issues/148) |
 
 ## License

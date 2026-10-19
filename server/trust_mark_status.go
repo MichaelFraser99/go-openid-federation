@@ -30,7 +30,7 @@ func (s *Server) TrustMarkStatus(w http.ResponseWriter, r *http.Request) Respons
 	status, err := trust_marks.Status(ctx, s.cfg, trustMark)
 	if err != nil {
 		s.cfg.LogInfo(ctx, "error determining trust mark status", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, err)
+		return s.RespondWithError(ctx, w, s.retrieverError(err, trustMarkStatusUnavailableError))
 	}
 
 	statusBytes, err := json.Marshal(status)

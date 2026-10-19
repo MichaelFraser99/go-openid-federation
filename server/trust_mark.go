@@ -8,6 +8,8 @@ import (
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
+const trustMarkUnavailableError = "unable to issue the trust mark at this time"
+
 func (s *Server) TrustMark(w http.ResponseWriter, r *http.Request) ResponseFunc {
 	ctx := r.Context()
 	sub := r.URL.Query().Get("sub")
@@ -29,8 +31,8 @@ func (s *Server) TrustMark(w http.ResponseWriter, r *http.Request) ResponseFunc 
 
 	trustMark, err := trust_marks.Issue(ctx, s.cfg, trustMarkType, *parsedSub)
 	if err != nil {
-		s.cfg.LogInfo(ctx, "error listing trust marks", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, err)
+		s.cfg.LogInfo(ctx, "error issuing the trust mark", slog.String("error", err.Error()))
+		return s.RespondWithError(ctx, w, s.retrieverError(err, trustMarkUnavailableError))
 	}
 
 	return s.RespondWithTrustMark(w, []byte(*trustMark))

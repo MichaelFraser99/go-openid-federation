@@ -197,3 +197,39 @@ func TestGetSubordinateJWKs_SkipsANilConfiguration(t *testing.T) {
 		t.Fatalf("expected the signers to be collected, got %v", err)
 	}
 }
+
+func TestApplyPolicy_EmptyEntityTypeObjectDoesNotPanic(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+	}{
+		{name: "an empty relying party object", raw: `{"openid_relying_party":{}}`},
+		{name: "an empty provider object", raw: `{"openid_provider":{}}`},
+		{name: "an empty federation entity object", raw: `{"federation_entity":{}}`},
+		{name: "an empty extension type object", raw: `{"urn:example:type":{}}`},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var metadata Metadata
+			if err := json.Unmarshal([]byte(tc.raw), &metadata); err != nil {
+				t.Fatalf("expected an empty entity type object to parse, got %v", err)
+			}
+
+			var policy MetadataPolicy
+			if err := json.Unmarshal([]byte(`{"openid_relying_party":{"contacts":{"default":["ops@example.com"]}},"openid_provider":{"contacts":{"default":["ops@example.com"]}},"federation_entity":{"contacts":{"default":["ops@example.com"]}}}`), &policy); err != nil {
+				t.Fatalf("the policy fixture did not parse: %v", err)
+			}
+
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("applying a policy to an empty entity type object panicked, which a peer can trigger: %v", r)
+				}
+			}()
+
+			if _, err := ApplyPolicy(EntityStatement{Metadata: &metadata}, policy); err != nil {
+				t.Logf("policy error, which is acceptable: %v", err)
+			}
+		})
+	}
+}

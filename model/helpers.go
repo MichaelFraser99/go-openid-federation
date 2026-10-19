@@ -95,6 +95,23 @@ func verifyConflictWorkIsBounded(parameter string, operators []MetadataPolicyOpe
 	return nil
 }
 
+func verifyMergeWorkIsBounded(parameter string, setA, setB []MetadataPolicyOperator) error {
+	comparisons := 0
+	for _, a := range setA {
+		lengthA := operandLength(a.OperatorValue())
+		for _, b := range setB {
+			if a.ResolutionHierarchy() != b.ResolutionHierarchy() {
+				continue
+			}
+			comparisons += lengthA * operandLength(b.OperatorValue())
+			if comparisons > MaxPolicyComparisons {
+				return fmt.Errorf("merging the policy for %q requires more than %d operand comparisons, which exceeds the limit this implementation applies", parameter, MaxPolicyComparisons)
+			}
+		}
+	}
+	return nil
+}
+
 func verifyScopeOperand(value any) error {
 	if value == nil {
 		return nil
@@ -217,6 +234,10 @@ func MergePolicyOperators(claimName string, policySetA, policySetB PolicyOperato
 	} else if len(policySetB.Metadata) == 0 {
 		return policySetA.Metadata, nil
 	} else {
+		if err := verifyMergeWorkIsBounded(claimName, policySetA.Metadata, policySetB.Metadata); err != nil {
+			return nil, err
+		}
+
 		structuredA := structureAsMap(policySetA.Metadata)
 		structuredB := structureAsMap(policySetB.Metadata)
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestApplyPolicy_ScopeOperandTypes(t *testing.T) {
@@ -293,6 +294,72 @@ func TestProcessAndExtractPolicy_BoundsConflictWork(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tc.expectErr) {
 				t.Fatalf("expected an error naming the comparison budget, got %v", err)
+			}
+		})
+	}
+}
+
+func TestMergePolicyOperators_BoundsMergeWork(t *testing.T) {
+	operand := func(n int) string {
+		values := make([]string, n)
+		for i := range values {
+			values[i] = fmt.Sprintf("%q", fmt.Sprintf("value-%d", i))
+		}
+		return "[" + strings.Join(values, ",") + "]"
+	}
+
+	tests := []struct {
+		name      string
+		first     string
+		second    string
+		expectErr string
+	}{
+		{
+			name:   "two small operands merge",
+			first:  `{"subset_of":` + operand(50) + `}`,
+			second: `{"subset_of":` + operand(50) + `}`,
+		},
+		{
+			name:      "two large operands exceed the merge budget",
+			first:     `{"subset_of":` + operand(20000) + `}`,
+			second:    `{"subset_of":` + operand(20000) + `}`,
+			expectErr: "operand comparisons",
+		},
+		{
+			name:   "operands of different operators are not compared against each other",
+			first:  `{"subset_of":` + operand(20000) + `}`,
+			second: `{"add":` + operand(20000) + `}`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var first, second PolicyOperators
+			if err := json.Unmarshal([]byte(tc.first), &first); err != nil {
+				t.Fatalf("the first fixture did not parse: %v", err)
+			}
+			if err := json.Unmarshal([]byte(tc.second), &second); err != nil {
+				t.Fatalf("the second fixture did not parse: %v", err)
+			}
+
+			started := time.Now()
+			_, err := MergePolicyOperators("contacts", first, second)
+			elapsed := time.Since(started)
+
+			if tc.expectErr == "" {
+				if err != nil {
+					t.Fatalf("expected the merge to be attempted, got %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("expected a merge beyond the budget to be refused, it took %s", elapsed)
+			}
+			if !strings.Contains(err.Error(), tc.expectErr) {
+				t.Fatalf("expected an error naming the comparison budget, got %v", err)
+			}
+			if elapsed > time.Second {
+				t.Errorf("expected the budget to refuse before doing the work, it took %s", elapsed)
 			}
 		})
 	}

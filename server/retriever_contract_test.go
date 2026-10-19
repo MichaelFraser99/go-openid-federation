@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -214,5 +215,93 @@ func TestServer_TrustMarkList_AnswersAnArrayWhenNothingIsListed(t *testing.T) {
 	}
 	if strings.TrimSpace(string(raw)) != "[]" {
 		t.Errorf("[8.5.2] expected a JSON array, got %s", raw)
+	}
+}
+
+type leakingTrustMarkRetriever struct {
+	err error
+}
+
+func (r leakingTrustMarkRetriever) GetTrustMarkStatus(context.Context, string) (*string, error) {
+	return nil, r.err
+}
+
+func (r leakingTrustMarkRetriever) IssueTrustMark(context.Context, string, model.EntityIdentifier) (*string, error) {
+	return nil, r.err
+}
+
+func (r leakingTrustMarkRetriever) ListTrustMarks(context.Context, string, *model.EntityIdentifier) ([]model.EntityIdentifier, error) {
+	return nil, r.err
+}
+
+func TestServer_TrustMarkEndpoints_DoNotReflectTheRetrieversMessage(t *testing.T) {
+	const secret = "dial tcp db.internal:5432: connect: connection refused for user admin"
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		form   url.Values
+	}{
+		{name: "trust mark", method: http.MethodGet, path: "/trust-mark?sub=https://leaf.example.com&trust_mark_type=https://tm.example.com/a"},
+		{name: "trust mark list", method: http.MethodGet, path: "/trust-mark-list?trust_mark_type=https://tm.example.com/a"},
+		{name: "trust mark status", method: http.MethodPost, path: "/trust-mark-status", form: url.Values{"trust_mark": {"a.b.c"}}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ts := contractServer(t, func(cfg *model.ServerConfiguration) {
+				cfg.TrustMarkRetriever = leakingTrustMarkRetriever{err: errors.New(secret)}
+			})
+
+			var body io.Reader
+			if tc.form != nil {
+				body = strings.NewReader(tc.form.Encode())
+			}
+			request, err := http.NewRequest(tc.method, ts.URL+tc.path, body)
+			if err != nil {
+				t.Fatalf("failed to build the request: %v", err)
+			}
+			if tc.form != nil {
+				request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			}
+
+			response, err := ts.Client().Do(request)
+			if err != nil {
+				t.Fatalf("the handler did not answer: %v", err)
+			}
+			defer response.Body.Close() //nolint:errcheck
+
+			raw, err := io.ReadAll(response.Body)
+			if err != nil {
+				t.Fatalf("failed to read the response body: %v", err)
+			}
+			if response.StatusCode != http.StatusInternalServerError {
+				t.Fatalf("expected an unclassified retriever error to answer 500, got %d with %s", response.StatusCode, raw)
+			}
+			if strings.Contains(string(raw), "db.internal") || strings.Contains(string(raw), "admin") {
+				t.Fatalf("the retriever's own message reached an unauthenticated caller: %s", raw)
+			}
+		})
+	}
+}
+
+func TestServer_TrustMarkEndpoints_PassAClassifiedErrorThrough(t *testing.T) {
+	ts := contractServer(t, func(cfg *model.ServerConfiguration) {
+		cfg.TrustMarkRetriever = leakingTrustMarkRetriever{err: model.NewUnsupportedParameterError("trust mark issuance not supported")}
+	})
+
+	response, err := ts.Client().Get(ts.URL + "/trust-mark?sub=https://leaf.example.com&trust_mark_type=https://tm.example.com/a")
+	if err != nil {
+		t.Fatalf("the handler did not answer: %v", err)
+	}
+	defer response.Body.Close() //nolint:errcheck
+
+	raw, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatalf("failed to read the response body: %v", err)
+	}
+	if !strings.Contains(string(raw), "unsupported_parameter") {
+		t.Fatalf("expected a classified retriever error to choose what the peer sees, got %s", raw)
 	}
 }

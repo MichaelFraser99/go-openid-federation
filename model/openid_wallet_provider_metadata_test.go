@@ -19,11 +19,11 @@ func TestOpenIDWalletProviderMetadata_VerifyMetadata(t *testing.T) {
 			},
 			wantErr: false,
 		},
-		"missing vp_formats_supported": {
+		"missing vp_formats_supported is not a syntax fault": {
 			metadata: OpenIDWalletProviderMetadata{
 				"client_id_prefixes_supported": []any{"redirect_uri"},
 			},
-			wantErr: true,
+			wantErr: false,
 		},
 		"vp_formats_supported must be object": {
 			metadata: OpenIDWalletProviderMetadata{
@@ -52,6 +52,39 @@ func TestOpenIDWalletProviderMetadata_VerifyMetadata(t *testing.T) {
 			err := tt.metadata.VerifyMetadata()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("VerifyMetadata() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestOpenIDWalletProviderMetadata_VerifyResolvedMetadata(t *testing.T) {
+	tests := map[string]struct {
+		metadata OpenIDWalletProviderMetadata
+		wantErr  bool
+	}{
+		"empty metadata is valid": {
+			metadata: OpenIDWalletProviderMetadata{},
+			wantErr:  false,
+		},
+		"vp_formats_supported supplied": {
+			metadata: OpenIDWalletProviderMetadata{
+				"vp_formats_supported": map[string]any{"jwt_vc": map[string]any{}},
+			},
+			wantErr: false,
+		},
+		"missing vp_formats_supported": {
+			metadata: OpenIDWalletProviderMetadata{
+				"client_id_prefixes_supported": []any{"redirect_uri"},
+			},
+			wantErr: true,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := tt.metadata.VerifyResolvedMetadata()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("VerifyResolvedMetadata() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

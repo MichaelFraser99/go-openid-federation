@@ -209,7 +209,7 @@ func TestServer_Resolve(t *testing.T) {
 			"exp":  time.Now().Add(10 * time.Minute).UTC().Unix(),
 			"jwks": map[string]any{"keys": []any{*invalidMetadataPublicJWK}},
 			"metadata": map[string]any{
-				"openid_relying_party": map[string]any{"scope": "openid address"},
+				"openid_relying_party": map[string]any{"redirect_uris": "not-an-array"},
 			},
 		}, jwt.Opts{Algorithm: josemodel.ES256})
 		if err != nil {

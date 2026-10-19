@@ -229,17 +229,17 @@ func TestMetadata_UnmarshalJSON(t *testing.T) {
 			wantErr:  true,
 		},
 		{
-			name: "invalid openid relying party metadata - missing required field",
+			name: "partial openid relying party metadata is accepted before resolution",
 			json: `{
 				"openid_relying_party": {
 					"client_registration_types": ["automatic"]
 				}
 			}`,
-			expected: Metadata{},
-			wantErr:  true,
+			expected: Metadata{OpenIDRelyingPartyMetadata: &OpenIDRelyingPartyMetadata{"client_registration_types": []any{"automatic"}}},
+			wantErr:  false,
 		},
 		{
-			name: "invalid openid provider metadata - missing conditionally required token_endpoint",
+			name: "openid provider metadata without the conditionally required token_endpoint is accepted before resolution",
 			json: `{
 				"openid_provider": {
 					"response_types_supported": ["code"],
@@ -251,8 +251,16 @@ func TestMetadata_UnmarshalJSON(t *testing.T) {
 					"jwks_uri": "https://example.com/jwks"
 				}
 			}`,
-			expected: Metadata{},
-			wantErr:  true,
+			expected: Metadata{OpenIDConnectOpenIDProviderMetadata: &OpenIDConnectOpenIDProviderMetadata{
+				"response_types_supported":              []any{"code"},
+				"subject_types_supported":               []any{"public"},
+				"id_token_signing_alg_values_supported": []any{"RS256"},
+				"client_registration_types_supported":   []any{"automatic"},
+				"issuer":                                "https://example.com",
+				"authorization_endpoint":                "https://example.com/auth",
+				"jwks_uri":                              "https://example.com/jwks",
+			}},
+			wantErr: false,
 		},
 		{
 			name: "unrecognised entity type is captured as an extension",
@@ -395,7 +403,7 @@ func TestEntityStatement_UnmarshalJSON(t *testing.T) {
 				"jwks": {"keys": [{"kid": "test-key", "kty": "RSA"}]},
 				"metadata": {
 					"openid_relying_party": {
-						"scope": "openid profile"
+						"redirect_uris": "not-an-array"
 					}
 				}
 			}`,

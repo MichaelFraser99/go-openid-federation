@@ -223,6 +223,12 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 			cfg.LogInfo(ctx, "trust chain expiry unusable", slog.Int64("exp", singleExp), slog.String("error", err.Error()))
 			return nil, err
 		}
+		if processedChain[0].Metadata != nil {
+			if err := processedChain[0].Metadata.VerifyResolved(cfg.EntityTypes); err != nil {
+				cfg.LogInfo(ctx, "resolved metadata failed verification", slog.String("subject", string(processedChain[0].Sub)), slog.String("error", err.Error()))
+				return nil, model.NewInvalidMetadataError(err.Error())
+			}
+		}
 		return &model.ResolveResponse{
 			Iss:        issuerEntityIdentifier,
 			Sub:        processedChain[0].Sub,
@@ -293,6 +299,10 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 		TrustChain: trustChain,
 	}
 
+	subject := processedChain[0]
+	subject.Metadata = model.ApplySuperiorMetadata(processedChain[0].Metadata, processedChain[1].Metadata)
+	cfg.LogInfo(ctx, "applied immediate superior supplied metadata", slog.String("subject", string(subject.Sub)), slog.String("superior", string(processedChain[1].Iss)))
+
 	cfg.LogInfo(ctx, "processing and extracting metadata policy from chain", slog.Int("chain_length", len(processedChain)))
 	finalisedPolicy, err := model.ProcessAndExtractPolicy(processedChain)
 	if err != nil {
@@ -301,28 +311,34 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 	}
 
 	if finalisedPolicy == nil {
-		cfg.LogInfo(ctx, "no policy to apply, returning metadata directly", slog.String("subject", string(processedChain[0].Sub)), slog.Int("trust_marks_count", len(processedChain[0].TrustMarks)))
-		result.Metadata = processedChain[0].Metadata
-		result.TrustMarks = processedChain[0].TrustMarks
+		cfg.LogInfo(ctx, "no policy to apply, returning metadata directly", slog.String("subject", string(subject.Sub)), slog.Int("trust_marks_count", len(subject.TrustMarks)))
+		if subject.Metadata != nil {
+			if err := subject.Metadata.VerifyResolved(cfg.EntityTypes); err != nil {
+				cfg.LogInfo(ctx, "resolved metadata failed verification", slog.String("subject", string(subject.Sub)), slog.String("error", err.Error()))
+				return nil, model.NewInvalidMetadataError(err.Error())
+			}
+		}
+		result.Metadata = subject.Metadata
+		result.TrustMarks = subject.TrustMarks
 		return result, nil
 	}
 
-	cfg.LogInfo(ctx, "applying policy to subject metadata", slog.String("subject", string(processedChain[0].Sub)))
-	applied, err := model.ApplyPolicy(processedChain[0], *finalisedPolicy)
+	cfg.LogInfo(ctx, "applying policy to subject metadata", slog.String("subject", string(subject.Sub)))
+	applied, err := model.ApplyPolicy(subject, *finalisedPolicy)
 	if err != nil {
-		cfg.LogInfo(ctx, "failed to apply policy", slog.Any("metadata", processedChain[0]), slog.Any("policy", *finalisedPolicy), slog.String("error", err.Error()))
+		cfg.LogInfo(ctx, "failed to apply policy", slog.Any("metadata", subject), slog.Any("policy", *finalisedPolicy), slog.String("error", err.Error()))
 		return nil, model.NewInvalidMetadataError("unresolvable metadata policy encountered")
 	}
 
 	if applied.Metadata != nil {
 		if err = applied.Metadata.VerifyResolved(cfg.EntityTypes); err != nil {
-			cfg.LogInfo(ctx, "resolved metadata failed verification", slog.String("subject", string(processedChain[0].Sub)), slog.String("error", err.Error()))
+			cfg.LogInfo(ctx, "resolved metadata failed verification", slog.String("subject", string(subject.Sub)), slog.String("error", err.Error()))
 			return nil, model.NewInvalidMetadataError(err.Error())
 		}
 	}
 
 	result.Metadata = applied.Metadata
-	result.TrustMarks = processedChain[0].TrustMarks
+	result.TrustMarks = subject.TrustMarks
 
 	cfg.LogInfo(ctx, "metadata resolution completed successfully", slog.String("subject", string(result.Sub)), slog.Int("trust_marks_count", len(result.TrustMarks)), slog.Int64("exp", result.Exp))
 	return result, nil

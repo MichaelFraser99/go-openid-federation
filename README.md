@@ -316,9 +316,11 @@ The following entity types are supported.
 | `openid_credential_issuer` | `OpenIDCredentialIssuerMetadata` |
 | `openid_credential_verifier` | `OpenIDCredentialVerifierMetadata` |
 
-Each is a `map[string]any` with its own validation, run when metadata is unmarshalled. An empty object is accepted, so an entity may declare a type without asserting anything about it.
+Each is a `map[string]any` with its own validation, split across two points in the chain.
 
-Validation covers claim shape rather than claim semantics: required claims are present, URL claims are HTTPS with no query or fragment component, string array claims are arrays of strings, and signing algorithm claims exclude `none` where an algorithm is required.
+When metadata is unmarshalled, every statement is checked for claim shape: URL claims are HTTPS with no query or fragment component, string array claims are arrays of strings, object claims are objects, and signing algorithm claims exclude `none` where an algorithm is required. An empty object is accepted, so an entity may declare a type without asserting anything about it.
+
+Whether the required claims of a type are present is checked at the end of resolution, not on each statement. A subject may publish part of a type's metadata and leave its superior to supply the rest, through either a `metadata` claim or a metadata policy, so no single statement has to be complete on its own. The resolved metadata does, and `VerifyResolvedMetadata` is where that is judged.
 
 ## Custom entity types
 
@@ -368,7 +370,7 @@ The hooks run at the following points.
 | `VerifyMetadataPolicy` | A metadata policy an authority has written for the type |
 | `VerifyResolvedMetadata` | The metadata remaining after policy has been applied, at the end of resolution |
 
-Metadata policy can produce metadata that no longer satisfies the type's own rules, such as a `value` operator that removes a required claim. `VerifyResolvedMetadata` runs after policy application and before the resolve response is signed.
+Metadata policy can produce metadata that no longer satisfies the type's own rules, such as a `value` operator that removes a required claim. `VerifyResolvedMetadata` runs at the end of resolution, after the immediate superior's `metadata` claim and any policy have been applied, and before the resolve response is signed. It runs on every resolution path, including a chain carrying no policy at all. The built-in types check their required claims there.
 
 Registered types are handled the same way as built-in types: published in entity configurations, carried in subordinate statements, subject to metadata policy, filtered by the `entity_type` parameter on `/resolve`, and passed through the `entity_type` filter on `/list`.
 
@@ -419,6 +421,10 @@ Comparison on that path is a scan, so a policy built in Go from a large number o
 All seven operators from the specification are implemented: `value`, `add`, `default`, `one_of`, `subset_of`, `superset_of` and `essential`.
 
 Policies are combined down a trust chain by `model.ProcessAndExtractPolicy` and applied to a subject's metadata by `model.ApplyPolicy`. Operators resolve in a fixed order: `value`, `add`, `default`, `one_of`, `subset_of`, `superset_of`, then `essential`. Combinations that cannot be satisfied, such as a `subset_of` and a `superset_of` with no overlap, are rejected when the policies are merged.
+
+Policy comes from the subordinate statements in the chain and from nowhere else. `ProcessAndExtractPolicy` takes the chain as `[subject entity configuration, subordinate statements..., trust anchor entity configuration]` and reads the statements between the ends, so neither the subject nor the trust anchor can write policy for the subject through its own entity configuration. A policy carried in an entity configuration is also refused outright when the statement is validated.
+
+Before any policy runs, the metadata parameters the subject's immediate superior supplies in its subordinate statement are applied over the subject's own, by `model.ApplySuperiorMetadata`. The superior's parameters take precedence, and only entity types the subject already publishes are affected, so a superior can pin a parameter but cannot give the subject a new entity type. Only the statement about the subject does this: a statement about an intermediate higher up has no effect on the leaf.
 
 `scope` is handled as a special case. It travels as a space delimited string but is operated on as a list, so operators are converted to their slice form before resolution and the result is rejoined afterwards.
 

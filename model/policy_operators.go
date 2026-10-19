@@ -17,6 +17,23 @@ func scopeOperatorSlice(value any) []any {
 	return []any{value}
 }
 
+func operandSliceFrom(operatorValue any) ([]any, error) {
+	if operatorValue == nil {
+		return nil, fmt.Errorf("operator value cannot be nil")
+	}
+
+	if reflect.TypeOf(operatorValue).Kind() != reflect.Slice {
+		return nil, fmt.Errorf("operator value must be a slice")
+	}
+
+	sliceValue := reflect.ValueOf(operatorValue)
+	anySlice := make([]any, sliceValue.Len())
+	for i := range sliceValue.Len() {
+		anySlice[i] = sliceValue.Index(i).Interface()
+	}
+	return anySlice, nil
+}
+
 func normaliseOperand(value any) (any, bool) {
 	switch typed := value.(type) {
 	case nil, bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:

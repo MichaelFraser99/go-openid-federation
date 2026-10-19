@@ -55,6 +55,7 @@ func TestMetadataProcessingE2E(t *testing.T) {
 			}
 
 			trustChain := []EntityStatement{
+				{},
 				{
 					MetadataPolicy: &MetadataPolicy{
 						FederationMetadata: parsedInt,
@@ -65,6 +66,7 @@ func TestMetadataProcessingE2E(t *testing.T) {
 						FederationMetadata: parsedTa,
 					},
 				},
+				{},
 			}
 
 			mergedPolicy, err := ProcessAndExtractPolicy(trustChain)

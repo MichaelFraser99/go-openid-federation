@@ -48,7 +48,7 @@ func TestValidate_StatementFailuresAreChainFailures(t *testing.T) {
 		{name: "a misplaced claim", kind: "placement", head: validHead, extra: map[string]any{"source_endpoint": "https://ta.example.com/fetch"}, expectKind: model.ErrInvalidTrustChain},
 		{name: "an iss that does not match sub", kind: "relationship", head: validHead, extra: map[string]any{"sub": "https://other.example.com"}, expectKind: model.ErrInvalidTrustChain},
 		{name: "a signature by another key", kind: "signature", head: validHead, signWith: other, expectKind: model.ErrInvalidTrustChain},
-		{name: "invalid metadata", kind: "metadata", head: validHead, extra: map[string]any{"metadata": map[string]any{"openid_relying_party": map[string]any{"scope": "openid"}}}, expectKind: model.ErrInvalidMetadata},
+		{name: "invalid metadata", kind: "metadata", head: validHead, extra: map[string]any{"metadata": map[string]any{"openid_relying_party": map[string]any{"redirect_uris": "not-an-array"}}}, expectKind: model.ErrInvalidMetadata},
 	}
 
 	for _, tc := range tests {

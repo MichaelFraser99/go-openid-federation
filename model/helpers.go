@@ -120,27 +120,24 @@ func ProcessAndExtractPolicy(trustChain []EntityStatement) (*MetadataPolicy, err
 		}
 	}
 
-	if len(trustChain) == 1 {
-		return trustChain[0].MetadataPolicy, nil // self-asserting chain of 1
-	}
 	if len(trustChain) < 2 {
 		return nil, fmt.Errorf("trust chain must have at least 2 statements")
 	}
 
-	finalisedPolicy := trustChain[0]
+	var finalisedPolicy *MetadataPolicy
 
-	for i := 1; i < len(trustChain); i++ {
+	for i := 1; i < len(trustChain)-1; i++ {
 		metadataPolicy := trustChain[i].MetadataPolicy
 		if metadataPolicy == nil {
 			continue
 		}
 
-		if finalisedPolicy.MetadataPolicy == nil {
-			finalisedPolicy.MetadataPolicy = metadataPolicy
+		if finalisedPolicy == nil {
+			finalisedPolicy = metadataPolicy
 			continue
 		}
 
-		destination := finalisedPolicy.MetadataPolicy.byEntityType()
+		destination := finalisedPolicy.byEntityType()
 		for entityType, incoming := range metadataPolicy.byEntityType() {
 			if incoming == nil {
 				continue
@@ -149,10 +146,10 @@ func ProcessAndExtractPolicy(trustChain []EntityStatement) (*MetadataPolicy, err
 			if err != nil {
 				return nil, err
 			}
-			finalisedPolicy.MetadataPolicy.setEntityType(entityType, merged)
+			finalisedPolicy.setEntityType(entityType, merged)
 		}
 	}
-	return finalisedPolicy.MetadataPolicy, nil
+	return finalisedPolicy, nil
 }
 
 func applyPolicy(existing, policy map[string]PolicyOperators) (map[string]PolicyOperators, error) {
@@ -415,5 +412,33 @@ func DeduplicateSlice(input []any) []any {
 		}
 	}
 
+	return result
+}
+
+// ApplySuperiorMetadata returns the subject's metadata with the metadata parameters supplied by its
+// Immediate Superior applied over it. Parameters from the Subordinate Statement take precedence over
+// identically named parameters under the same Entity Type, and only Entity Types already present in
+// the subject's own metadata are affected. Neither input is modified.
+func ApplySuperiorMetadata(subject, superior *Metadata) *Metadata {
+	if subject == nil {
+		return nil
+	}
+
+	var supplied map[string]map[string]any
+	if superior != nil {
+		supplied = superior.byEntityType()
+	}
+
+	result := &Metadata{}
+	for entityType, parameters := range subject.byEntityType() {
+		merged := make(map[string]any, len(parameters))
+		for parameter, value := range parameters {
+			merged[parameter] = value
+		}
+		for parameter, value := range supplied[entityType] {
+			merged[parameter] = value
+		}
+		result.setEntityType(entityType, merged)
+	}
 	return result
 }

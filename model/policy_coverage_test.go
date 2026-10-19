@@ -70,6 +70,7 @@ func TestProcessAndExtractPolicy_CoversNewEntityTypes(t *testing.T) {
 	}
 
 	chain := []EntityStatement{
+		{},
 		{
 			MetadataPolicy: &MetadataPolicy{
 				OAuthResourceMetadata: map[string]PolicyOperators{
@@ -84,6 +85,7 @@ func TestProcessAndExtractPolicy_CoversNewEntityTypes(t *testing.T) {
 				},
 			},
 		},
+		{},
 	}
 
 	merged, err := ProcessAndExtractPolicy(chain)

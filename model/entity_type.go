@@ -17,8 +17,9 @@ type EntityType interface {
 type EntityTypeRegistry map[string]EntityType
 
 type builtInEntityType struct {
-	identifier string
-	verify     func(map[string]any) error
+	identifier     string
+	verify         func(map[string]any) error
+	verifyResolved func(map[string]any) error
 }
 
 func (b builtInEntityType) Identifier() string {
@@ -36,8 +37,11 @@ func (b builtInEntityType) VerifyMetadataPolicy(map[string]PolicyOperators) erro
 	return nil
 }
 
-func (b builtInEntityType) VerifyResolvedMetadata(map[string]any) error {
-	return nil
+func (b builtInEntityType) VerifyResolvedMetadata(metadata map[string]any) error {
+	if b.verifyResolved == nil {
+		return nil
+	}
+	return b.verifyResolved(metadata)
 }
 
 var builtInEntityTypeDefinitions = map[string]EntityType{
@@ -46,16 +50,19 @@ var builtInEntityTypeDefinitions = map[string]EntityType{
 		verify:     func(m map[string]any) error { return FederationMetadata(m).VerifyMetadata() },
 	},
 	"openid_relying_party": builtInEntityType{
-		identifier: "openid_relying_party",
-		verify:     func(m map[string]any) error { return OpenIDRelyingPartyMetadata(m).VerifyMetadata() },
+		identifier:     "openid_relying_party",
+		verify:         func(m map[string]any) error { return OpenIDRelyingPartyMetadata(m).VerifyMetadata() },
+		verifyResolved: func(m map[string]any) error { return OpenIDRelyingPartyMetadata(m).VerifyResolvedMetadata() },
 	},
 	"openid_provider": builtInEntityType{
-		identifier: "openid_provider",
-		verify:     func(m map[string]any) error { return OpenIDConnectOpenIDProviderMetadata(m).VerifyMetadata() },
+		identifier:     "openid_provider",
+		verify:         func(m map[string]any) error { return OpenIDConnectOpenIDProviderMetadata(m).VerifyMetadata() },
+		verifyResolved: func(m map[string]any) error { return OpenIDConnectOpenIDProviderMetadata(m).VerifyResolvedMetadata() },
 	},
 	"oauth_authorization_server": builtInEntityType{
-		identifier: "oauth_authorization_server",
-		verify:     func(m map[string]any) error { return OAuthAuthorizationServerMetadata(m).VerifyMetadata() },
+		identifier:     "oauth_authorization_server",
+		verify:         func(m map[string]any) error { return OAuthAuthorizationServerMetadata(m).VerifyMetadata() },
+		verifyResolved: func(m map[string]any) error { return OAuthAuthorizationServerMetadata(m).VerifyResolvedMetadata() },
 	},
 	"oauth_client": builtInEntityType{
 		identifier: "oauth_client",
@@ -66,16 +73,19 @@ var builtInEntityTypeDefinitions = map[string]EntityType{
 		verify:     func(m map[string]any) error { return OAuthResourceMetadata(m).VerifyMetadata() },
 	},
 	"openid_wallet_provider": builtInEntityType{
-		identifier: "openid_wallet_provider",
-		verify:     func(m map[string]any) error { return OpenIDWalletProviderMetadata(m).VerifyMetadata() },
+		identifier:     "openid_wallet_provider",
+		verify:         func(m map[string]any) error { return OpenIDWalletProviderMetadata(m).VerifyMetadata() },
+		verifyResolved: func(m map[string]any) error { return OpenIDWalletProviderMetadata(m).VerifyResolvedMetadata() },
 	},
 	"openid_credential_issuer": builtInEntityType{
-		identifier: "openid_credential_issuer",
-		verify:     func(m map[string]any) error { return OpenIDCredentialIssuerMetadata(m).VerifyMetadata() },
+		identifier:     "openid_credential_issuer",
+		verify:         func(m map[string]any) error { return OpenIDCredentialIssuerMetadata(m).VerifyMetadata() },
+		verifyResolved: func(m map[string]any) error { return OpenIDCredentialIssuerMetadata(m).VerifyResolvedMetadata() },
 	},
 	"openid_credential_verifier": builtInEntityType{
-		identifier: "openid_credential_verifier",
-		verify:     func(m map[string]any) error { return OpenIDCredentialVerifierMetadata(m).VerifyMetadata() },
+		identifier:     "openid_credential_verifier",
+		verify:         func(m map[string]any) error { return OpenIDCredentialVerifierMetadata(m).VerifyMetadata() },
+		verifyResolved: func(m map[string]any) error { return OpenIDCredentialVerifierMetadata(m).VerifyResolvedMetadata() },
 	},
 }
 

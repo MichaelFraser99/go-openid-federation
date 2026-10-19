@@ -19,11 +19,11 @@ func TestOpenIDRelyingPartyMetadata_VerifyMetadata(t *testing.T) {
 			},
 			wantErr: false,
 		},
-		"missing redirect_uris": {
+		"missing redirect_uris is not a syntax fault": {
 			metadata: OpenIDRelyingPartyMetadata{
 				"client_registration_types": []any{"automatic"},
 			},
-			wantErr: true,
+			wantErr: false,
 		},
 		"client_registration_types not required": {
 			metadata: OpenIDRelyingPartyMetadata{
@@ -66,6 +66,39 @@ func TestOpenIDRelyingPartyMetadata_VerifyMetadata(t *testing.T) {
 			err := tt.metadata.VerifyMetadata()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("VerifyMetadata() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestOpenIDRelyingPartyMetadata_VerifyResolvedMetadata(t *testing.T) {
+	tests := map[string]struct {
+		metadata OpenIDRelyingPartyMetadata
+		wantErr  bool
+	}{
+		"empty metadata is valid": {
+			metadata: OpenIDRelyingPartyMetadata{},
+			wantErr:  false,
+		},
+		"redirect_uris supplied": {
+			metadata: OpenIDRelyingPartyMetadata{
+				"redirect_uris": []any{"https://rp.example.com/cb"},
+			},
+			wantErr: false,
+		},
+		"missing redirect_uris": {
+			metadata: OpenIDRelyingPartyMetadata{
+				"client_registration_types": []any{"automatic"},
+			},
+			wantErr: true,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := tt.metadata.VerifyResolvedMetadata()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("VerifyResolvedMetadata() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

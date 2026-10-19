@@ -14,9 +14,6 @@ func (m OpenIDRelyingPartyMetadata) VerifyMetadata() error {
 	if len(m) == 0 { //explicitly ignoring constraints on empty JSON ({})
 		return nil
 	}
-	if err := VerifyRequiredClaims(m, "redirect_uris"); err != nil {
-		return err
-	}
 	for _, key := range []string{
 		"redirect_uris",
 		"client_registration_types",
@@ -54,4 +51,11 @@ func (m OpenIDRelyingPartyMetadata) VerifyMetadata() error {
 		return err
 	}
 	return nil
+}
+
+func (m OpenIDRelyingPartyMetadata) VerifyResolvedMetadata() error {
+	if len(m) == 0 {
+		return nil
+	}
+	return VerifyRequiredClaims(m, "redirect_uris")
 }

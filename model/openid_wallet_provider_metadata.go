@@ -10,9 +10,6 @@ func (m OpenIDWalletProviderMetadata) VerifyMetadata() error {
 	if len(m) == 0 { //explicitly ignoring constraints on empty JSON ({})
 		return nil
 	}
-	if err := VerifyRequiredClaims(m, "vp_formats_supported"); err != nil {
-		return err
-	}
 	if err := VerifyObjectClaim(m, "vp_formats_supported"); err != nil {
 		return err
 	}
@@ -20,4 +17,11 @@ func (m OpenIDWalletProviderMetadata) VerifyMetadata() error {
 		return err
 	}
 	return nil
+}
+
+func (m OpenIDWalletProviderMetadata) VerifyResolvedMetadata() error {
+	if len(m) == 0 {
+		return nil
+	}
+	return VerifyRequiredClaims(m, "vp_formats_supported")
 }

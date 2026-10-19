@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -11,6 +12,8 @@ import (
 	"github.com/MichaelFraser99/go-openid-federation/internal/subordinate_statement"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
+
+const extendedListingMalformedIdentifierError = "one or more subordinate entities has a missing or malformed 'id'"
 
 const extendedListingUnavailableError = "unable to list extended subordinate entities at this time"
 
@@ -40,6 +43,7 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 
 	subordinates, err := s.cfg.Extensions.ExtendedListing.MetadataRetriever.GetExtendedSubordinates(ctx, filter)
 	if err != nil {
+		err = s.retrieverError(err, extendedListingUnavailableError)
 		s.cfg.LogError(ctx, "error getting subordinates", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, err)
 	}
@@ -55,24 +59,26 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 
 	if subordinateStatement {
 		for i, subordinateEntity := range subordinates.ImmediateSubordinateEntities {
-			if _, ok := subordinateEntity["id"]; !ok {
-				s.cfg.LogError(ctx, "missing 'id' field in one or more subordinate entities")
-				return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(extendedListingUnavailableError))
+			identifier, ok := subordinateEntity["id"].(string)
+			if !ok {
+				s.cfg.LogError(ctx, "missing or malformed 'id' field in one or more subordinate entities, this is a result of mis-configuration")
+				return s.RespondWithError(ctx, w, model.NewServerError(extendedListingMalformedIdentifierError))
 			}
 
-			parsedIdentifier, err := model.ValidateEntityIdentifier(subordinateEntity["id"].(string))
+			parsedIdentifier, err := model.ValidateEntityIdentifier(identifier)
 			if err != nil {
-				s.cfg.LogError(ctx, "invalid 'id' parameter included in retrieved list response", slog.String("error", err.Error()))
-				return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(extendedListingUnavailableError))
+				s.cfg.LogError(ctx, "invalid 'id' parameter included in retrieved list response, this is a result of mis-configuration", slog.String("error", err.Error()))
+				return s.RespondWithError(ctx, w, model.NewServerError(extendedListingUnavailableError))
 			}
 
 			//todo: this is going to need some form of caching mechanism to not be extremely expensive to run - we might want to drop this parameter from the draft
 			token, err := subordinate_statement.New(ctx, *parsedIdentifier, s.loadSubordinate(ctx, *parsedIdentifier), s.cfg)
 			if err != nil {
-				if err.Error() != "unknown entity identifier" {
+				if !errors.Is(err, model.ErrNotFound) && !errors.Is(err, model.ErrInvalidSubject) {
 					s.cfg.LogError(ctx, "error creating subordinate statement", slog.String("error", err.Error()))
-					return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(extendedListingUnavailableError))
+					return s.RespondWithError(ctx, w, model.NewServerError(extendedListingUnavailableError))
 				}
+				s.cfg.LogInfo(ctx, "omitting the subordinate statement for an entity it could not be issued for", slog.String("sub", identifier), slog.String("error", err.Error()))
 			} else {
 				subordinates.ImmediateSubordinateEntities[i]["subordinate_statement"] = *token
 			}

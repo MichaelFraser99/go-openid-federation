@@ -16,9 +16,6 @@ func ReMarshalJsonAsEntityMetadata[T any](data any) (*T, error) {
 		return nil, err
 	}
 	t := new(T)
-	if slices.Equal(bytes, []byte("{}")) {
-		return t, nil
-	}
 	err = json.Unmarshal(bytes, t)
 	if err != nil {
 		return nil, err
@@ -73,12 +70,41 @@ func sortByPriority(policies []MetadataPolicyOperator) []MetadataPolicyOperator 
 	return policies
 }
 
+func verifyScopeOperand(value any) error {
+	if value == nil {
+		return nil
+	}
+	if _, ok := value.(string); ok {
+		return nil
+	}
+	if reflect.TypeOf(value).Kind() != reflect.Slice {
+		return fmt.Errorf("all scope values must be strings")
+	}
+	slice := reflect.ValueOf(value)
+	for i := range slice.Len() {
+		if _, ok := slice.Index(i).Interface().(string); !ok {
+			return fmt.Errorf("all scope values must be strings")
+		}
+	}
+	return nil
+}
+
 func sortAndValidatePolicy(policy *MetadataPolicy) error {
 	if policy == nil {
 		return nil
 	}
 	for _, parameters := range policy.byEntityType() {
-		for _, operators := range parameters {
+		for parameter, operators := range parameters {
+			if parameter == "scope" {
+				for _, operator := range operators.Metadata {
+					if operator.String() == "essential" {
+						continue
+					}
+					if err := verifyScopeOperand(operator.OperatorValue()); err != nil {
+						return err
+					}
+				}
+			}
 			if err := validatePoliciesCanCombine(sortByPriority(operators.Metadata)); err != nil {
 				return err
 			}

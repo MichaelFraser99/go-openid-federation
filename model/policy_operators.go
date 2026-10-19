@@ -3,7 +3,38 @@ package model
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
+	"slices"
+	"strings"
 )
+
+func scopeOperatorSlice(value any) []any {
+	if s, ok := value.(string); ok {
+		return ConvertStringsToAnySlice(strings.Split(s, " "))
+	}
+	return []any{value}
+}
+
+func scalarKind(kind reflect.Kind) bool {
+	switch kind {
+	case reflect.Bool, reflect.String,
+		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
+		return true
+	default:
+		return false
+	}
+}
+
+func containsDeepEqual(haystack []any, needle any) bool {
+	return slices.ContainsFunc(haystack, func(candidate any) bool {
+		if candidate == nil || scalarKind(reflect.TypeOf(candidate).Kind()) {
+			return candidate == needle
+		}
+		return reflect.DeepEqual(candidate, needle)
+	})
+}
 
 type PolicyOperators struct {
 	Metadata []MetadataPolicyOperator

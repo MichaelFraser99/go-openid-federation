@@ -190,10 +190,13 @@ Takes `sub` as a required query parameter.
 Handlers do not write to the `http.ResponseWriter` directly. Each returns a `server.ResponseFunc`, a closure that performs the write when called:
 
 ```go
-h.HandleFunc("GET /fetch", func(w http.ResponseWriter, r *http.Request) { s.Fetch(w, r)() })
+mux := http.NewServeMux()
+server.Configure(mux)
 ```
 
 The response is determined before it is written, so a caller can run code between the two.
+
+Use `Configure` to mount the endpoints. It wraps every route it registers, so a panic in a retriever answers 500 with a JSON error body rather than dropping the connection. Mounting a handler by hand, as `func(w, r) { s.Fetch(w, r)() }`, has no such wrapper, so recover in your own middleware if you need to take that route.
 
 ## Configuration
 
@@ -221,6 +224,14 @@ The signer's public key is added to the published JWKS, keyed by `kid`, if not a
 
 When the library resolves a trust chain, it follows federation endpoints derived from untrusted entity identifiers and metadata. `model.ValidateEntityIdentifier` validates identifier syntax only. It does not resolve hosts or restrict which addresses a hostname may target. Deployments that expose `/resolve` or use the client-side resolution helpers should provide an `HttpClient` whose transport rejects disallowed destinations, including private, loopback, link-local and other reserved address ranges, and whose redirect handling preserves the same policy.
 
+### Limits
+
+| Limit | Default | Applies to |
+|---|---|---|
+| `Configuration.MaxPeerResponseBytes` | `model.DefaultMaxPeerResponseBytes`, 1 MiB | The body of any response fetched from a peer |
+| `Configuration.MaxTrustChainDepth` | unlimited | Entities traversed while walking `authority_hints` |
+| `Configuration.MaxTrustMarkIssuers` | `model.DefaultMaxTrustMarkIssuers` | Distinct trust mark issuers resolved for one subject |
+
 ### Retriever interfaces
 
 `Retriever` replaces in-memory subordinate storage. The others enable additional endpoints.
@@ -247,7 +258,7 @@ type TrustMarkIssuerRetriever interface {
 }
 
 type ExtendedListingRetriever interface {
-	GetExtendedSubordinates(ctx context.Context, from *EntityIdentifier, size int, claims []string) (*ExtendedListingResponse, error)
+	GetExtendedSubordinates(ctx context.Context, filter ExtendedListingFilter) (*ExtendedListingResponse, error)
 }
 
 type SubordinateStatusRetriever interface {
@@ -256,6 +267,20 @@ type SubordinateStatusRetriever interface {
 ```
 
 Subordinates retrieved through a `Retriever` are cached for `IntermediateConfiguration.SubordinateCacheTime`. `FlushCache` invalidates the cache.
+
+#### What to return when the subject is unknown
+
+Return `model.NewNotFoundError(...)`. The library maps that to the status code each endpoint's specification requires: 404 for an unknown trust mark (section 8.4.2 makes this a MUST), 404 for an entity that does not hold the requested trust mark (section 8.6.2, also a MUST), and `not_found` for a subject the fetch endpoint cannot answer for (section 8.1.2 recommends it).
+
+A retriever that returns `(nil, nil)` is treated the same way, so a store that signals "no row" with a nil result still produces a conforming response.
+
+> **Breaking change.** Returning a bare `error` for an unknown subject now gives the caller a 500 rather than a 404. Earlier releases turned every retriever error into 404 `not_found`, which reported a store outage to federation peers as "this subordinate does not exist". If your retriever signals an unknown subject with a bare error — `sql.ErrNoRows`, an ORM's "record not found", or your own sentinel — wrap it with `model.NewNotFoundError(...)` or return `(nil, nil)`, or `/fetch` will answer 500 for every unknown subject.
+
+The text of an unclassified retriever error is never sent to the caller, on any endpoint. It is logged, and the response carries a fixed description, because a driver error commonly contains a host name and a user name. An error carrying one of the `model.Err*` sentinels passes through unchanged, so returning `model.NewUnsupportedParameterError(...)` or `model.NewTemporarilyUnavailableError(...)` still chooses the status and description a peer sees.
+
+`ExtendedListingRetriever` is the exception, in two ways. An unknown subject there is an empty listing rather than an error, so return an empty `ImmediateSubordinateEntities`. And a nil response is **not** treated as not found: it answers `server_error`, because a listing retriever that returns nothing at all is a misconfiguration rather than a statement about any one subject.
+
+Entries in `ImmediateSubordinateEntities` are `map[string]any`, and each one must carry an `id` whose value is a `string` holding an Entity Identifier. A store that round-trips through JSON yields `float64` for a numeric value, so an `id` that looks like a number arrives as the wrong type and the whole listing is refused with a `server_error`.
 
 ### Per-subordinate signing keys
 
@@ -495,6 +520,8 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | Trust mark type identifiers as object member names | Values are validated, member names are not | [#140](https://github.com/MichaelFraser99/go-openid-federation/issues/140) |
 | JWK sets whose keys omit `kty` | Accepted on read, so the fault surfaces at verification | [#146](https://github.com/MichaelFraser99/go-openid-federation/issues/146) |
 | A `jwks` member name that case-folds to `keys` | Supplies the verification keys through Go's case-insensitive decode | [#147](https://github.com/MichaelFraser99/go-openid-federation/issues/147) |
+| Object valued policy operands | Deduplicated by a lossy string hash at construction and in `add` and `superset_of`, so distinct objects collide, including nested ones | [#150](https://github.com/MichaelFraser99/go-openid-federation/issues/150) |
+| Policy operand comparisons | Unbounded, and quadratic in the operand count, which a peer supplies | [#151](https://github.com/MichaelFraser99/go-openid-federation/issues/151) |
 | Error classes on the fetch path | A peer's fault is reported as a server error | [#148](https://github.com/MichaelFraser99/go-openid-federation/issues/148) |
 
 ## License

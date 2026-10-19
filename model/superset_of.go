@@ -3,7 +3,6 @@ package model
 import (
 	"fmt"
 	"reflect"
-	"slices"
 	"sort"
 )
 
@@ -99,7 +98,7 @@ func (s SupersetOf) CheckForConflict(containsFunc func(policyType reflect.Type) 
 			return fmt.Errorf("cannot merge policy of type 'superset_of' with policy of type 'value' unless the value of 'value' is an array")
 		} else {
 			for _, v := range s.operatorValue {
-				if !slices.Contains(sV, v) {
+				if !containsDeepEqual(sV, v) {
 					return fmt.Errorf("cannot merge policy of type 'superset_of' with policy of type 'value' unless the contents of `value` is a superset of that in 'superset_of'")
 				}
 			}
@@ -110,7 +109,7 @@ func (s SupersetOf) CheckForConflict(containsFunc func(policyType reflect.Type) 
 	}
 	if p, found := containsFunc(reflect.TypeOf(SubsetOf{})); found {
 		for _, v := range s.operatorValue {
-			if !slices.Contains(p.OperatorValue().([]any), v) {
+			if !containsDeepEqual(p.OperatorValue().([]any), v) {
 				return fmt.Errorf("cannot merge policy of type 'superset_of' with policy of type 'subset_of' unless the contents of `subset_of` is a superset of that in 'superset_of'")
 			}
 		}

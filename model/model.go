@@ -129,6 +129,9 @@ func (cfg *ServerConfiguration) GetSubordinateJWKs(ctx context.Context) ([]Signe
 		return nil, err
 	}
 	for _, subordinateConfiguration := range subordinates {
+		if subordinateConfiguration == nil {
+			continue
+		}
 		if subordinateConfiguration.SignerConfiguration != nil {
 			signers = append(signers, *subordinateConfiguration.SignerConfiguration)
 		}
@@ -148,7 +151,7 @@ func (cfg *ServerConfiguration) GetSubordinate(ctx context.Context, identifier E
 	}
 
 	if cfg.MetadataRetriever == nil {
-		return nil, fmt.Errorf("subordinate entity %s not found", identifier)
+		return nil, NewNotFoundError(fmt.Sprintf("subordinate entity %s not found", identifier))
 	}
 
 	entity, err := cfg.MetadataRetriever.GetSubordinate(ctx, identifier)
@@ -156,7 +159,7 @@ func (cfg *ServerConfiguration) GetSubordinate(ctx context.Context, identifier E
 		return nil, err
 	}
 	if entity == nil {
-		return nil, fmt.Errorf("subordinate entity %s not found", identifier)
+		return nil, NewNotFoundError(fmt.Sprintf("subordinate entity %s not found", identifier))
 	}
 
 	stored := *entity
@@ -256,6 +259,9 @@ func (i *IntermediateConfiguration) FlushCache() {
 }
 
 func (i *IntermediateConfiguration) AddSubordinate(identifier EntityIdentifier, subordinateConfiguration *SubordinateConfiguration) {
+	if subordinateConfiguration == nil {
+		return
+	}
 	stored := *subordinateConfiguration
 	stored.JWKs.Opts.EnforceUniqueKIDs = true
 	stored.CachedAt = time.Now().UTC().Unix()
@@ -1225,8 +1231,8 @@ func marshalMetadataToMap(in map[string]any) map[string]any {
 	for k, v := range in {
 		if _, ok := v.([]any); !ok && v == nil {
 			continue // non-slice nil values can be completely omitted
-		} else if reflect.TypeOf(v).Kind() == reflect.Map {
-			metadataMap[k] = marshalMetadataToMap(v.(map[string]any))
+		} else if nested, ok := v.(map[string]any); ok {
+			metadataMap[k] = marshalMetadataToMap(nested)
 		} else if reflect.TypeOf(v).Kind() == reflect.Slice {
 			if reflect.ValueOf(v).Len() == 0 {
 				metadataMap[k] = []any{}

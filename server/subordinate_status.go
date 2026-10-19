@@ -50,10 +50,20 @@ func (s *Server) SubordinateStatus(w http.ResponseWriter, r *http.Request) Respo
 	status, err := s.cfg.Extensions.SubordinateStatus.MetadataRetriever.GetSubordinateStatus(ctx, *parsedSubject)
 	if err != nil {
 		s.cfg.LogInfo(ctx, "error retrieving subordinate status", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, err)
+		return s.RespondWithError(ctx, w, s.retrieverError(err, subordinateStatusUnavailableError))
 	}
 
-	statusBytes, err := json.Marshal(status)
+	if status == nil {
+		s.cfg.LogInfo(ctx, "subordinate status retriever returned no status and no error, treating the entity as unknown", slog.String("sub", string(*parsedSubject)))
+		return s.RespondWithError(ctx, w, model.NewNotFoundError("unknown entity identifier"))
+	}
+
+	response := *status
+	if response.Events == nil {
+		response.Events = []model.SubordinateStatusEvent{}
+	}
+
+	statusBytes, err := json.Marshal(response)
 	if err != nil {
 		s.cfg.LogInfo(ctx, "error marshalling subordinate status response", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(subordinateStatusUnavailableError))

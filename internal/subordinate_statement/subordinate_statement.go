@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -120,14 +121,21 @@ func Validate(cfg model.Configuration, issuer model.EntityStatement, subordinate
 	}
 	for _, claim := range []string{"authority_hints", "trust_anchor_hints", "trust_marks", "trust_mark_issuers", "trust_mark_owners"} {
 		if _, present := bodyMap[claim]; present {
-			return nil, fmt.Errorf("the %q claim is permitted only in entity configurations, not in a subordinate statement", claim)
+			return nil, model.NewInvalidTrustChainError(fmt.Sprintf("the %q claim is permitted only in entity configurations, not in a subordinate statement", claim))
 		}
 	}
 
 	var subordinateStatement model.EntityStatement
 	err = json.Unmarshal(body, &subordinateStatement)
 	if err != nil {
-		return nil, fmt.Errorf("invalid entity statement: %w", err)
+		if errors.Is(err, model.ErrInvalidMetadata) {
+			return nil, fmt.Errorf("invalid entity statement: %w", err)
+		}
+		return nil, model.NewInvalidTrustChainError(fmt.Sprintf("invalid entity statement: %s", err.Error()))
+	}
+
+	if subordinateStatement.Iss == subordinateStatement.Sub {
+		return nil, model.NewInvalidTrustChainError("a statement whose 'iss' and 'sub' claims match is an entity configuration, not a subordinate statement")
 	}
 
 	if subordinateStatement.Iss != issuer.Sub {
@@ -184,11 +192,16 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		seen[sKid] = struct{}{}
 	}
 
+	subordinateStatementLifetime := configuration.IntermediateConfiguration.SubordinateStatementLifetime
+	if subordinateStatementLifetime <= 0 {
+		subordinateStatementLifetime = model.DefaultSubordinateStatementLifetime
+	}
+
 	subordinateStatement := model.EntityStatement{
 		Sub:  subjectIdentifier,
 		Iss:  configuration.EntityIdentifier,
 		Iat:  time.Now().UTC().Unix(),
-		Exp:  time.Now().Add(configuration.IntermediateConfiguration.SubordinateStatementLifetime).UTC().Unix(),
+		Exp:  time.Now().Add(subordinateStatementLifetime).UTC().Unix(),
 		JWKs: subjectSubordinateConfiguration.JWKs,
 	}
 
@@ -209,6 +222,11 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 	err = json.Unmarshal(subordinateStatementBytes, &subordinateStatementMap)
 	if err != nil {
 		return nil, fmt.Errorf("failed to deserialize entity configuration: %s", err.Error())
+	}
+
+	var roundTrip model.EntityStatement
+	if err = json.Unmarshal(subordinateStatementBytes, &roundTrip); err != nil {
+		return nil, fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %s", err.Error())
 	}
 
 	return jwt.New(signerConfiguration.Signer, map[string]any{

@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -144,18 +145,21 @@ func Validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 	}
 	for _, claim := range []string{"metadata_policy", "metadata_policy_crit", "constraints", "source_endpoint"} {
 		if _, present := bodyMap[claim]; present {
-			return nil, fmt.Errorf("the %q claim is permitted only in subordinate statements, not in an entity configuration", claim)
+			return nil, model.NewInvalidTrustChainError(fmt.Sprintf("the %q claim is permitted only in subordinate statements, not in an entity configuration", claim))
 		}
 	}
 
 	var entityConfiguration model.EntityStatement
 	err = json.Unmarshal(body, &entityConfiguration)
 	if err != nil {
-		return nil, fmt.Errorf("invalid entity statement: %w", err)
+		if errors.Is(err, model.ErrInvalidMetadata) {
+			return nil, fmt.Errorf("invalid entity statement: %w", err)
+		}
+		return nil, model.NewInvalidTrustChainError(fmt.Sprintf("invalid entity statement: %s", err.Error()))
 	}
 
 	if entityConfiguration.Iss != entityConfiguration.Sub {
-		return nil, fmt.Errorf("'iss' and 'sub' claims do not match")
+		return nil, model.NewInvalidTrustChainError("'iss' and 'sub' claims do not match")
 	}
 
 	if entityConfiguration.Iss != entityIdentifier {
@@ -183,11 +187,19 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 	entityConfiguration.AuthorityHints = cfg.AuthorityHints
 	entityConfiguration.TrustMarks = cfg.TrustMarks
 	entityConfiguration.Iat = time.Now().UTC().Unix()
-	entityConfiguration.Exp = time.Now().Add(cfg.EntityConfigurationLifetime).UTC().Unix()
+	entityConfigurationLifetime := cfg.EntityConfigurationLifetime
+	if entityConfigurationLifetime <= 0 {
+		entityConfigurationLifetime = model.DefaultEntityConfigurationLifetime
+	}
+	entityConfiguration.Exp = time.Now().Add(entityConfigurationLifetime).UTC().Unix()
 	entityConfiguration.MetadataPolicy = nil
 	entityConfiguration.Constraints = nil
 	entityConfiguration.MetadataPolicyCrit = nil
 	entityConfiguration.SourceEndpoint = nil
+
+	if len(entityConfiguration.Crit) > 0 {
+		return nil, fmt.Errorf("this implementation cannot issue an entity configuration carrying a 'crit' claim, as it has no way to carry the critical extension claims themselves")
+	}
 
 	metadata := model.Metadata{}
 	if cfg.EntityConfiguration.Metadata != nil {
@@ -317,6 +329,11 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 	err = json.Unmarshal(entityConfigurationBytes, &entityConfigurationMap)
 	if err != nil {
 		return nil, fmt.Errorf("failed to deserialize entity cfg: %s", err.Error())
+	}
+
+	var roundTrip model.EntityStatement
+	if err = json.Unmarshal(entityConfigurationBytes, &roundTrip); err != nil {
+		return nil, fmt.Errorf("refusing to publish an entity configuration this implementation would reject: %s", err.Error())
 	}
 
 	return jwt.New(cfg.SignerConfiguration.Signer, map[string]any{

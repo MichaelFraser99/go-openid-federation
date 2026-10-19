@@ -79,6 +79,12 @@ func TestSelectKey(t *testing.T) {
 			expectErr: "unique 'kid' values",
 		},
 		{
+			name:      "an empty key set is refused",
+			keys:      []map[string]any{},
+			kid:       "a",
+			expectErr: "contains no keys",
+		},
+		{
 			name:      "a kid absent from the set is refused",
 			keys:      []map[string]any{selectorJwk(t, key.Public(), "a")},
 			kid:       "b",

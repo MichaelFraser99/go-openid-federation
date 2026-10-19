@@ -20,6 +20,15 @@ func (m OAuthClientMetadata) VerifyMetadata() error {
 			return err
 		}
 	}
+	for _, key := range []string{
+		"token_endpoint_auth_signing_alg",
+		"id_token_signed_response_alg",
+		"request_object_signing_alg",
+	} {
+		if err := VerifyAlgClaim(m, key, false); err != nil {
+			return err
+		}
+	}
 	if err := VerifyObjectClaim(m, "jwks"); err != nil {
 		return err
 	}

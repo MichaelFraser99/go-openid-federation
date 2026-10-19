@@ -157,6 +157,10 @@ func TestValidateEntityIdentifier_Section1_2(t *testing.T) {
 		{name: "a query inside a path", value: "https://leaf.example.com/a?b", expectErr: "Query"},
 		{name: "the http scheme", value: "http://leaf.example.com", expectErr: "https scheme"},
 		{name: "an opaque https url", value: "https:leaf.example.com", expectErr: "host component"},
+		{name: "userinfo with a password", value: "https://leaf.example.com:secret@evil.example", expectErr: "Userinfo"},
+		{name: "userinfo without a password", value: "https://leaf.example.com@evil.example", expectErr: "Userinfo"},
+		{name: "an empty userinfo", value: "https://@evil.example", expectErr: "Userinfo"},
+		{name: "userinfo ahead of a port", value: "https://user@evil.example:8443", expectErr: "Userinfo"},
 	}
 
 	for _, tc := range tests {

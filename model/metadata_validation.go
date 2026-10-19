@@ -101,6 +101,21 @@ func verifyHTTPSURLValue(key string, v any, allowQuery bool) error {
 	return nil
 }
 
+func VerifyAlgClaim(m map[string]any, key string, allowNone bool) error {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return nil
+	}
+	s, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("'%s' must be a string", key)
+	}
+	if !allowNone && s == "none" {
+		return fmt.Errorf("'%s' must not be the value 'none'", key)
+	}
+	return nil
+}
+
 func VerifyAlgValuesClaim(m map[string]any, key string, allowNone bool) error {
 	v, ok := m[key]
 	if !ok || v == nil {

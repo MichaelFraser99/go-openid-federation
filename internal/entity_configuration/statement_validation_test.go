@@ -26,9 +26,7 @@ func signStatementWithKey(t *testing.T, signer crypto.Signer, head, body map[str
 	return *token
 }
 
-// jwt.New inserts a typ of JWT when the header omits one, so a statement with
-// no typ header at all has to be assembled directly.
-func signStatementWithoutTyp(t *testing.T, key *rsa.PrivateKey, head, body map[string]any) string {
+func signStatementRaw(t *testing.T, key *rsa.PrivateKey, head, body map[string]any) string {
 	t.Helper()
 	encode := func(v any) string {
 		raw, err := json.Marshal(v)
@@ -97,6 +95,11 @@ func TestValidate_EntityConfigurationStatementRules(t *testing.T) {
 			head: map[string]any{"kid": "leaf", "typ": "application/entity-statement+jwt", "alg": "RS256"},
 		},
 		{
+			name: "typ is matched case insensitively",
+			step: "RFC 7515 4.1.9",
+			head: map[string]any{"kid": "leaf", "typ": "Entity-Statement+JWT", "alg": "RS256"},
+		},
+		{
 			name:      "an unknown critical header",
 			step:      "RFC 7515 4.1.11",
 			head:      map[string]any{"kid": "leaf", "typ": "entity-statement+jwt", "alg": "RS256", "crit": []any{"x-unknown"}},
@@ -145,16 +148,56 @@ func TestValidate_EntityConfigurationStatementRules(t *testing.T) {
 		},
 	}
 
-	t.Run("no typ header at all", func(t *testing.T) {
-		token := signStatementWithoutTyp(t, key, map[string]any{"kid": "leaf", "alg": "RS256"}, body(nil))
-		_, err := Validate(context.Background(), model.Configuration{}, leaf, token)
-		if err == nil {
-			t.Fatal("[3.2 step 2] expected a statement with no typ header to be rejected")
-		}
-		if !strings.Contains(err.Error(), "missing required header claim 'typ'") {
-			t.Fatalf("[3.2 step 2] expected the missing typ header to be reported, got %v", err)
-		}
-	})
+	rawHeaderTests := []struct {
+		name      string
+		step      string
+		head      map[string]any
+		expectErr string
+	}{
+		{
+			name:      "no typ header at all",
+			step:      "3.2 step 2",
+			head:      map[string]any{"kid": "leaf", "alg": "RS256"},
+			expectErr: "missing required header claim 'typ'",
+		},
+		{
+			name:      "an alg of none",
+			step:      "3.2 step 3",
+			head:      map[string]any{"kid": "leaf", "typ": "entity-statement+jwt", "alg": "none"},
+			expectErr: "must not be 'none'",
+		},
+		{
+			name:      "an alg of none in mixed case",
+			step:      "3.2 step 3",
+			head:      map[string]any{"kid": "leaf", "typ": "entity-statement+jwt", "alg": "None"},
+			expectErr: "must not be 'none'",
+		},
+		{
+			name:      "no alg header at all",
+			step:      "3.2 step 3",
+			head:      map[string]any{"kid": "leaf", "typ": "entity-statement+jwt"},
+			expectErr: "missing required header claim 'alg'",
+		},
+		{
+			name:      "a non-string alg header",
+			step:      "3.2 step 3",
+			head:      map[string]any{"kid": "leaf", "typ": "entity-statement+jwt", "alg": 7},
+			expectErr: "malformed header claim 'alg'",
+		},
+	}
+
+	for _, tc := range rawHeaderTests {
+		t.Run(tc.name, func(t *testing.T) {
+			token := signStatementRaw(t, key, tc.head, body(nil))
+			_, err := Validate(context.Background(), model.Configuration{}, leaf, token)
+			if err == nil {
+				t.Fatalf("[%s] expected an error containing %q, got an accepted configuration", tc.step, tc.expectErr)
+			}
+			if !strings.Contains(err.Error(), tc.expectErr) {
+				t.Fatalf("[%s] expected an error containing %q, got %v", tc.step, tc.expectErr, err)
+			}
+		})
+	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -176,6 +219,9 @@ func TestValidate_EntityConfigurationStatementRules(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tc.expectErr) {
 				t.Fatalf("[%s] expected an error containing %q, got %v", tc.step, tc.expectErr, err)
+			}
+			if tc.step == "diagnostics" && strings.Contains(err.Error(), "metadata") {
+				t.Fatalf("[%s] a non-metadata failure must not be reported as a metadata problem, got %v", tc.step, err)
 			}
 		})
 	}

@@ -209,8 +209,8 @@ The response is determined before it is written, so a caller can run code betwee
 | `EntityIdentifier` | The entity's own identifier |
 | `AuthorityHints` | Identifiers of the entity's immediate superiors |
 | `TrustMarks` | Trust marks to publish in the entity configuration |
-| `EntityConfiguration` | The entity statement to publish. `iss`, `sub`, `iat`, `exp` and `authority_hints` are set by the library |
-| `EntityConfigurationLifetime` | How long a generated entity configuration remains valid |
+| `EntityConfiguration` | The entity statement to publish. The library sets `iss`, `sub`, `iat`, `exp`, `authority_hints`, `trust_marks`, `trust_mark_issuers` and `jwks`. It clears the subordinate-statement-only claims `metadata_policy`, `metadata_policy_crit`, `constraints` and `source_endpoint`. It refuses to issue a configuration that carries `crit` |
+| `EntityConfigurationLifetime` | How long a generated entity configuration remains valid. Defaults to `model.DefaultEntityConfigurationLifetime` when unset |
 | `IntermediateConfiguration` | Set if the entity issues subordinate statements |
 | `Extensions` | Opt-in extension endpoints |
 | `MetadataRetriever` | Source of subordinate data, if not held in memory |
@@ -263,9 +263,17 @@ A `SubordinateConfiguration` may carry its own `SignerConfiguration`. When prese
 
 ## Entity statements and metadata
 
-`model.EntityStatement` covers both entity configurations and subordinate statements. Its `UnmarshalJSON` enforces the required claims `iss`, `sub`, `iat`, `exp` and `jwks`, validates entity identifiers, and rejects expired statements at parse time.
+`model.EntityStatement` covers both entity configurations and subordinate statements. Its `UnmarshalJSON` enforces the required claims `iss`, `sub`, `iat`, `exp` and `jwks`, and validates entity identifiers.
 
-Entity identifiers are validated by `model.ValidateEntityIdentifier`. An identifier must be an HTTPS URL with a host, and must not carry a query or fragment component. This validation is syntactic and does not make an identifier safe to fetch.
+Parsing applies the claim rules from section 3.2 of the specification. Three of these reject statements that earlier releases accepted.
+
+- A statement is rejected when it is expired or future-dated. Both comparisons allow `model.ClockSkewLeeway` of clock skew. The `iat` claim must be before the `exp` claim.
+- A statement that carries a `crit` claim is rejected, with no opt-in. The library has no way to carry the critical extension claims themselves. See issue #132.
+- A statement that carries a `metadata_policy_crit` claim is rejected. The claim names metadata policy operators that an implementation must understand, and this library understands none beyond the seven standard operators.
+
+Both issuance paths check their own output against these rules. `Server.HandleWellKnown` and the fetch endpoint fail rather than publish a statement that this library would refuse to read.
+
+Entity identifiers are validated by `model.ValidateEntityIdentifier`. An identifier must be an HTTPS URL with a host. It must not carry a query, fragment or userinfo component. This validation is syntactic and does not make an identifier safe to fetch.
 
 The following entity types are supported.
 
@@ -358,7 +366,8 @@ The validators the built-in types use are exported for custom types to reuse.
 | `VerifyStringArrayClaim(m, key)` | The claim, if present, is an array of strings |
 | `VerifyNonEmptyStringArrayClaim(m, key)` | The claim, if present, is a non-empty array of strings |
 | `VerifyHTTPSURLClaim(m, key, allowQuery)` | The claim, if present, is an HTTPS URL with no fragment |
-| `VerifyAlgValuesClaim(m, key, allowNone)` | The claim, if present, is an array of algorithm names |
+| `VerifyAlgValuesClaim(m, key, allowNone)` | The claim, if present, is an array of algorithm names. Rejects `none` unless `allowNone` is set |
+| `VerifyAlgClaim(m, key, allowNone)` | The claim, if present, is a single algorithm name. Rejects `none` unless `allowNone` is set |
 
 `MetadataStringSlice(v)` returns a `[]string` from either a `[]string` or a `[]any`. JSON unmarshalling produces the latter and Go-constructed metadata the former, so a validator handling only one will reject valid input.
 
@@ -394,7 +403,7 @@ Trust marks in a resolve response are filtered against the trust anchor's `trust
 
 ### Chains supplied by a caller are not anchored
 
-`Client.ResolveMetadata` takes a chain the caller supplies, such as one received in a peer's `trust_chain` JWS header. It verifies every link in that chain, but it cannot yet check which trust anchor the chain ends in, because trust anchors and their keys are not configurable. A chain that ends in a self-signed entity configuration is therefore accepted, and an attacker who supplies one needs no key material to have their own metadata returned for any subject they name.
+`Client.ResolveMetadata` takes a chain the caller supplies, such as one received in a peer's `trust_chain` JWS header. The library does not read that header, so the caller must extract it. It verifies every link in that chain, but it cannot yet check which trust anchor the chain ends in, because trust anchors and their keys are not configurable. A chain that ends in a self-signed entity configuration is therefore accepted, and an attacker who supplies one needs no key material to have their own metadata returned for any subject they name.
 
 Do not pass a chain from an untrusted source to `Client.ResolveMetadata`. Build the chain yourself with `Client.BuildTrustChain`, naming the trust anchor, and resolve that.
 
@@ -467,6 +476,17 @@ pre-commit run --all-files
 ## Specification coverage
 
 Entity statements and configurations, subordinate statements, trust chain construction and validation, all seven metadata policy operators, metadata validation for the nine entity types listed above, registration of additional entity types, trust mark issuance, listing and status, and the fetch, list, resolve and well-known endpoints.
+
+### Known gaps
+
+| Area | Status | Issue |
+|---|---|---|
+| `constraints` claim | Parsed and carried, never enforced | [#50](https://github.com/MichaelFraser99/go-openid-federation/issues/50) |
+| Configurable trust anchors and their keys | Not supported, so a caller-supplied chain cannot be anchored | [#48](https://github.com/MichaelFraser99/go-openid-federation/issues/48) |
+| `metadata_policy_crit` enforcement | Any value is rejected, rather than unknown operators alone | [#72](https://github.com/MichaelFraser99/go-openid-federation/issues/72) |
+| Extension claims | Dropped on parse and cannot be issued | [#132](https://github.com/MichaelFraser99/go-openid-federation/issues/132) |
+| `trust_chain` and `peer_trust_chain` JOSE headers | Not read or written | [#139](https://github.com/MichaelFraser99/go-openid-federation/issues/139) |
+| Trust mark type identifiers as object member names | Values are validated, member names are not | [#140](https://github.com/MichaelFraser99/go-openid-federation/issues/140) |
 
 ## License
 

@@ -98,6 +98,13 @@ func TestValidate_SubordinateStatementRules(t *testing.T) {
 			expectErr: `"trust_mark_owners" claim is permitted only in entity configurations`,
 		},
 		{
+			name:      "a self-signed statement is not a subordinate statement",
+			step:      "3.2 step 6",
+			head:      map[string]any{"kid": "ta", "typ": "entity-statement+jwt", "alg": "RS256"},
+			extra:     map[string]any{"sub": string(trustAnchor)},
+			expectErr: "is an entity configuration, not a subordinate statement",
+		},
+		{
 			name:      "a parse failure is not reported as a metadata problem",
 			step:      "diagnostics",
 			head:      map[string]any{"kid": "ta", "typ": "entity-statement+jwt", "alg": "RS256"},
@@ -127,6 +134,9 @@ func TestValidate_SubordinateStatementRules(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tc.expectErr) {
 				t.Fatalf("[%s] expected an error containing %q, got %v", tc.step, tc.expectErr, err)
+			}
+			if tc.step == "diagnostics" && strings.Contains(err.Error(), "metadata") {
+				t.Fatalf("[%s] a non-metadata failure must not be reported as a metadata problem, got %v", tc.step, err)
 			}
 		})
 	}

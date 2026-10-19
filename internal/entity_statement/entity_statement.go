@@ -25,6 +25,18 @@ func ValidateStatementHeader(headMap map[string]any) error {
 		return fmt.Errorf("entity statements must set the 'typ' header to 'entity-statement+jwt', got %q", sTyp)
 	}
 
+	alg, ok := headMap["alg"]
+	if !ok {
+		return fmt.Errorf("missing required header claim 'alg'")
+	}
+	sAlg, ok := alg.(string)
+	if !ok {
+		return fmt.Errorf("malformed header claim 'alg'")
+	}
+	if strings.EqualFold(sAlg, "none") {
+		return fmt.Errorf("entity statements must be signed, the 'alg' header must not be 'none'")
+	}
+
 	if crit, present := headMap["crit"]; present {
 		entries, ok := crit.([]any)
 		if !ok {
@@ -50,6 +62,9 @@ func ValidateStatementHeader(headMap map[string]any) error {
 func SelectKey(jwks josemodel.Jwks, kid string) (map[string]any, error) {
 	if kid == "" {
 		return nil, fmt.Errorf("header claim 'kid' must be a non-empty string")
+	}
+	if len(jwks.Keys) == 0 {
+		return nil, fmt.Errorf("the included 'jwks' contains no keys")
 	}
 	keys := map[string]map[string]any{}
 	for _, key := range jwks.Keys {

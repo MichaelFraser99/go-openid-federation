@@ -111,7 +111,12 @@ func TestNew_IssuesConformingEntityConfigurations(t *testing.T) {
 				cfg.IntermediateConfiguration = &model.IntermediateConfiguration{}
 				cfg.EntityConfiguration.Metadata = &model.Metadata{
 					OpenIDConnectOpenIDProviderMetadata: &model.OpenIDConnectOpenIDProviderMetadata{
-						"issuer": string(identifier),
+						"issuer":                                string(identifier),
+						"authorization_endpoint":                "https://leaf.example.com/authorize",
+						"jwks_uri":                              "https://leaf.example.com/jwks",
+						"response_types_supported":              []string{"id_token"},
+						"subject_types_supported":               []string{"public"},
+						"id_token_signing_alg_values_supported": []string{"ES256"},
 					},
 				}
 			},

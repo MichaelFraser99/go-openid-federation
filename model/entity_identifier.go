@@ -26,8 +26,12 @@ func ValidateEntityIdentifier(value string) (*EntityIdentifier, error) {
 		return nil, fmt.Errorf("entity identifiers must not contain Fragment components")
 	}
 
-	if parsedUrl.ForceQuery || strings.Contains(value, "?") {
+	if strings.Contains(value, "?") {
 		return nil, fmt.Errorf("entity identifiers must not contain Query components")
+	}
+
+	if parsedUrl.User != nil {
+		return nil, fmt.Errorf("entity identifiers must not contain Userinfo components")
 	}
 
 	return (*EntityIdentifier)(&value), nil

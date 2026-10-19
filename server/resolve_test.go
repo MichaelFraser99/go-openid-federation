@@ -16,6 +16,7 @@ import (
 
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jws"
+	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 	"github.com/MichaelFraser99/go-openid-federation/model_test"
@@ -194,26 +195,61 @@ func TestServer_Resolve(t *testing.T) {
 		ws.Close()
 	})
 
-	invalidMetadataEntityServer := NewServer(model.ServerConfiguration{
-		SignerConfiguration: model.SignerConfiguration{
-			Algorithm: "ES256",
-			Signer:    invalidMetadataSigner,
-			KeyID:     (*invalidMetadataPublicJWK)["kid"].(string),
-		},
-		EntityConfiguration: model.EntityStatement{
-			Metadata: &model.Metadata{
-				OpenIDRelyingPartyMetadata: &model.OpenIDRelyingPartyMetadata{
-					"scope": "openid address",
-				},
-			},
-		},
-		EntityConfigurationLifetime: 10 * time.Minute,
-	})
-
 	imm := http.NewServeMux()
-	invalidMetadataEntityServer.Configure(imm)
+	var invalidMetadataIdentifier string
+	imm.HandleFunc("/.well-known/openid-federation", func(w http.ResponseWriter, _ *http.Request) {
+		token, err := jwt.New(invalidMetadataSigner, map[string]any{
+			"kid": (*invalidMetadataPublicJWK)["kid"].(string),
+			"typ": "entity-statement+jwt",
+			"alg": "ES256",
+		}, map[string]any{
+			"iss":  invalidMetadataIdentifier,
+			"sub":  invalidMetadataIdentifier,
+			"iat":  time.Now().Add(-time.Minute).UTC().Unix(),
+			"exp":  time.Now().Add(10 * time.Minute).UTC().Unix(),
+			"jwks": map[string]any{"keys": []any{*invalidMetadataPublicJWK}},
+			"metadata": map[string]any{
+				"openid_relying_party": map[string]any{"scope": "openid address"},
+			},
+		}, jwt.Opts{Algorithm: josemodel.ES256})
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/entity-statement+jwt")
+		_, _ = w.Write([]byte(*token))
+	})
 	ims := httptest.NewTLSServer(imm)
-	invalidMetadataEntityServer.SetEntityIdentifier(model.EntityIdentifier(ims.URL))
+	invalidMetadataIdentifier = ims.URL
+
+	ism := http.NewServeMux()
+	var misplacedClaimIdentifier string
+	ism.HandleFunc("/.well-known/openid-federation", func(w http.ResponseWriter, _ *http.Request) {
+		token, err := jwt.New(invalidMetadataSigner, map[string]any{
+			"kid": (*invalidMetadataPublicJWK)["kid"].(string),
+			"typ": "entity-statement+jwt",
+			"alg": "ES256",
+		}, map[string]any{
+			"iss":             misplacedClaimIdentifier,
+			"sub":             misplacedClaimIdentifier,
+			"iat":             time.Now().Add(-time.Minute).UTC().Unix(),
+			"exp":             time.Now().Add(10 * time.Minute).UTC().Unix(),
+			"jwks":            map[string]any{"keys": []any{*invalidMetadataPublicJWK}},
+			"source_endpoint": "https://ta.example.com/fetch",
+		}, jwt.Opts{Algorithm: josemodel.ES256})
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/entity-statement+jwt")
+		_, _ = w.Write([]byte(*token))
+	})
+	iss := httptest.NewTLSServer(ism)
+	misplacedClaimIdentifier = iss.URL
+
+	t.Cleanup(func() {
+		iss.Close()
+	})
 
 	t.Cleanup(func() {
 		ims.Close()
@@ -299,6 +335,12 @@ func TestServer_Resolve(t *testing.T) {
 			requestSub: invalidMetadataEntityIdentifier,
 			validate: func(t *testing.T, response *http.Response, err error) {
 				validateErrorResponse(t, response, err, http.StatusBadRequest, "invalid_metadata", "entity configuration for "+invalidMetadataEntityIdentifier+" failed validation: invalid entity statement: invalid 'metadata' claim: invalid openid relying party metadata: missing required 'redirect_uris' claim")
+			},
+		},
+		"entity configuration with a misplaced claim is a bad chain, not a missing entity": {
+			requestSub: misplacedClaimIdentifier,
+			validate: func(t *testing.T, response *http.Response, err error) {
+				validateErrorResponse(t, response, err, http.StatusBadRequest, "invalid_trust_chain", "entity configuration for "+misplacedClaimIdentifier+" failed validation: the \"source_endpoint\" claim is permitted only in subordinate statements, not in an entity configuration")
 			},
 		},
 		"trust anchor not found returns an error": {
@@ -428,7 +470,6 @@ func TestServer_Resolve(t *testing.T) {
 
 			directChildEntityServer.AddAuthorityHint(model.EntityIdentifier(s.URL))
 			walletEntityServer.AddAuthorityHint(model.EntityIdentifier(s.URL))
-			invalidMetadataEntityServer.AddAuthorityHint(model.EntityIdentifier(s.URL))
 
 			// Build the request URL with the test-specific parameters
 			requestURL := fmt.Sprintf("%s/resolve", s.URL)

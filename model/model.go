@@ -46,6 +46,11 @@ type Configuration struct {
 
 const DefaultMaxPeerResponseBytes int64 = 1 << 20
 
+const (
+	DefaultEntityConfigurationLifetime  = time.Hour
+	DefaultSubordinateStatementLifetime = time.Hour
+)
+
 const DefaultMaxTrustMarkIssuers = 64
 
 func (cfg *Configuration) TrustMarkIssuerLimit() int {
@@ -315,7 +320,19 @@ type TrustMarkOwner struct {
 	AdditionalClaims map[string]any   `json:"-"`
 }
 
-const IatLeeway = 60 * time.Second
+func (t TrustMarkOwner) MarshalJSON() ([]byte, error) {
+	out := make(map[string]any, len(t.AdditionalClaims)+2)
+	for claim, value := range t.AdditionalClaims {
+		out[claim] = value
+	}
+	out["sub"] = t.Sub
+	out["jwks"] = t.JWKs
+	return json.Marshal(out)
+}
+
+const ClockSkewLeeway = 60 * time.Second
+
+const maxNumericDate = float64(1 << 62)
 
 var entityStatementClaims = []string{
 	"iss", "sub", "iat", "exp", "jwks", "aud", "crit",
@@ -410,6 +427,23 @@ func parseTrustMarkOwners(value any) (map[string]TrustMarkOwner, error) {
 	return parsed, nil
 }
 
+func parseNumericDate(claim string, value any) (int64, error) {
+	f, ok := value.(float64)
+	if !ok {
+		return 0, fmt.Errorf("'%s' claim is malformed", claim)
+	}
+	if math.IsNaN(f) || math.IsInf(f, 0) {
+		return 0, fmt.Errorf("'%s' claim is not a valid numeric date", claim)
+	}
+	if f < 0 {
+		return 0, fmt.Errorf("'%s' claim must not be negative", claim)
+	}
+	if f >= maxNumericDate {
+		return 0, fmt.Errorf("'%s' claim is outside the representable range", claim)
+	}
+	return int64(f), nil
+}
+
 func parseCritClaim(claim string, value any, forbidden []string) ([]string, error) {
 	entries, ok := value.([]any)
 	if !ok {
@@ -462,27 +496,34 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 		e.Sub = *parsedSub
 	}
 
-	if _, ok := jsonMap["iat"]; !ok {
+	iatValue, ok := jsonMap["iat"]
+	if !ok {
 		return fmt.Errorf("missing required body claim 'iat'")
-	} else if fIat, ok := jsonMap["iat"].(float64); !ok {
-		return fmt.Errorf("'iat' claim is malformed")
-	} else {
-		if int64(fIat) > time.Now().Add(IatLeeway).UTC().Unix() {
-			return fmt.Errorf("entity statement is issued in the future")
-		}
-		e.Iat = int64(fIat)
 	}
+	iat, err := parseNumericDate("iat", iatValue)
+	if err != nil {
+		return err
+	}
+	if iat > time.Now().Add(ClockSkewLeeway).UTC().Unix() {
+		return fmt.Errorf("entity statement is issued in the future")
+	}
+	e.Iat = iat
 
-	if exp, ok := jsonMap["exp"]; !ok {
+	expValue, ok := jsonMap["exp"]
+	if !ok {
 		return fmt.Errorf("missing required body claim 'exp'")
-	} else if iExp, ok := exp.(float64); !ok {
-		return fmt.Errorf("'exp' claim is malformed")
-	} else {
-		if time.Now().UTC().Unix() > int64(iExp) {
-			return fmt.Errorf("entity statement has expired")
-		}
-		e.Exp = int64(iExp)
 	}
+	exp, err := parseNumericDate("exp", expValue)
+	if err != nil {
+		return err
+	}
+	if time.Now().Add(-ClockSkewLeeway).UTC().Unix() > exp {
+		return fmt.Errorf("entity statement has expired")
+	}
+	if iat >= exp {
+		return fmt.Errorf("entity statement 'iat' claim must be before its 'exp' claim")
+	}
+	e.Exp = exp
 
 	if authorityHints, ok := jsonMap["authority_hints"]; ok {
 		parsed, err := parseEntityIdentifierArray("authority_hints", authorityHints)
@@ -524,6 +565,9 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 	}
 
 	if entityMetadata, ok := jsonMap["metadata"]; ok {
+		if entityMetadata == nil {
+			return NewInvalidMetadataError("malformed 'metadata' claim: must not be null")
+		}
 		bytes, err := json.Marshal(entityMetadata)
 		if err != nil {
 			return NewInvalidMetadataError("malformed 'metadata' claim: invalid JSON")
@@ -536,6 +580,9 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 	}
 
 	if metadataPolicy, ok := jsonMap["metadata_policy"]; ok {
+		if metadataPolicy == nil {
+			return fmt.Errorf("malformed 'metadata_policy' claim: must not be null")
+		}
 		bytes, err := json.Marshal(metadataPolicy)
 		if err != nil {
 			return fmt.Errorf("malformed 'metadata_policy' claim: invalid JSON")
@@ -609,7 +656,7 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return err
 		}
-		e.MetadataPolicyCrit = parsed
+		return fmt.Errorf("'metadata_policy_crit' claim lists %v, none of which this implementation understands", parsed)
 	}
 
 	if trustMarkOwners, ok := jsonMap["trust_mark_owners"]; ok {
@@ -625,8 +672,10 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 		if !ok {
 			return fmt.Errorf("'source_endpoint' claim must be a string")
 		}
-		parsed, err := url.Parse(sEndpoint)
-		if err != nil || !parsed.IsAbs() || parsed.Host == "" {
+		if err := verifyHTTPSURLValue("source_endpoint", sEndpoint, false); err != nil {
+			return err
+		}
+		if parsed, err := url.Parse(sEndpoint); err != nil || !parsed.IsAbs() || parsed.Host == "" {
 			return fmt.Errorf("'source_endpoint' claim must be a valid absolute URL")
 		}
 		e.SourceEndpoint = &sEndpoint
@@ -672,7 +721,7 @@ func (t *TrustMarkHolder) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("each entry in 'trust_marks' requires a non-empty 'trust_mark' member")
 	}
 
-	parts := strings.Split(*holder.TrustMark, ".")
+	parts := strings.SplitN(*holder.TrustMark, ".", 4)
 	if len(parts) != 3 {
 		return fmt.Errorf("the 'trust_mark' member of a 'trust_marks' entry must be a signed JWT")
 	}

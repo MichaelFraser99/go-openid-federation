@@ -9,10 +9,12 @@ import (
 	"time"
 )
 
+const harnessJwk = `{"kty":"EC","crv":"P-256","kid":"leaf","x":"f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU","y":"x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0"}`
+
 func statementJSON(t *testing.T, extra string) string {
 	t.Helper()
-	base := fmt.Sprintf(`"iss":"https://leaf.example.com","sub":"https://leaf.example.com","iat":%d,"exp":%d,"jwks":{"keys":[]}`,
-		time.Now().Add(-time.Minute).UTC().Unix(), time.Now().Add(time.Hour).UTC().Unix())
+	base := fmt.Sprintf(`"iss":"https://leaf.example.com","sub":"https://leaf.example.com","iat":%d,"exp":%d,"jwks":{"keys":[%s]}`,
+		time.Now().Add(-time.Minute).UTC().Unix(), time.Now().Add(time.Hour).UTC().Unix(), harnessJwk)
 	if extra == "" {
 		return "{" + base + "}"
 	}
@@ -46,6 +48,7 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 		step      string
 		claims    string
 		expectErr string
+		assert    func(t *testing.T, statement EntityStatement)
 	}{
 		// 3.2 step 5 and 1.2 - iss and sub must be Entity Identifiers (#106)
 		{
@@ -78,9 +81,84 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			name:   "iat inside the clock skew leeway is accepted",
 			step:   "3.2 step 7",
 			claims: fmt.Sprintf(`"iat":%d`, time.Now().Add(30*time.Second).UTC().Unix()),
+			assert: func(t *testing.T, statement EntityStatement) {
+				if statement.Iat <= time.Now().UTC().Unix() {
+					t.Errorf("expected the future-dated iat to be kept, got %d", statement.Iat)
+				}
+			},
+		},
+		{
+			name:      "iat beyond the clock skew leeway",
+			step:      "3.2 step 7",
+			claims:    fmt.Sprintf(`"iat":%d`, time.Now().Add(2*time.Minute).UTC().Unix()),
+			expectErr: "issued in the future",
+		},
+		{
+			name:      "iat that is negative",
+			step:      "3.2 step 7",
+			claims:    `"iat":-99`,
+			expectErr: "must not be negative",
+		},
+		{
+			name:      "iat outside the representable range",
+			step:      "3.2 step 7",
+			claims:    `"iat":1e308`,
+			expectErr: "outside the representable range",
+		},
+		{
+			name:      "exp outside the representable range",
+			step:      "3.2 step 8",
+			claims:    `"exp":1e308`,
+			expectErr: "outside the representable range",
+		},
+		{
+			name:      "exp that is negative",
+			step:      "3.2 step 8",
+			claims:    `"exp":-1`,
+			expectErr: "must not be negative",
+		},
+		{
+			name:   "exp inside the clock skew leeway is accepted",
+			step:   "3.2 step 8",
+			claims: fmt.Sprintf(`"iat":%d,"exp":%d`, time.Now().Add(-time.Hour).UTC().Unix(), time.Now().Add(-30*time.Second).UTC().Unix()),
+			assert: func(t *testing.T, statement EntityStatement) {
+				if statement.Exp >= time.Now().UTC().Unix() {
+					t.Errorf("expected the recently expired exp to be kept, got %d", statement.Exp)
+				}
+			},
+		},
+		{
+			name:      "exp beyond the clock skew leeway",
+			step:      "3.2 step 8",
+			claims:    fmt.Sprintf(`"exp":%d`, time.Now().Add(-2*time.Minute).UTC().Unix()),
+			expectErr: "has expired",
+		},
+		{
+			name:      "iat after exp",
+			step:      "3.2 steps 7 and 8",
+			claims:    fmt.Sprintf(`"iat":%d,"exp":%d`, time.Now().Add(30*time.Second).UTC().Unix(), time.Now().Add(10*time.Second).UTC().Unix()),
+			expectErr: "must be before its 'exp' claim",
+		},
+		{
+			name:      "iat equal to exp",
+			step:      "3.2 steps 7 and 8",
+			claims:    fmt.Sprintf(`"iat":%d,"exp":%d`, time.Now().Add(10*time.Second).UTC().Unix(), time.Now().Add(10*time.Second).UTC().Unix()),
+			expectErr: "must be before its 'exp' claim",
 		},
 
 		// 3.2 step 9 and RFC 7517 - jwks must be a JWK Set (#107)
+		{
+			name:      "metadata that is null",
+			step:      "section 5",
+			claims:    `"metadata":null`,
+			expectErr: "must not be null",
+		},
+		{
+			name:      "metadata_policy that is null",
+			step:      "3.2 step 17",
+			claims:    `"metadata_policy":null`,
+			expectErr: "must not be null",
+		},
 		{
 			name:      "jwks with no keys member",
 			step:      "3.2 step 9",
@@ -119,6 +197,11 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			name:   "valid trust_anchor_hints are kept",
 			step:   "3.1.2",
 			claims: `"trust_anchor_hints":["https://ta.example.com"]`,
+			assert: func(t *testing.T, statement EntityStatement) {
+				if len(statement.TrustAnchorHints) != 1 || statement.TrustAnchorHints[0] != "https://ta.example.com" {
+					t.Errorf("expected the parsed trust_anchor_hints to be kept, got %v", statement.TrustAnchorHints)
+				}
+			},
 		},
 		{
 			name:      "empty trust_anchor_hints",
@@ -209,9 +292,10 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			expectErr: "defined by this specification",
 		},
 		{
-			name:   "metadata_policy_crit naming an additional operator is syntactically valid",
-			step:   "3.1.3",
-			claims: `"metadata_policy_crit":["regexp"]`,
+			name:      "metadata_policy_crit naming an operator this implementation cannot process",
+			step:      "3.2 step 18",
+			claims:    `"metadata_policy_crit":["regexp"]`,
+			expectErr: "none of which this implementation understands",
 		},
 
 		// 3.2 step 23 - source_endpoint must be a URL (#114)
@@ -231,12 +315,41 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			name:      "source_endpoint that is not a url",
 			step:      "3.2 step 23",
 			claims:    `"source_endpoint":"::not a url::"`,
-			expectErr: "must be a valid absolute URL",
+			expectErr: "is not a valid url",
 		},
 		{
 			name:   "a valid source_endpoint is kept",
 			step:   "3.2 step 23",
 			claims: `"source_endpoint":"https://ta.example.com/fetch"`,
+			assert: func(t *testing.T, statement EntityStatement) {
+				if statement.SourceEndpoint == nil || *statement.SourceEndpoint != "https://ta.example.com/fetch" {
+					t.Errorf("expected the parsed source_endpoint to be kept, got %v", statement.SourceEndpoint)
+				}
+			},
+		},
+		{
+			name:      "source_endpoint over plain http",
+			step:      "3.2 step 23",
+			claims:    `"source_endpoint":"http://ta.example.com/fetch"`,
+			expectErr: "must use the 'https' scheme",
+		},
+		{
+			name:      "source_endpoint carrying a fragment",
+			step:      "3.2 step 23",
+			claims:    `"source_endpoint":"https://ta.example.com/fetch#frag"`,
+			expectErr: "must not contain a fragment component",
+		},
+		{
+			name:      "source_endpoint carrying a query",
+			step:      "3.2 step 23",
+			claims:    `"source_endpoint":"https://ta.example.com/fetch?sub=x"`,
+			expectErr: "must not contain a query component",
+		},
+		{
+			name:      "source_endpoint over a non-http scheme",
+			step:      "3.2 step 23",
+			claims:    `"source_endpoint":"ftp://ta.example.com/fetch"`,
+			expectErr: "must use the 'https' scheme",
 		},
 
 		// 3.2 step 22 - trust_mark_owners (#115)
@@ -292,6 +405,25 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			name:   "a valid trust_mark_owners entry with extra members is kept",
 			step:   "3.1.2",
 			claims: `"trust_mark_owners":{"https://tm.example.com/a":{"sub":"https://o.example.com","jwks":{"keys":[]},"other":"allowed"}}`,
+			assert: func(t *testing.T, statement EntityStatement) {
+				owner, present := statement.TrustMarkOwners["https://tm.example.com/a"]
+				if !present {
+					t.Fatalf("expected the parsed trust_mark_owners entry to be kept, got %v", statement.TrustMarkOwners)
+				}
+				if owner.Sub != "https://o.example.com" {
+					t.Errorf("expected sub to be kept, got %q", owner.Sub)
+				}
+				if owner.AdditionalClaims["other"] != "allowed" {
+					t.Errorf("expected the extra member to be kept, got %v", owner.AdditionalClaims)
+				}
+				raw, err := json.Marshal(statement.TrustMarkOwners)
+				if err != nil {
+					t.Fatalf("failed to re-marshal trust_mark_owners: %v", err)
+				}
+				if !strings.Contains(string(raw), `"other":"allowed"`) {
+					t.Errorf("expected the extra member to survive re-marshalling, got %s", raw)
+				}
+			},
 		},
 
 		// 3.2 step 20 - trust_marks (#119)
@@ -323,6 +455,23 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			name:   "a consistent trust_marks entry is kept",
 			step:   "3.2 step 20",
 			claims: fmt.Sprintf(`"trust_marks":[{"trust_mark_type":"https://tm.example.com/a","trust_mark":%q}]`, validMark),
+			assert: func(t *testing.T, statement EntityStatement) {
+				if len(statement.TrustMarks) != 1 {
+					t.Fatalf("expected one parsed trust mark, got %v", statement.TrustMarks)
+				}
+				if statement.TrustMarks[0].TrustMarkType != "https://tm.example.com/a" {
+					t.Errorf("expected the trust_mark_type to be kept, got %q", statement.TrustMarks[0].TrustMarkType)
+				}
+				if statement.TrustMarks[0].TrustMark != validMark {
+					t.Errorf("expected the trust_mark to be kept, got %q", statement.TrustMarks[0].TrustMark)
+				}
+			},
+		},
+		{
+			name:      "a trust_mark with more than three segments",
+			step:      "3.2 step 20",
+			claims:    `"trust_marks":[{"trust_mark_type":"https://tm.example.com/a","trust_mark":"a.b.c.d"}]`,
+			expectErr: "must be a signed JWT",
 		},
 
 		// section 5 and 3.2 step 16 - null metadata values (#117)
@@ -355,6 +504,10 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 				if err != nil {
 					t.Fatalf("[%s] expected the statement to parse, got %v", tc.step, err)
 				}
+				if tc.assert == nil {
+					t.Fatalf("[%s] a positive case must assert what was parsed", tc.step)
+				}
+				tc.assert(t, statement)
 				return
 			}
 			if err == nil {

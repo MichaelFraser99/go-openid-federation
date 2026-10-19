@@ -28,6 +28,15 @@ func (m OpenIDRelyingPartyMetadata) VerifyMetadata() error {
 			return err
 		}
 	}
+	for _, key := range []string{
+		"token_endpoint_auth_signing_alg",
+		"id_token_signed_response_alg",
+		"request_object_signing_alg",
+	} {
+		if err := VerifyAlgClaim(m, key, false); err != nil {
+			return err
+		}
+	}
 	_, hasJWKs := m["jwks"]
 	_, hasJWKsURI := m["jwks_uri"]
 	if hasJWKs && hasJWKsURI {

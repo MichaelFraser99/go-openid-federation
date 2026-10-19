@@ -19,6 +19,15 @@ func (m OAuthAuthorizationServerMetadata) VerifyMetadata() error {
 	if err := VerifyStringArrayClaim(m, "response_types_supported"); err != nil {
 		return err
 	}
+	for _, key := range []string{
+		"token_endpoint_auth_signing_alg_values_supported",
+		"revocation_endpoint_auth_signing_alg_values_supported",
+		"introspection_endpoint_auth_signing_alg_values_supported",
+	} {
+		if err := VerifyAlgValuesClaim(m, key, false); err != nil {
+			return err
+		}
+	}
 	if err := VerifyHTTPSURLClaim(m, "jwks_uri", true); err != nil {
 		return err
 	}

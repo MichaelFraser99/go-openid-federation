@@ -17,8 +17,16 @@ func TestResolveMetadata_SingleStatementChainIsGatedOnExpiry(t *testing.T) {
 		expectErr string
 	}{
 		{name: "a live anchor configuration resolves", expIn: time.Hour},
-		{name: "expired inside the clock skew leeway resolves", expIn: -30 * time.Second},
-		{name: "expired beyond the clock skew leeway is refused", expIn: -5 * time.Minute, expectErr: "expired"},
+		{
+			name:      "expired inside the clock skew leeway cannot produce a response",
+			expIn:     -30 * time.Second,
+			expectErr: "not in the future",
+		},
+		{
+			name:      "expired beyond the clock skew leeway is refused on parse",
+			expIn:     -5 * time.Minute,
+			expectErr: "entity statement has expired",
+		},
 	}
 
 	for _, tc := range tests {

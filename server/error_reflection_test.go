@@ -120,8 +120,8 @@ func TestServer_Resolve_DoesNotReflectPeerStatementContent(t *testing.T) {
 			if strings.Contains(string(raw), marker) {
 				t.Fatalf("the peer's statement content was reflected into the resolve response (%d bytes): %s", len(raw), raw)
 			}
-			if len(raw) > 4096 {
-				t.Fatalf("expected a bounded error response, got %d bytes: %s", len(raw), raw)
+			if len(raw) > model.MaxErrorDescriptionBytes+256 {
+				t.Fatalf("expected the error description to be bounded by %d bytes, got a %d byte body: %s", model.MaxErrorDescriptionBytes, len(raw), raw)
 			}
 		})
 	}

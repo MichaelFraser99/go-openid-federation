@@ -239,13 +239,26 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		return nil, fmt.Errorf("failed to deserialize entity configuration: %s", err.Error())
 	}
 
-	if err = model.VerifyIssuedStatement(subordinateStatementBytes, configuration.EntityTypes, configuration.DiscardUnrecognisedEntityTypes); err != nil {
+	if err = model.VerifyIssuedStatement(subordinateStatementBytes, configuration.EntityTypes); err != nil {
 		return nil, fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %s", err.Error())
 	}
 
-	return jwt.New(signerConfiguration.Signer, map[string]any{
+	if josemodel.GetAlgorithm(signerConfiguration.Algorithm) == josemodel.Unknown {
+		return nil, fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %q is not a supported signing algorithm", signerConfiguration.Algorithm)
+	}
+
+	token, err := jwt.New(signerConfiguration.Signer, map[string]any{
 		"kid": signerConfiguration.KeyID,
 		"typ": "entity-statement+jwt",
 		"alg": signerConfiguration.Algorithm,
 	}, subordinateStatementMap, jwt.Opts{Algorithm: josemodel.GetAlgorithm(signerConfiguration.Algorithm)})
+	if err != nil {
+		return nil, err
+	}
+
+	if err = entity_statement.VerifyIssuedSignature(*token, signerConfiguration.KeyID, signerConfiguration.Algorithm, signerConfiguration.Signer); err != nil {
+		return nil, fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %s", err.Error())
+	}
+
+	return token, nil
 }

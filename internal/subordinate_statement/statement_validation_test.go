@@ -3,6 +3,7 @@ package subordinate_statement
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -135,8 +136,8 @@ func TestValidate_SubordinateStatementRules(t *testing.T) {
 			if !strings.Contains(err.Error(), tc.expectErr) {
 				t.Fatalf("[%s] expected an error containing %q, got %v", tc.step, tc.expectErr, err)
 			}
-			if tc.step == "diagnostics" && strings.Contains(err.Error(), "metadata") {
-				t.Fatalf("[%s] a non-metadata failure must not be reported as a metadata problem, got %v", tc.step, err)
+			if tc.step == "diagnostics" && errors.Is(err, model.ErrInvalidMetadata) {
+				t.Fatalf("[%s] a non-metadata failure must not carry the metadata error class, got %v", tc.step, err)
 			}
 		})
 	}

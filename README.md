@@ -210,7 +210,7 @@ The response is determined before it is written, so a caller can run code betwee
 | `AuthorityHints` | Identifiers of the entity's immediate superiors |
 | `TrustMarks` | Trust marks to publish in the entity configuration |
 | `EntityConfiguration` | The entity statement to publish. The library sets `iss`, `sub`, `iat`, `exp`, `authority_hints`, `trust_marks` and `jwks`, and sets `trust_mark_issuers` when a `TrustMarkIssuerRetriever` is configured. It clears the subordinate-statement-only claims `metadata_policy`, `constraints` and `source_endpoint` |
-| `EntityConfigurationLifetime` | How long a generated entity configuration remains valid. Defaults to `model.DefaultEntityConfigurationLifetime` when unset |
+| `EntityConfigurationLifetime` | How long a generated entity configuration remains valid. Defaults to `model.DefaultEntityConfigurationLifetime` when zero. A negative value, or a positive value under one second, is refused |
 | `IntermediateConfiguration` | Set if the entity issues subordinate statements |
 | `Extensions` | Opt-in extension endpoints |
 | `MetadataRetriever` | Source of subordinate data, if not held in memory |
@@ -353,7 +353,7 @@ Entity types absent from the registry are preserved and relayed unmodified. An i
 
 Set `DiscardUnrecognisedEntityTypes` to remove them instead. Discarding does not produce an error.
 
-The nine built-in types are always registered and are never discarded. A registry entry under a built-in identifier replaces that built-in, changing the validation applied to a standard type.
+The nine built-in types are always registered and are never discarded. A registry entry under a built-in identifier adds its validation to that built-in rather than replacing it, because `Metadata.UnmarshalJSON` always runs the built-in check. A registration can therefore tighten a standard type but not loosen it. See [#74](https://github.com/MichaelFraser99/go-openid-federation/issues/74).
 
 `model.DefaultEntityTypeRegistry` returns the built-in definitions. Embedding one in a custom type delegates to its validation, which is useful when a type is close to a standardised one.
 
@@ -367,7 +367,7 @@ The validators the built-in types use are exported for custom types to reuse.
 | `VerifyObjectClaim(m, key)` | The claim, if present, is a JSON object |
 | `VerifyStringArrayClaim(m, key)` | The claim, if present, is an array of strings |
 | `VerifyNonEmptyStringArrayClaim(m, key)` | The claim, if present, is a non-empty array of strings |
-| `VerifyHTTPSURLClaim(m, key, allowQuery)` | The claim, if present, is an HTTPS URL with no fragment |
+| `VerifyHTTPSURLClaim(m, key, allowQuery)` | The claim, if present, is an HTTPS URL with no fragment and no userinfo component |
 | `VerifyAlgValuesClaim(m, key, allowNone)` | The claim, if present, is an array of algorithm names. Rejects `none` unless `allowNone` is set |
 | `VerifyAlgClaim(m, key, allowNone)` | The claim, if present, is a single algorithm name. Rejects `none` unless `allowNone` is set |
 
@@ -493,6 +493,9 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | Extension claims | Dropped on parse and cannot be issued | [#132](https://github.com/MichaelFraser99/go-openid-federation/issues/132) |
 | `trust_chain` and `peer_trust_chain` JOSE headers | Not read or written | [#139](https://github.com/MichaelFraser99/go-openid-federation/issues/139) |
 | Trust mark type identifiers as object member names | Values are validated, member names are not | [#140](https://github.com/MichaelFraser99/go-openid-federation/issues/140) |
+| JWK sets whose keys omit `kty` | Accepted on read, so the fault surfaces at verification | [#146](https://github.com/MichaelFraser99/go-openid-federation/issues/146) |
+| A `jwks` member name that case-folds to `keys` | Supplies the verification keys through Go's case-insensitive decode | [#147](https://github.com/MichaelFraser99/go-openid-federation/issues/147) |
+| Error classes on the fetch path | A peer's fault is reported as a server error | [#148](https://github.com/MichaelFraser99/go-openid-federation/issues/148) |
 
 ## License
 

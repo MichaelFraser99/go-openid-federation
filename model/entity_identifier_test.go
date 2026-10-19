@@ -122,7 +122,7 @@ func TestValidate(t *testing.T) {
 				if err == nil {
 					t.Fatal("expected error")
 				}
-				if err.Error() != "entity identifiers must be a valid url: parse \"\\x7f\": net/url: invalid control character in URL" {
+				if err.Error() != "entity identifiers must be a valid url" {
 					t.Errorf("expected error, got %v", err)
 				}
 				if identifier != nil {

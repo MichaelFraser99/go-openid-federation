@@ -16,8 +16,9 @@ func TestResolveStatementLifetime(t *testing.T) {
 		{name: "an explicit lifetime is used", configured: 2 * time.Hour, expect: 2 * time.Hour},
 		{name: "exactly one second is used", configured: time.Second, expect: time.Second},
 		{name: "zero falls back to the default", configured: 0, expect: time.Hour},
-		{name: "a sub second lifetime falls back to the default", configured: 400 * time.Millisecond, expect: time.Hour},
-		{name: "a one nanosecond lifetime falls back to the default", configured: time.Nanosecond, expect: time.Hour},
+		{name: "a sub second lifetime is refused", configured: 400 * time.Millisecond, expectErr: "must be at least one second"},
+		{name: "a one nanosecond lifetime is refused", configured: time.Nanosecond, expectErr: "must be at least one second"},
+		{name: "just under one second is refused", configured: 999 * time.Millisecond, expectErr: "must be at least one second"},
 		{name: "a negative lifetime is refused", configured: -time.Second, expectErr: "must not be negative"},
 	}
 

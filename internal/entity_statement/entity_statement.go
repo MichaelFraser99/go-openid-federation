@@ -12,6 +12,15 @@ import (
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 )
 
+const maxQuotedHeaderBytes = 64
+
+func truncateHeaderValue(value string) string {
+	if len(value) <= maxQuotedHeaderBytes {
+		return value
+	}
+	return value[:maxQuotedHeaderBytes] + "..."
+}
+
 func ValidateStatementHeader(headMap map[string]any) error {
 	typ, ok := headMap["typ"]
 	if !ok {
@@ -22,7 +31,7 @@ func ValidateStatementHeader(headMap map[string]any) error {
 		return fmt.Errorf("malformed header claim 'typ'")
 	}
 	if !strings.EqualFold(sTyp, "entity-statement+jwt") && !strings.EqualFold(sTyp, "application/entity-statement+jwt") {
-		return fmt.Errorf("entity statements must set the 'typ' header to 'entity-statement+jwt', got %q", sTyp)
+		return fmt.Errorf("entity statements must set the 'typ' header to 'entity-statement+jwt', got %q", truncateHeaderValue(sTyp))
 	}
 
 	alg, ok := headMap["alg"]
@@ -57,6 +66,21 @@ func ValidateStatementHeader(headMap map[string]any) error {
 	}
 
 	return nil
+}
+
+func VerifyIssuedSignature(token, kid, alg string, signer crypto.Signer) error {
+	if err := ValidateStatementHeader(map[string]any{"typ": "entity-statement+jwt", "alg": alg}); err != nil {
+		return err
+	}
+	if josemodel.GetAlgorithm(alg) == josemodel.Unknown {
+		return fmt.Errorf("%q is not a supported signing algorithm", truncateHeaderValue(alg))
+	}
+	publicJWK, err := jwk.PublicJwk(signer.Public())
+	if err != nil {
+		return fmt.Errorf("failed to derive the public key of the signing key: %s", err.Error())
+	}
+	(*publicJWK)["kid"] = kid
+	return VerifyAgainstJwks(token, kid, josemodel.Jwks{Keys: []map[string]any{*publicJWK}})
 }
 
 func SelectKey(jwks josemodel.Jwks, kid string) (map[string]any, error) {

@@ -576,7 +576,7 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 
 	if metadataPolicy, ok := jsonMap["metadata_policy"]; ok {
 		if metadataPolicy == nil {
-			return fmt.Errorf("malformed 'metadata_policy' claim: must not be null")
+			return NewInvalidMetadataError("malformed 'metadata_policy' claim: must not be null")
 		}
 		bytes, err := json.Marshal(metadataPolicy)
 		if err != nil {

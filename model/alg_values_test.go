@@ -133,6 +133,13 @@ func TestSigningAlgorithmClaims_NonePerParameter(t *testing.T) {
 			},
 		},
 		{
+			entityType: "oauth_client", key: "id_token_signed_response_alg",
+			reference: `OIDC Registration 2: none permitted for a client using only response types that return no ID Token from the authorization endpoint`, noneAllowed: true,
+			build: func(v any) EntityTypeIdentifier {
+				return oauthClientBase(map[string]any{"id_token_signed_response_alg": v})
+			},
+		},
+		{
 			entityType: "oauth_client", key: "request_object_signing_alg",
 			reference: `OIDC Registration 2: "The value none MAY be used"`, noneAllowed: true,
 			build: func(v any) EntityTypeIdentifier {
@@ -196,11 +203,13 @@ func TestSigningAlgorithmClaims_NonePerParameter(t *testing.T) {
 		})
 
 		if !tc.noneAllowed {
-			t.Run(tc.entityType+"/"+tc.key+"/none in mixed case", func(t *testing.T) {
-				if err := tc.build(valueFor(tc.key, "None")).VerifyMetadata(); err == nil {
-					t.Fatalf("[%s] expected a mixed case 'None' to be refused", tc.reference)
-				}
-			})
+			for _, spelling := range []string{"None", "NONE", " none", "none ", " NoNe "} {
+				t.Run(tc.entityType+"/"+tc.key+"/none spelled "+strings.ReplaceAll(spelling, " ", "_"), func(t *testing.T) {
+					if err := tc.build(valueFor(tc.key, spelling)).VerifyMetadata(); err == nil {
+						t.Fatalf("[%s] expected %q to be refused", tc.reference, spelling)
+					}
+				})
+			}
 		}
 	}
 }

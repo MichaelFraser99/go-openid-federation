@@ -11,7 +11,7 @@ type EntityIdentifier string
 func ValidateEntityIdentifier(value string) (*EntityIdentifier, error) {
 	parsedUrl, err := url.Parse(value)
 	if err != nil {
-		return nil, fmt.Errorf("entity identifiers must be a valid url: %s", err.Error())
+		return nil, fmt.Errorf("entity identifiers must be a valid url")
 	}
 
 	if parsedUrl.Scheme != "https" {

@@ -155,7 +155,7 @@ func (s *Server) parseError(err error) (statusCode int, message string) {
 	statusCode, errorCode := errorStatusAndCode(err)
 	body, marshalErr := json.Marshal(map[string]string{
 		"error":             errorCode,
-		"error_description": err.Error(),
+		"error_description": model.TruncateForResponse(err.Error()),
 	})
 	if marshalErr != nil {
 		return http.StatusInternalServerError, fmt.Sprintf(`{"error":"%s"}`, model.ServerError)

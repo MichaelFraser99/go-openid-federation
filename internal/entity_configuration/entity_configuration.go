@@ -337,15 +337,28 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 		return nil, fmt.Errorf("failed to deserialize entity cfg: %s", err.Error())
 	}
 
-	if err = model.VerifyIssuedStatement(entityConfigurationBytes, cfg.EntityTypes, cfg.DiscardUnrecognisedEntityTypes); err != nil {
+	if err = model.VerifyIssuedStatement(entityConfigurationBytes, cfg.EntityTypes); err != nil {
 		return nil, fmt.Errorf("refusing to publish an entity configuration this implementation would reject: %s", err.Error())
 	}
 
-	return jwt.New(cfg.SignerConfiguration.Signer, map[string]any{
+	if josemodel.GetAlgorithm(cfg.SignerConfiguration.Algorithm) == josemodel.Unknown {
+		return nil, fmt.Errorf("refusing to publish an entity configuration this implementation would reject: %q is not a supported signing algorithm", cfg.SignerConfiguration.Algorithm)
+	}
+
+	token, err := jwt.New(cfg.SignerConfiguration.Signer, map[string]any{
 		"kid": cfg.SignerConfiguration.KeyID,
 		"typ": "entity-statement+jwt",
 		"alg": cfg.SignerConfiguration.Algorithm,
 	}, entityConfigurationMap, jwt.Opts{Algorithm: josemodel.GetAlgorithm(cfg.SignerConfiguration.Algorithm)})
+	if err != nil {
+		return nil, err
+	}
+
+	if err = entity_statement.VerifyIssuedSignature(*token, cfg.SignerConfiguration.KeyID, cfg.SignerConfiguration.Algorithm, cfg.SignerConfiguration.Signer); err != nil {
+		return nil, fmt.Errorf("refusing to publish an entity configuration this implementation would reject: %s", err.Error())
+	}
+
+	return token, nil
 }
 
 type publicKeyComparer interface {

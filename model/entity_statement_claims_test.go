@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -10,6 +11,20 @@ import (
 )
 
 const harnessJwk = `{"kty":"EC","crv":"P-256","kid":"leaf","x":"f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU","y":"x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0"}`
+
+func trustMarkWithoutType(t *testing.T) string {
+	t.Helper()
+	encode := func(v any) string {
+		raw, err := json.Marshal(v)
+		if err != nil {
+			t.Fatalf("failed to encode: %v", err)
+		}
+		return base64.RawURLEncoding.EncodeToString(raw)
+	}
+	head := encode(map[string]any{"typ": "trust-mark+jwt", "alg": "RS256", "kid": "k"})
+	body := encode(map[string]any{"iss": "https://tm.example.com", "sub": "https://leaf.example.com"})
+	return head + "." + body + ".signature"
+}
 
 func statementJSON(t *testing.T, extra string) string {
 	t.Helper()
@@ -44,13 +59,13 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 	validMark := trustMarkFor(t, "https://tm.example.com/a")
 
 	tests := []struct {
-		name      string
-		step      string
-		claims    string
-		expectErr string
-		assert    func(t *testing.T, statement EntityStatement)
+		name        string
+		step        string
+		claims      string
+		expectErr   string
+		expectClass error
+		assert      func(t *testing.T, statement EntityStatement)
 	}{
-		// 3.2 step 5 and 1.2 - iss and sub must be Entity Identifiers (#106)
 		{
 			name:      "iss that is not an entity identifier",
 			step:      "3.2 step 5",
@@ -70,7 +85,6 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			expectErr: "'sub' claim is not a valid entity identifier",
 		},
 
-		// 3.2 step 7 - the current time must be after iat (#65)
 		{
 			name:      "iat in the future beyond the leeway",
 			step:      "3.2 step 7",
@@ -146,18 +160,19 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			expectErr: "must be before its 'exp' claim",
 		},
 
-		// 3.2 step 9 and RFC 7517 - jwks must be a JWK Set (#107)
 		{
-			name:      "metadata that is null",
-			step:      "section 5",
-			claims:    `"metadata":null`,
-			expectErr: "must not be null",
+			name:        "metadata that is null",
+			step:        "section 5",
+			claims:      `"metadata":null`,
+			expectErr:   "must not be null",
+			expectClass: ErrInvalidMetadata,
 		},
 		{
-			name:      "metadata_policy that is null",
-			step:      "3.2 step 17",
-			claims:    `"metadata_policy":null`,
-			expectErr: "must not be null",
+			name:        "metadata_policy that is null",
+			step:        "3.2 step 17",
+			claims:      `"metadata_policy":null`,
+			expectErr:   "must not be null",
+			expectClass: ErrInvalidMetadata,
 		},
 		{
 			name:      "jwks with no keys member",
@@ -178,7 +193,6 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			expectErr: "must be a JSON object",
 		},
 
-		// 3.1.2 - authority_hints must not be the empty array (#113)
 		{
 			name:      "empty authority_hints",
 			step:      "3.1.2",
@@ -192,7 +206,6 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			expectErr: "contains invalid entity identifier",
 		},
 
-		// 3.1.2 and 3.2 step 15 - trust_anchor_hints (#116)
 		{
 			name:   "valid trust_anchor_hints are kept",
 			step:   "3.1.2",
@@ -222,7 +235,6 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			expectErr: "contains malformed entity identifier",
 		},
 
-		// 3.2 step 13 and 13.4 - crit (#66, #109)
 		{
 			name:      "crit naming a claim defined by the specification",
 			step:      "13.4",
@@ -266,7 +278,6 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			expectErr: "none of which this implementation understands",
 		},
 
-		// 3.1.3 and 3.2 step 18 - metadata_policy_crit (#101)
 		{
 			name:      "empty metadata_policy_crit",
 			step:      "3.1.3",
@@ -298,7 +309,6 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			expectErr: "none of which this implementation understands",
 		},
 
-		// 3.2 step 23 - source_endpoint must be a URL (#114)
 		{
 			name:      "source_endpoint that is a number",
 			step:      "3.2 step 23",
@@ -368,7 +378,6 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			expectErr: "must use the 'https' scheme",
 		},
 
-		// 3.2 step 22 - trust_mark_owners (#115)
 		{
 			name:      "trust_mark_owners that is a string",
 			step:      "3.2 step 22",
@@ -442,7 +451,6 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			},
 		},
 
-		// 3.2 step 20 - trust_marks (#119)
 		{
 			name:      "trust_marks entry with no trust_mark",
 			step:      "3.2 step 20",
@@ -484,13 +492,30 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			},
 		},
 		{
+			name:      "a trust_mark whose body has no trust_mark_type",
+			step:      "3.2 step 20",
+			claims:    fmt.Sprintf(`"trust_marks":[{"trust_mark_type":"https://tm.example.com/a","trust_mark":%q}]`, trustMarkWithoutType(t)),
+			expectErr: "has no 'trust_mark_type' claim",
+		},
+		{
+			name:      "trust_mark_owners entry whose jwks is not an object",
+			step:      "3.2 step 22",
+			claims:    `"trust_mark_owners":{"https://tm.example.com/a":{"sub":"https://o.example.com","jwks":"not an object"}}`,
+			expectErr: "malformed 'jwks' member",
+		},
+		{
+			name:      "iat at the representable boundary",
+			step:      "3.2 step 7",
+			claims:    `"iat":4611686018427387904`,
+			expectErr: "outside the representable range",
+		},
+		{
 			name:      "a trust_mark with more than three segments",
 			step:      "3.2 step 20",
 			claims:    `"trust_marks":[{"trust_mark_type":"https://tm.example.com/a","trust_mark":"a.b.c.d"}]`,
 			expectErr: "must be a signed JWT",
 		},
 
-		// section 5 and 3.2 step 16 - null metadata values (#117)
 		{
 			name:      "an entity type with a null value",
 			step:      "section 5",
@@ -531,6 +556,9 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tc.expectErr) {
 				t.Fatalf("[%s] expected an error containing %q, got %v", tc.step, tc.expectErr, err)
+			}
+			if tc.expectClass != nil && !errors.Is(err, tc.expectClass) {
+				t.Fatalf("[%s] expected the error to carry the %T class, got %v", tc.step, tc.expectClass, err)
 			}
 		})
 	}

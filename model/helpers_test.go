@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -1002,6 +1003,54 @@ func TestVerifyFederationEndpoint(t *testing.T) {
 			validate: func(t *testing.T, err error) {
 				if err != nil {
 					t.Errorf("expected no error for valid https endpoint with path, got %q", err.Error())
+				}
+			},
+		},
+		"userinfo with a password is refused": {
+			endpoint: "https://ta.example.com:secret@evil.example/fetch",
+			validate: func(t *testing.T, err error) {
+				if err == nil || !strings.Contains(err.Error(), "Userinfo") {
+					t.Errorf("expected a userinfo component to be refused, got %v", err)
+				}
+			},
+		},
+		"userinfo without a password is refused": {
+			endpoint: "https://ta.example.com@evil.example/fetch",
+			validate: func(t *testing.T, err error) {
+				if err == nil || !strings.Contains(err.Error(), "Userinfo") {
+					t.Errorf("expected a userinfo component to be refused, got %v", err)
+				}
+			},
+		},
+		"an escaped at sign in userinfo is refused": {
+			endpoint: "https://ta.example.com%40x@evil.example/fetch",
+			validate: func(t *testing.T, err error) {
+				if err == nil || !strings.Contains(err.Error(), "Userinfo") {
+					t.Errorf("expected a userinfo component to be refused, got %v", err)
+				}
+			},
+		},
+		"an empty but present fragment is refused": {
+			endpoint: "https://ta.example.com/fetch#",
+			validate: func(t *testing.T, err error) {
+				if err == nil || !strings.Contains(err.Error(), "Fragment") {
+					t.Errorf("expected an empty fragment to be refused, got %v", err)
+				}
+			},
+		},
+		"an endpoint with no host is refused": {
+			endpoint: "https:///fetch",
+			validate: func(t *testing.T, err error) {
+				if err == nil || !strings.Contains(err.Error(), "host component") {
+					t.Errorf("expected a missing host to be refused, got %v", err)
+				}
+			},
+		},
+		"an opaque url is refused": {
+			endpoint: "https:ta.example.com/fetch",
+			validate: func(t *testing.T, err error) {
+				if err == nil || !strings.Contains(err.Error(), "host component") {
+					t.Errorf("expected an opaque url to be refused, got %v", err)
 				}
 			},
 		},

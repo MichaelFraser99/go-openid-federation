@@ -156,7 +156,7 @@ func (cfg *ServerConfiguration) GetSubordinate(ctx context.Context, identifier E
 		return nil, err
 	}
 	if entity == nil {
-		return nil, fmt.Errorf("subordinate entity %s not found", identifier)
+		return nil, NewNotFoundError(fmt.Sprintf("subordinate entity %s not found", identifier))
 	}
 
 	stored := *entity

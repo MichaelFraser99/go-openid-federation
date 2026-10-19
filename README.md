@@ -247,7 +247,7 @@ type TrustMarkIssuerRetriever interface {
 }
 
 type ExtendedListingRetriever interface {
-	GetExtendedSubordinates(ctx context.Context, from *EntityIdentifier, size int, claims []string) (*ExtendedListingResponse, error)
+	GetExtendedSubordinates(ctx context.Context, filter ExtendedListingFilter) (*ExtendedListingResponse, error)
 }
 
 type SubordinateStatusRetriever interface {
@@ -256,6 +256,16 @@ type SubordinateStatusRetriever interface {
 ```
 
 Subordinates retrieved through a `Retriever` are cached for `IntermediateConfiguration.SubordinateCacheTime`. `FlushCache` invalidates the cache.
+
+#### What to return when the subject is unknown
+
+Return `model.NewNotFoundError(...)`. The library maps that to the status code each endpoint's specification requires: 404 for an unknown trust mark (section 8.4.2), 404 for an entity that does not hold the requested trust mark (section 8.6.2), and `not_found` for a subject the fetch endpoint cannot answer for (section 8.1.2).
+
+A retriever that returns `(nil, nil)` is treated the same way, so a store that signals "no row" with a nil result still produces a conforming response. Returning a bare `error` instead gives the caller a 500, which tells a monitoring peer that this server is broken rather than that the subject is unknown.
+
+`ExtendedListingRetriever` is the exception. An unknown subject there is an empty listing, not an error, so return an empty `ImmediateSubordinateEntities` rather than a not-found error.
+
+Entries in `ImmediateSubordinateEntities` are `map[string]any`, and each one must carry an `id` whose value is a `string` holding an Entity Identifier. A store that round-trips through JSON yields `float64` for a numeric value, so an `id` that looks like a number arrives as the wrong type and the whole listing is refused with a `server_error`.
 
 ### Per-subordinate signing keys
 

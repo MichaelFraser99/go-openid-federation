@@ -103,6 +103,10 @@ func (s *Server) loadSubordinate(ctx context.Context, identifier model.EntityIde
 			s.cfg.LogInfo(ctx, "error retrieving subordinate cfg", slog.String("error", err.Error()))
 			return nil, &s.cfg.SignerConfiguration, nil
 		}
+		if subordinate == nil {
+			s.cfg.LogInfo(ctx, "no subordinate configuration for entity", slog.String("sub", string(identifier)))
+			return nil, &s.cfg.SignerConfiguration, nil
+		}
 		if subordinate.SignerConfiguration != nil {
 			return subordinate, subordinate.SignerConfiguration, nil
 		} else {

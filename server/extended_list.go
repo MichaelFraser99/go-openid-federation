@@ -55,12 +55,13 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 
 	if subordinateStatement {
 		for i, subordinateEntity := range subordinates.ImmediateSubordinateEntities {
-			if _, ok := subordinateEntity["id"]; !ok {
-				s.cfg.LogError(ctx, "missing 'id' field in one or more subordinate entities")
-				return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(extendedListingUnavailableError))
+			identifier, ok := subordinateEntity["id"].(string)
+			if !ok {
+				s.cfg.LogError(ctx, "missing or malformed 'id' field in one or more subordinate entities, this is a result of mis-configuration")
+				return s.RespondWithError(ctx, w, model.NewServerError(extendedListingUnavailableError))
 			}
 
-			parsedIdentifier, err := model.ValidateEntityIdentifier(subordinateEntity["id"].(string))
+			parsedIdentifier, err := model.ValidateEntityIdentifier(identifier)
 			if err != nil {
 				s.cfg.LogError(ctx, "invalid 'id' parameter included in retrieved list response", slog.String("error", err.Error()))
 				return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(extendedListingUnavailableError))

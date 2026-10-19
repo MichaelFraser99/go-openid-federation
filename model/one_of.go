@@ -3,7 +3,6 @@ package model
 import (
 	"fmt"
 	"reflect"
-	"slices"
 )
 
 func NewOneOf(operatorValue any) (*OneOf, error) {
@@ -119,7 +118,7 @@ func (o OneOf) CheckForConflict(containsFunc func(policyType reflect.Type) (Meta
 		if _, ok := p.OperatorValue().([]any); ok {
 			return fmt.Errorf("cannot merge policy of type 'one_of' with policy of type 'value' if the value of 'value' is an array")
 		}
-		if !slices.Contains(o.operatorValue, p.OperatorValue()) {
+		if !containsValue(o.operatorValue, p.OperatorValue()) {
 			return fmt.Errorf("cannot merge policy of type 'one_of' with policy of type 'value' unless the value of 'value' is contained within `one_of`")
 		}
 	}

@@ -3,7 +3,15 @@ package model
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
+	"slices"
 )
+
+func containsValue(haystack []any, needle any) bool {
+	return slices.ContainsFunc(haystack, func(candidate any) bool {
+		return reflect.DeepEqual(candidate, needle)
+	})
+}
 
 type PolicyOperators struct {
 	Metadata []MetadataPolicyOperator

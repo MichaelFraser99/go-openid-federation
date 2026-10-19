@@ -3,7 +3,6 @@ package model
 import (
 	"fmt"
 	"reflect"
-	"slices"
 )
 
 var (
@@ -115,7 +114,7 @@ func (s SubsetOf) CheckForConflict(containsFunc func(policyType reflect.Type) (M
 			return fmt.Errorf("cannot merge policy of type 'subset_of' with policy of type 'value' unless the value of 'value' is an array")
 		} else {
 			for _, v := range sV {
-				if !slices.Contains(s.operatorValue, v) {
+				if !containsValue(s.operatorValue, v) {
 					return fmt.Errorf("cannot merge policy of type 'subset_of' with policy of type 'value' unless the contents of `value` is a subset of that in 'subset_of'")
 				}
 			}
@@ -124,7 +123,7 @@ func (s SubsetOf) CheckForConflict(containsFunc func(policyType reflect.Type) (M
 	if p, found := containsFunc(reflect.TypeOf(Add{})); found {
 		sV := p.OperatorValue().([]any)
 		for _, v := range sV {
-			if !slices.Contains(s.operatorValue, v) {
+			if !containsValue(s.operatorValue, v) {
 				return fmt.Errorf("cannot merge policy of type 'subset_of' with policy of type 'add' unless the contents of `add` is a subset of that in 'subset_of'")
 			}
 		}
@@ -135,7 +134,7 @@ func (s SubsetOf) CheckForConflict(containsFunc func(policyType reflect.Type) (M
 	if p, found := containsFunc(reflect.TypeOf(SupersetOf{})); found {
 		sV := p.OperatorValue().([]any)
 		for _, v := range sV {
-			if !slices.Contains(s.operatorValue, v) {
+			if !containsValue(s.operatorValue, v) {
 				return fmt.Errorf("cannot merge policy of type 'subset_of' with policy of type 'superset_of' unless the contents of 'subset_of' is a superset of that in 'superset_of'")
 			}
 		}

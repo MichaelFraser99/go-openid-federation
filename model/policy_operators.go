@@ -5,7 +5,15 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 )
+
+func scopeOperatorSlice(value any) []any {
+	if s, ok := value.(string); ok {
+		return ConvertStringsToAnySlice(strings.Split(s, " "))
+	}
+	return []any{value}
+}
 
 func containsValue(haystack []any, needle any) bool {
 	return slices.ContainsFunc(haystack, func(candidate any) bool {

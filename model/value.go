@@ -3,7 +3,6 @@ package model
 import (
 	"fmt"
 	"reflect"
-	"strings"
 )
 
 var (
@@ -43,7 +42,7 @@ func (v Value) ToSlice(key string) MetadataPolicyOperator {
 	if reflect.TypeOf(v.operatorValue).Kind() != reflect.Slice {
 		if key == "scope" {
 			return &Value{
-				operatorValue: ConvertStringsToAnySlice(strings.Split(v.operatorValue.(string), " ")),
+				operatorValue: scopeOperatorSlice(v.operatorValue),
 			}
 		}
 		return &Value{

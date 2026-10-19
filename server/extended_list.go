@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -63,14 +64,14 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 
 			parsedIdentifier, err := model.ValidateEntityIdentifier(identifier)
 			if err != nil {
-				s.cfg.LogError(ctx, "invalid 'id' parameter included in retrieved list response", slog.String("error", err.Error()))
-				return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(extendedListingUnavailableError))
+				s.cfg.LogError(ctx, "invalid 'id' parameter included in retrieved list response, this is a result of mis-configuration", slog.String("error", err.Error()))
+				return s.RespondWithError(ctx, w, model.NewServerError(extendedListingUnavailableError))
 			}
 
 			//todo: this is going to need some form of caching mechanism to not be extremely expensive to run - we might want to drop this parameter from the draft
 			token, err := subordinate_statement.New(ctx, *parsedIdentifier, s.loadSubordinate(ctx, *parsedIdentifier), s.cfg)
 			if err != nil {
-				if err.Error() != "unknown entity identifier" {
+				if !errors.Is(err, model.ErrNotFound) {
 					s.cfg.LogError(ctx, "error creating subordinate statement", slog.String("error", err.Error()))
 					return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(extendedListingUnavailableError))
 				}

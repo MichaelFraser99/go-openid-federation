@@ -15,8 +15,11 @@ func scopeOperatorSlice(value any) []any {
 	return []any{value}
 }
 
-func containsValue(haystack []any, needle any) bool {
+func containsDeepEqual(haystack []any, needle any) bool {
 	return slices.ContainsFunc(haystack, func(candidate any) bool {
+		if candidate == nil || reflect.TypeOf(candidate).Comparable() {
+			return candidate == needle
+		}
 		return reflect.DeepEqual(candidate, needle)
 	})
 }

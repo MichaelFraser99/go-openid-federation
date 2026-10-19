@@ -2,8 +2,11 @@ package server
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -86,6 +89,8 @@ func TestServer_RetrieverReturningNilWithoutError(t *testing.T) {
 		name         string
 		reference    string
 		path         string
+		method       string
+		form         url.Values
 		expectStatus int
 		expectError  string
 		expectDesc   string
@@ -107,6 +112,16 @@ func TestServer_RetrieverReturningNilWithoutError(t *testing.T) {
 			expectDesc:   "unknown entity identifier",
 		},
 		{
+			name:         "trust mark status reports the trust mark as unknown",
+			reference:    "8.4.2",
+			method:       http.MethodPost,
+			path:         "/trust-mark-status",
+			form:         url.Values{"trust_mark": {"a.b.c"}},
+			expectStatus: http.StatusNotFound,
+			expectError:  "not_found",
+			expectDesc:   "unknown trust mark",
+		},
+		{
 			name:         "trust mark reports the entity as not holding it",
 			reference:    "8.6.2",
 			path:         "/trust-mark?sub=https://leaf.example.com&trust_mark_type=https://tm.example.com/a",
@@ -118,7 +133,22 @@ func TestServer_RetrieverReturningNilWithoutError(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			response, err := ts.Client().Get(ts.URL + tc.path)
+			method := tc.method
+			if method == "" {
+				method = http.MethodGet
+			}
+			var body io.Reader
+			if tc.form != nil {
+				body = strings.NewReader(tc.form.Encode())
+			}
+			request, err := http.NewRequest(method, ts.URL+tc.path, body)
+			if err != nil {
+				t.Fatalf("[%s] failed to build the request: %v", tc.reference, err)
+			}
+			if tc.form != nil {
+				request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			}
+			response, err := ts.Client().Do(request)
 			if err != nil {
 				t.Fatalf("[%s] the handler did not answer, which is what a panic looks like to a caller: %v", tc.reference, err)
 			}

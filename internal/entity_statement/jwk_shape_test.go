@@ -142,6 +142,8 @@ func TestExtractDetails_RefusesNonStringClaims(t *testing.T) {
 		{name: "sub that is an array", head: map[string]any{"kid": "a"}, body: map[string]any{"iss": "https://a.example.com", "sub": []any{"https://a.example.com"}}, expectErr: "'sub' claim"},
 		{name: "iss that is an object", head: map[string]any{"kid": "a"}, body: map[string]any{"iss": map[string]any{}, "sub": "https://a.example.com"}, expectErr: "'iss' claim"},
 		{name: "kid that is absent", head: map[string]any{}, body: map[string]any{"iss": "https://a.example.com", "sub": "https://a.example.com"}, expectErr: "'kid' claim"},
+		{name: "iss that is absent", head: map[string]any{"kid": "a"}, body: map[string]any{"sub": "https://a.example.com"}, expectErr: "'iss' claim"},
+		{name: "sub that is absent", head: map[string]any{"kid": "a"}, body: map[string]any{"iss": "https://a.example.com"}, expectErr: "'sub' claim"},
 	}
 
 	for _, tc := range tests {

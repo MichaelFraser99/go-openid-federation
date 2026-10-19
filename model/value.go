@@ -92,7 +92,7 @@ func (v Value) CheckForConflict(containsFunc func(policyType reflect.Type) (Meta
 			return fmt.Errorf("cannot merge policy of type 'value' with policy of type 'add' if the value of 'value' is not an array")
 		}
 		for _, v := range p.(Add).operatorValue {
-			if !containsValue(sV, v) {
+			if !containsDeepEqual(sV, v) {
 				return fmt.Errorf("cannot merge policy of type 'value' with policy of type 'add' unless the contents of `add` is a subset of that in 'value'")
 			}
 		}
@@ -106,7 +106,7 @@ func (v Value) CheckForConflict(containsFunc func(policyType reflect.Type) (Meta
 		if _, ok := v.operatorValue.([]any); ok {
 			return fmt.Errorf("cannot merge policy of type 'value' with policy of type 'one_of' if the contents of 'value' is an array")
 		} else {
-			if !containsValue(p.(OneOf).operatorValue, v.OperatorValue()) {
+			if !containsDeepEqual(p.(OneOf).operatorValue, v.OperatorValue()) {
 				return fmt.Errorf("cannot merge policy of type 'value' with policy of type 'one_of' unless the value of 'value' is contained within `one_of`")
 			}
 		}
@@ -116,7 +116,7 @@ func (v Value) CheckForConflict(containsFunc func(policyType reflect.Type) (Meta
 			return fmt.Errorf("cannot merge policy of type 'value' with policy of type 'subset_of' unless the contents of 'value' is an array")
 		} else {
 			for _, v := range sV {
-				if !containsValue(p.(SubsetOf).operatorValue, v) {
+				if !containsDeepEqual(p.(SubsetOf).operatorValue, v) {
 					return fmt.Errorf("cannot merge policy of type 'value' with policy of type 'subset_of' unless the contents of `value` is a subset of that in 'subset_of'")
 				}
 			}
@@ -127,7 +127,7 @@ func (v Value) CheckForConflict(containsFunc func(policyType reflect.Type) (Meta
 			return fmt.Errorf("cannot merge policy of type 'value' with policy of type 'superset_of' unless the contents of 'value' is an array")
 		} else {
 			for _, v := range p.(SupersetOf).operatorValue {
-				if !containsValue(sV, v) {
+				if !containsDeepEqual(sV, v) {
 					return fmt.Errorf("cannot merge policy of type 'value' with policy of type 'superset_of' unless the contents of `value` is a superset of that in 'superset_of'")
 				}
 			}

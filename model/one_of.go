@@ -118,7 +118,7 @@ func (o OneOf) CheckForConflict(containsFunc func(policyType reflect.Type) (Meta
 		if _, ok := p.OperatorValue().([]any); ok {
 			return fmt.Errorf("cannot merge policy of type 'one_of' with policy of type 'value' if the value of 'value' is an array")
 		}
-		if !containsValue(o.operatorValue, p.OperatorValue()) {
+		if !containsDeepEqual(o.operatorValue, p.OperatorValue()) {
 			return fmt.Errorf("cannot merge policy of type 'one_of' with policy of type 'value' unless the value of 'value' is contained within `one_of`")
 		}
 	}

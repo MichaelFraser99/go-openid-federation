@@ -263,7 +263,7 @@ Return `model.NewNotFoundError(...)`. The library maps that to the status code e
 
 A retriever that returns `(nil, nil)` is treated the same way, so a store that signals "no row" with a nil result still produces a conforming response. Returning a bare `error` instead gives the caller a 500, which tells a monitoring peer that this server is broken rather than that the subject is unknown.
 
-`ExtendedListingRetriever` is the exception. An unknown subject there is an empty listing, not an error, so return an empty `ImmediateSubordinateEntities` rather than a not-found error.
+`ExtendedListingRetriever` is the exception, in two ways. An unknown subject there is an empty listing rather than an error, so return an empty `ImmediateSubordinateEntities`. And a nil response is **not** treated as not found: it answers `server_error`, because a listing retriever that returns nothing at all is a misconfiguration rather than a statement about any one subject.
 
 Entries in `ImmediateSubordinateEntities` are `map[string]any`, and each one must carry an `id` whose value is a `string` holding an Entity Identifier. A store that round-trips through JSON yields `float64` for a numeric value, so an `id` that looks like a number arrives as the wrong type and the whole listing is refused with a `server_error`.
 
@@ -505,6 +505,7 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | Trust mark type identifiers as object member names | Values are validated, member names are not | [#140](https://github.com/MichaelFraser99/go-openid-federation/issues/140) |
 | JWK sets whose keys omit `kty` | Accepted on read, so the fault surfaces at verification | [#146](https://github.com/MichaelFraser99/go-openid-federation/issues/146) |
 | A `jwks` member name that case-folds to `keys` | Supplies the verification keys through Go's case-insensitive decode | [#147](https://github.com/MichaelFraser99/go-openid-federation/issues/147) |
+| Object valued policy operands | Deduplicated by a lossy string hash in `add` and `superset_of`, so distinct objects collide | [#150](https://github.com/MichaelFraser99/go-openid-federation/issues/150) |
 | Error classes on the fetch path | A peer's fault is reported as a server error | [#148](https://github.com/MichaelFraser99/go-openid-federation/issues/148) |
 
 ## License

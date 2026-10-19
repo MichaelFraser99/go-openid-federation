@@ -148,7 +148,7 @@ func (cfg *ServerConfiguration) GetSubordinate(ctx context.Context, identifier E
 	}
 
 	if cfg.MetadataRetriever == nil {
-		return nil, fmt.Errorf("subordinate entity %s not found", identifier)
+		return nil, NewNotFoundError(fmt.Sprintf("subordinate entity %s not found", identifier))
 	}
 
 	entity, err := cfg.MetadataRetriever.GetSubordinate(ctx, identifier)

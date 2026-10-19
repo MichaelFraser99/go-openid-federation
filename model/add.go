@@ -75,7 +75,7 @@ func (a Add) CheckForConflict(containsFunc func(policyType reflect.Type) (Metada
 			return fmt.Errorf("cannot merge policy of type 'add' with policy of type 'value' if the value of 'value' is not an array")
 		}
 		for _, v := range a.operatorValue {
-			if !containsValue(sV, v) {
+			if !containsDeepEqual(sV, v) {
 				return fmt.Errorf("cannot merge policy of type 'add' with policy of type 'value' unless the contents of `add` is a subset of that in 'value'")
 			}
 		}
@@ -86,7 +86,7 @@ func (a Add) CheckForConflict(containsFunc func(policyType reflect.Type) (Metada
 	if p, found := containsFunc(reflect.TypeOf(SubsetOf{})); found {
 		sV := p.OperatorValue().([]any)
 		for _, v := range a.operatorValue {
-			if !containsValue(sV, v) {
+			if !containsDeepEqual(sV, v) {
 				return fmt.Errorf("cannot merge policy of type 'add' with policy of type 'subset_of' unless the contents of `add` is a subset of that in 'subset_of'")
 			}
 		}

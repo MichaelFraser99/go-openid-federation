@@ -42,31 +42,31 @@ func TestApplyPolicy_ScopeOperandTypes(t *testing.T) {
 			name:      "a numeric value is a policy error",
 			reference: "6.1.3",
 			policy:    `{"openid_relying_party":{"scope":{"value":5}}}`,
-			expectErr: "scope",
+			expectErr: "all scope values must be strings",
 		},
 		{
 			name:      "a boolean value is a policy error",
 			reference: "6.1.3",
 			policy:    `{"openid_relying_party":{"scope":{"value":true}}}`,
-			expectErr: "scope",
+			expectErr: "all scope values must be strings",
 		},
 		{
 			name:      "an object value is a policy error",
 			reference: "6.1.3",
 			policy:    `{"openid_relying_party":{"scope":{"value":{"a":1}}}}`,
-			expectErr: "scope",
+			expectErr: "all scope values must be strings",
 		},
 		{
 			name:      "a numeric default is a policy error",
 			reference: "6.1.3",
 			policy:    `{"openid_relying_party":{"scope":{"default":5}}}`,
-			expectErr: "scope",
+			expectErr: "all scope values must be strings",
 		},
 		{
 			name:      "an array containing a number is a policy error",
-			reference: "6.1.3",
+			reference: "6.1.3 (already enforced before this change)",
 			policy:    `{"openid_relying_party":{"scope":{"value":["openid",5]}}}`,
-			expectErr: "scope",
+			expectErr: "all scope values must be strings",
 		},
 	}
 

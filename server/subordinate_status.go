@@ -58,11 +58,12 @@ func (s *Server) SubordinateStatus(w http.ResponseWriter, r *http.Request) Respo
 		return s.RespondWithError(ctx, w, model.NewNotFoundError("unknown entity identifier"))
 	}
 
-	if status.Events == nil {
-		status.Events = []model.SubordinateStatusEvent{}
+	response := *status
+	if response.Events == nil {
+		response.Events = []model.SubordinateStatusEvent{}
 	}
 
-	statusBytes, err := json.Marshal(status)
+	statusBytes, err := json.Marshal(response)
 	if err != nil {
 		s.cfg.LogInfo(ctx, "error marshalling subordinate status response", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(subordinateStatusUnavailableError))

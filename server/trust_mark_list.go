@@ -37,6 +37,10 @@ func (s *Server) TrustMarkList(w http.ResponseWriter, r *http.Request) ResponseF
 		return s.RespondWithError(ctx, w, err)
 	}
 
+	if status == nil {
+		status = []model.EntityIdentifier{}
+	}
+
 	statusBytes, err := json.Marshal(status)
 	if err != nil {
 		s.cfg.LogInfo(ctx, "error marshalling trust mark status", slog.String("error", err.Error()))

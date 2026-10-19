@@ -47,8 +47,6 @@ func TestServer_Resolve_MalformedPeerKeyDoesNotPanic(t *testing.T) {
 			peerMux := http.NewServeMux()
 			var peerIdentifier string
 			peerMux.HandleFunc("/.well-known/openid-federation", func(w http.ResponseWriter, _ *http.Request) {
-				// Signed correctly with the real key, so verification must parse the
-				// published key before it can reject anything.
 				token, signErr := jwt.New(peerSigner, map[string]any{
 					"kid": "peer", "typ": "entity-statement+jwt", "alg": "ES256",
 				}, map[string]any{

@@ -168,3 +168,71 @@ func TestMergePolicyOperators_ScopeOperandTypesDoNotPanic(t *testing.T) {
 		})
 	}
 }
+
+func TestProcessAndExtractPolicy_ScopeOperandTypeIsCheckedWhateverTheMetadataHolds(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference string
+		policy    string
+		expectErr string
+	}{
+		{
+			name:      "a numeric default is refused even when the metadata already has a scope",
+			reference: "6.1.3",
+			policy:    `{"openid_relying_party":{"scope":{"default":5}}}`,
+			expectErr: "all scope values must be strings",
+		},
+		{
+			name:      "a numeric value is refused",
+			reference: "6.1.3",
+			policy:    `{"openid_relying_party":{"scope":{"value":5}}}`,
+			expectErr: "all scope values must be strings",
+		},
+		{
+			name:      "a numeric element inside subset_of is refused",
+			reference: "6.1.3",
+			policy:    `{"openid_relying_party":{"scope":{"subset_of":[5]}}}`,
+			expectErr: "all scope values must be strings",
+		},
+		{
+			name:      "essential is a boolean and is not a scope value",
+			reference: "6.1.3.1.7",
+			policy:    `{"openid_relying_party":{"scope":{"essential":true}}}`,
+		},
+		{
+			name:      "a space separated string is accepted",
+			reference: "6.1.3.1.8",
+			policy:    `{"openid_relying_party":{"scope":{"value":"openid profile"}}}`,
+		},
+		{
+			name:      "an array of strings is accepted",
+			reference: "6.1.3.1.8",
+			policy:    `{"openid_relying_party":{"scope":{"subset_of":["openid","profile"]}}}`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var policy MetadataPolicy
+			if err := json.Unmarshal([]byte(tc.policy), &policy); err != nil {
+				t.Fatalf("[%s] the policy fixture did not parse: %v", tc.reference, err)
+			}
+			subordinate := EntityStatement{Iss: "https://ta.example.com", Sub: "https://leaf.example.com", MetadataPolicy: &policy}
+
+			_, err := ProcessAndExtractPolicy([]EntityStatement{{}, subordinate, {}})
+
+			if tc.expectErr == "" {
+				if err != nil {
+					t.Fatalf("[%s] expected the policy to be accepted, got %v", tc.reference, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("[%s] section 6.1.3 requires a policy error for an unsupported operand type, got an accepted policy", tc.reference)
+			}
+			if !strings.Contains(err.Error(), tc.expectErr) {
+				t.Fatalf("[%s] expected an error naming %q, got %v", tc.reference, tc.expectErr, err)
+			}
+		})
+	}
+}

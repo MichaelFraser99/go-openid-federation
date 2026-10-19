@@ -95,6 +95,8 @@ func (s *Server) Configure(h *http.ServeMux) {
 	}
 }
 
+const subordinateRetrievalFailureError = "unable to retrieve the subordinate configuration at this time"
+
 const unexpectedFailureError = "an unexpected failure occurred while serving this request"
 
 func (s *Server) handle(handler func(http.ResponseWriter, *http.Request) ResponseFunc) http.HandlerFunc {
@@ -122,7 +124,11 @@ func (s *Server) loadSubordinate(ctx context.Context, identifier model.EntityIde
 			if errors.Is(err, model.ErrNotFound) {
 				return nil, &s.cfg.SignerConfiguration, nil
 			}
-			return nil, &s.cfg.SignerConfiguration, err
+			if errors.Is(err, model.ErrInvalidRequest) || errors.Is(err, model.ErrInvalidSubject) ||
+				errors.Is(err, model.ErrInvalidIssuer) || errors.Is(err, model.ErrTemporarilyUnavailable) {
+				return nil, &s.cfg.SignerConfiguration, err
+			}
+			return nil, &s.cfg.SignerConfiguration, model.NewServerError(subordinateRetrievalFailureError)
 		}
 		if subordinate.SignerConfiguration != nil {
 			return subordinate, subordinate.SignerConfiguration, nil

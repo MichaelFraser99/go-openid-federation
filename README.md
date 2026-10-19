@@ -259,9 +259,13 @@ Subordinates retrieved through a `Retriever` are cached for `IntermediateConfigu
 
 #### What to return when the subject is unknown
 
-Return `model.NewNotFoundError(...)`. The library maps that to the status code each endpoint's specification requires: 404 for an unknown trust mark (section 8.4.2), 404 for an entity that does not hold the requested trust mark (section 8.6.2), and `not_found` for a subject the fetch endpoint cannot answer for (section 8.1.2).
+Return `model.NewNotFoundError(...)`. The library maps that to the status code each endpoint's specification requires: 404 for an unknown trust mark (section 8.4.2 makes this a MUST), 404 for an entity that does not hold the requested trust mark (section 8.6.2, also a MUST), and `not_found` for a subject the fetch endpoint cannot answer for (section 8.1.2 recommends it).
 
-A retriever that returns `(nil, nil)` is treated the same way, so a store that signals "no row" with a nil result still produces a conforming response. Returning a bare `error` instead gives the caller a 500, which tells a monitoring peer that this server is broken rather than that the subject is unknown.
+A retriever that returns `(nil, nil)` is treated the same way, so a store that signals "no row" with a nil result still produces a conforming response.
+
+> **Breaking change.** Returning a bare `error` for an unknown subject now gives the caller a 500 rather than a 404. Earlier releases turned every retriever error into 404 `not_found`, which reported a store outage to federation peers as "this subordinate does not exist". If your retriever signals an unknown subject with a bare error — `sql.ErrNoRows`, an ORM's "record not found", or your own sentinel — wrap it with `model.NewNotFoundError(...)` or return `(nil, nil)`, or `/fetch` will answer 500 for every unknown subject.
+
+The text of an unclassified retriever error is never sent to the caller. It is logged, and the response carries a fixed description, because a driver error commonly contains a host name and a user name.
 
 `ExtendedListingRetriever` is the exception, in two ways. An unknown subject there is an empty listing rather than an error, so return an empty `ImmediateSubordinateEntities`. And a nil response is **not** treated as not found: it answers `server_error`, because a listing retriever that returns nothing at all is a misconfiguration rather than a statement about any one subject.
 
@@ -505,7 +509,8 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | Trust mark type identifiers as object member names | Values are validated, member names are not | [#140](https://github.com/MichaelFraser99/go-openid-federation/issues/140) |
 | JWK sets whose keys omit `kty` | Accepted on read, so the fault surfaces at verification | [#146](https://github.com/MichaelFraser99/go-openid-federation/issues/146) |
 | A `jwks` member name that case-folds to `keys` | Supplies the verification keys through Go's case-insensitive decode | [#147](https://github.com/MichaelFraser99/go-openid-federation/issues/147) |
-| Object valued policy operands | Deduplicated by a lossy string hash in `add` and `superset_of`, so distinct objects collide | [#150](https://github.com/MichaelFraser99/go-openid-federation/issues/150) |
+| Object valued policy operands | Deduplicated by a lossy string hash at construction and in `add` and `superset_of`, so distinct objects collide, including nested ones | [#150](https://github.com/MichaelFraser99/go-openid-federation/issues/150) |
+| Policy operand count | Unbounded, and conflict detection is quadratic in it | [#151](https://github.com/MichaelFraser99/go-openid-federation/issues/151) |
 | Error classes on the fetch path | A peer's fault is reported as a server error | [#148](https://github.com/MichaelFraser99/go-openid-federation/issues/148) |
 
 ## License

@@ -3,9 +3,11 @@ package model
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"reflect"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 func scopeOperatorSlice(value any) []any {
@@ -15,25 +17,231 @@ func scopeOperatorSlice(value any) []any {
 	return []any{value}
 }
 
-func scalarKind(kind reflect.Kind) bool {
-	switch kind {
-	case reflect.Bool, reflect.String,
-		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
-		reflect.Float32, reflect.Float64:
-		return true
-	default:
-		return false
+func normaliseOperand(value any) (any, bool) {
+	switch typed := value.(type) {
+	case nil, bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		return value, true
+	case string:
+		if !utf8.ValidString(typed) {
+			return nil, false
+		}
+		return value, true
+	case float64:
+		if typed == 0 {
+			return float64(0), true
+		}
+		return value, true
+	case []any:
+		if typed == nil {
+			return value, true
+		}
+		normalised := make([]any, len(typed))
+		for i, member := range typed {
+			replacement, ok := normaliseOperand(member)
+			if !ok {
+				return nil, false
+			}
+			normalised[i] = replacement
+		}
+		return normalised, true
+	case map[string]any:
+		if typed == nil {
+			return value, true
+		}
+		normalised := make(map[string]any, len(typed))
+		for key, member := range typed {
+			if !utf8.ValidString(key) {
+				return nil, false
+			}
+			replacement, ok := normaliseOperand(member)
+			if !ok {
+				return nil, false
+			}
+			normalised[key] = replacement
+		}
+		return normalised, true
 	}
+	return nil, false
 }
 
-func containsDeepEqual(haystack []any, needle any) bool {
-	return slices.ContainsFunc(haystack, func(candidate any) bool {
-		if candidate == nil || scalarKind(reflect.TypeOf(candidate).Kind()) {
-			return candidate == needle
+func canonicalOperandKey(value any) (string, bool) {
+	normalised, ok := normaliseOperand(value)
+	if !ok {
+		return "", false
+	}
+	raw, err := json.Marshal(normalised)
+	if err != nil {
+		return "", false
+	}
+	return string(raw), true
+}
+
+const operandWalkLimit = 100
+
+func operandCanMatch(value any) bool {
+	return operandValueCanMatch(reflect.ValueOf(value), 0)
+}
+
+func operandValueCanMatch(value reflect.Value, depth int) bool {
+	if depth > operandWalkLimit {
+		return false
+	}
+	switch value.Kind() {
+	case reflect.Float32, reflect.Float64:
+		return !math.IsNaN(value.Float())
+	case reflect.Complex64, reflect.Complex128:
+		held := value.Complex()
+		return !math.IsNaN(real(held)) && !math.IsNaN(imag(held))
+	case reflect.Interface, reflect.Pointer:
+		if value.IsNil() {
+			return true
 		}
-		return reflect.DeepEqual(candidate, needle)
+		return operandValueCanMatch(value.Elem(), depth+1)
+	case reflect.Slice, reflect.Array:
+		for i := range value.Len() {
+			if !operandValueCanMatch(value.Index(i), depth+1) {
+				return false
+			}
+		}
+	case reflect.Map:
+		for iter := value.MapRange(); iter.Next(); {
+			if !operandValueCanMatch(iter.Key(), depth+1) || !operandValueCanMatch(iter.Value(), depth+1) {
+				return false
+			}
+		}
+	case reflect.Struct:
+		for i := range value.NumField() {
+			if !operandValueCanMatch(value.Field(i), depth+1) {
+				return false
+			}
+		}
+	case reflect.Func:
+		return value.IsNil()
+	}
+	return true
+}
+
+func operandsEqual(left, right any) bool {
+	leftKey, leftKeyed := canonicalOperandKey(left)
+	rightKey, rightKeyed := canonicalOperandKey(right)
+	if leftKeyed && rightKeyed {
+		return leftKey == rightKey
+	}
+	if leftKeyed != rightKeyed {
+		return false
+	}
+	if !operandCanMatch(left) {
+		return false
+	}
+	return reflect.DeepEqual(left, right)
+}
+
+type operandSet struct {
+	keyed   map[string]struct{}
+	unkeyed []any
+}
+
+func newOperandSet(values []any) operandSet {
+	set := operandSet{keyed: make(map[string]struct{}, len(values))}
+	for _, value := range values {
+		if key, ok := canonicalOperandKey(value); ok {
+			set.keyed[key] = struct{}{}
+			continue
+		}
+		if !operandCanMatch(value) {
+			continue
+		}
+		set.unkeyed = append(set.unkeyed, value)
+	}
+	return set
+}
+
+func (s operandSet) contains(value any) bool {
+	if key, ok := canonicalOperandKey(value); ok {
+		_, present := s.keyed[key]
+		return present
+	}
+	if !operandCanMatch(value) {
+		return false
+	}
+	return slices.ContainsFunc(s.unkeyed, func(candidate any) bool {
+		return reflect.DeepEqual(candidate, value)
 	})
+}
+
+func (s operandSet) fallbackCount() int {
+	return len(s.unkeyed)
+}
+
+func newOperandSetFromReflect(values reflect.Value) operandSet {
+	collected := make([]any, values.Len())
+	for i := range values.Len() {
+		collected[i] = values.Index(i).Interface()
+	}
+	return newOperandSet(collected)
+}
+
+func operandsContain(values reflect.Value, value any) bool {
+	needle, keyedNeedle := canonicalOperandKey(value)
+	if !keyedNeedle && !operandCanMatch(value) {
+		return false
+	}
+	for i := range values.Len() {
+		candidate := values.Index(i).Interface()
+		if key, ok := canonicalOperandKey(candidate); ok {
+			if keyedNeedle && key == needle {
+				return true
+			}
+			continue
+		}
+		if !keyedNeedle && reflect.DeepEqual(candidate, value) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsOperand(superset []any, value any) bool {
+	return operandsContain(reflect.ValueOf(superset), value)
+}
+
+func isSubsetOfOperands(subset, superset []any) bool {
+	set := newOperandSet(superset)
+	for _, value := range subset {
+		if !set.contains(value) {
+			return false
+		}
+	}
+	return true
+}
+
+type operandAccumulator struct {
+	keyed   map[string]struct{}
+	unkeyed []any
+}
+
+func newOperandAccumulator(capacity int) *operandAccumulator {
+	return &operandAccumulator{keyed: make(map[string]struct{}, capacity)}
+}
+
+func (a *operandAccumulator) add(value any) bool {
+	if key, ok := canonicalOperandKey(value); ok {
+		if _, present := a.keyed[key]; present {
+			return false
+		}
+		a.keyed[key] = struct{}{}
+		return true
+	}
+	if !operandCanMatch(value) {
+		return true
+	}
+	if slices.ContainsFunc(a.unkeyed, func(candidate any) bool {
+		return reflect.DeepEqual(candidate, value)
+	}) {
+		return false
+	}
+	a.unkeyed = append(a.unkeyed, value)
+	return true
 }
 
 type PolicyOperators struct {

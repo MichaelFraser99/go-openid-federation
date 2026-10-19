@@ -3,7 +3,6 @@ package model
 import (
 	"fmt"
 	"reflect"
-	"sort"
 )
 
 var (
@@ -74,10 +73,8 @@ func (a Add) CheckForConflict(containsFunc func(policyType reflect.Type) (Metada
 		if !ok {
 			return fmt.Errorf("cannot merge policy of type 'add' with policy of type 'value' if the value of 'value' is not an array")
 		}
-		for _, v := range a.operatorValue {
-			if !containsDeepEqual(sV, v) {
-				return fmt.Errorf("cannot merge policy of type 'add' with policy of type 'value' unless the contents of `add` is a subset of that in 'value'")
-			}
+		if !isSubsetOfOperands(a.operatorValue, sV) {
+			return fmt.Errorf("cannot merge policy of type 'add' with policy of type 'value' unless the contents of `add` is a subset of that in 'value'")
 		}
 	}
 	if _, found := containsFunc(reflect.TypeOf(OneOf{})); found {
@@ -85,10 +82,8 @@ func (a Add) CheckForConflict(containsFunc func(policyType reflect.Type) (Metada
 	}
 	if p, found := containsFunc(reflect.TypeOf(SubsetOf{})); found {
 		sV := p.OperatorValue().([]any)
-		for _, v := range a.operatorValue {
-			if !containsDeepEqual(sV, v) {
-				return fmt.Errorf("cannot merge policy of type 'add' with policy of type 'subset_of' unless the contents of `add` is a subset of that in 'subset_of'")
-			}
+		if !isSubsetOfOperands(a.operatorValue, sV) {
+			return fmt.Errorf("cannot merge policy of type 'add' with policy of type 'subset_of' unless the contents of `add` is a subset of that in 'subset_of'")
 		}
 	}
 	return nil
@@ -111,36 +106,12 @@ func (a Add) combineArray(metadataParameterValue any) (any, error) {
 	}
 
 	result := reflect.MakeSlice(sliceA.Type(), 0, sliceA.Len()+sliceB.Len())
-	seen := make(map[string]bool)
-
-	hashElement := func(element any) (string, error) {
-		switch e := element.(type) {
-		case map[string]any:
-			keys := make([]string, 0, len(e))
-			for k := range e {
-				keys = append(keys, k)
-			}
-			// Sort keys to ensure a consistent hash
-			sort.Strings(keys)
-			sortedMap := make([]string, 0, len(e)*2)
-			for _, k := range keys {
-				sortedMap = append(sortedMap, k, fmt.Sprintf("%v", e[k]))
-			}
-			return fmt.Sprintf("%v", sortedMap), nil
-		default:
-			return fmt.Sprintf("%#v", element), nil
-		}
-	}
+	seen := newOperandAccumulator(sliceA.Len() + sliceB.Len())
 
 	for i := 0; i < sliceA.Len(); i++ {
 		elem := sliceA.Index(i).Interface()
 		if isValidElement(elem) {
-			hash, err := hashElement(elem)
-			if err != nil {
-				return nil, fmt.Errorf("failed to hash element in sliceA: %v", err)
-			}
-			if !seen[hash] {
-				seen[hash] = true
+			if seen.add(elem) {
 				result = reflect.Append(result, reflect.ValueOf(elem))
 			}
 		} else {
@@ -151,12 +122,7 @@ func (a Add) combineArray(metadataParameterValue any) (any, error) {
 	for i := 0; i < sliceB.Len(); i++ {
 		elem := sliceB.Index(i).Interface()
 		if isValidElement(elem) {
-			hash, err := hashElement(elem)
-			if err != nil {
-				return nil, fmt.Errorf("failed to hash element in sliceB: %v", err)
-			}
-			if !seen[hash] {
-				seen[hash] = true
+			if seen.add(elem) {
 				result = reflect.Append(result, reflect.ValueOf(elem))
 			}
 		} else {

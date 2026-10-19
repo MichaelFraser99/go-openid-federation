@@ -406,33 +406,11 @@ func DeduplicateSlice(input []any) []any {
 		return input
 	}
 
-	seen := make(map[string]bool)
+	seen := newOperandAccumulator(len(input))
 	result := make([]any, 0, len(input))
 
-	hashElement := func(element any) string {
-		switch e := element.(type) {
-		case map[string]any:
-			// For maps, create a stable hash by sorting keys
-			keys := make([]string, 0, len(e))
-			for k := range e {
-				keys = append(keys, k)
-			}
-			slices.Sort(keys)
-			sortedMap := make([]string, 0, len(e)*2)
-			for _, k := range keys {
-				sortedMap = append(sortedMap, k, fmt.Sprintf("%v", e[k]))
-			}
-			return fmt.Sprintf("%v", sortedMap)
-		default:
-			// For primitive types (string, int, float, bool, etc.)
-			return fmt.Sprintf("%#v", element)
-		}
-	}
-
 	for _, elem := range input {
-		hash := hashElement(elem)
-		if !seen[hash] {
-			seen[hash] = true
+		if seen.add(elem) {
 			result = append(result, elem)
 		}
 	}

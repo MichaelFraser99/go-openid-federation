@@ -65,12 +65,11 @@ func (s SubsetOf) Resolve(metadataParameterValue any) (any, error) {
 	var intersection []any
 
 	// Compute intersection
-	for i := 0; i < metadataSlice.Len(); i++ {
-		for j := 0; j < operatorSlice.Len(); j++ {
-			if reflect.DeepEqual(metadataSlice.Index(i).Interface(), operatorSlice.Index(j).Interface()) {
-				intersection = append(intersection, metadataSlice.Index(i).Interface())
-				break
-			}
+	allowed := newOperandSetFromReflect(operatorSlice)
+	for i := range metadataSlice.Len() {
+		value := metadataSlice.Index(i).Interface()
+		if allowed.contains(value) {
+			intersection = append(intersection, value)
 		}
 	}
 
@@ -92,12 +91,11 @@ func (s SubsetOf) Merge(valueToMerge any) (MetadataPolicyOperator, error) {
 	intersection := []any{}
 
 	// Compute intersection
-	for i := 0; i < operatorSlice.Len(); i++ {
-		for j := 0; j < mergeSlice.Len(); j++ {
-			if reflect.DeepEqual(operatorSlice.Index(i).Interface(), mergeSlice.Index(j).Interface()) {
-				intersection = append(intersection, operatorSlice.Index(i).Interface())
-				break
-			}
+	incoming := newOperandSetFromReflect(mergeSlice)
+	for i := range operatorSlice.Len() {
+		value := operatorSlice.Index(i).Interface()
+		if incoming.contains(value) {
+			intersection = append(intersection, value)
 		}
 	}
 
@@ -113,19 +111,15 @@ func (s SubsetOf) CheckForConflict(containsFunc func(policyType reflect.Type) (M
 		if sV, ok := p.OperatorValue().([]any); !ok {
 			return fmt.Errorf("cannot merge policy of type 'subset_of' with policy of type 'value' unless the value of 'value' is an array")
 		} else {
-			for _, v := range sV {
-				if !containsDeepEqual(s.operatorValue, v) {
-					return fmt.Errorf("cannot merge policy of type 'subset_of' with policy of type 'value' unless the contents of `value` is a subset of that in 'subset_of'")
-				}
+			if !isSubsetOfOperands(sV, s.operatorValue) {
+				return fmt.Errorf("cannot merge policy of type 'subset_of' with policy of type 'value' unless the contents of `value` is a subset of that in 'subset_of'")
 			}
 		}
 	}
 	if p, found := containsFunc(reflect.TypeOf(Add{})); found {
 		sV := p.OperatorValue().([]any)
-		for _, v := range sV {
-			if !containsDeepEqual(s.operatorValue, v) {
-				return fmt.Errorf("cannot merge policy of type 'subset_of' with policy of type 'add' unless the contents of `add` is a subset of that in 'subset_of'")
-			}
+		if !isSubsetOfOperands(sV, s.operatorValue) {
+			return fmt.Errorf("cannot merge policy of type 'subset_of' with policy of type 'add' unless the contents of `add` is a subset of that in 'subset_of'")
 		}
 	}
 	if _, found := containsFunc(reflect.TypeOf(OneOf{})); found {
@@ -133,10 +127,8 @@ func (s SubsetOf) CheckForConflict(containsFunc func(policyType reflect.Type) (M
 	}
 	if p, found := containsFunc(reflect.TypeOf(SupersetOf{})); found {
 		sV := p.OperatorValue().([]any)
-		for _, v := range sV {
-			if !containsDeepEqual(s.operatorValue, v) {
-				return fmt.Errorf("cannot merge policy of type 'subset_of' with policy of type 'superset_of' unless the contents of 'subset_of' is a superset of that in 'superset_of'")
-			}
+		if !isSubsetOfOperands(sV, s.operatorValue) {
+			return fmt.Errorf("cannot merge policy of type 'subset_of' with policy of type 'superset_of' unless the contents of 'subset_of' is a superset of that in 'superset_of'")
 		}
 	}
 	return nil

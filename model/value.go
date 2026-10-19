@@ -79,7 +79,7 @@ func (v Value) ResolutionHierarchy() int {
 }
 
 func (v Value) Merge(valueToMerge any) (MetadataPolicyOperator, error) {
-	if reflect.DeepEqual(v.operatorValue, valueToMerge) {
+	if operandsEqual(v.operatorValue, valueToMerge) {
 		return v, nil
 	}
 	return nil, fmt.Errorf("merging %v and %v not possible", v.operatorValue, valueToMerge)
@@ -91,10 +91,8 @@ func (v Value) CheckForConflict(containsFunc func(policyType reflect.Type) (Meta
 		if !ok {
 			return fmt.Errorf("cannot merge policy of type 'value' with policy of type 'add' if the value of 'value' is not an array")
 		}
-		for _, v := range p.(Add).operatorValue {
-			if !containsDeepEqual(sV, v) {
-				return fmt.Errorf("cannot merge policy of type 'value' with policy of type 'add' unless the contents of `add` is a subset of that in 'value'")
-			}
+		if !isSubsetOfOperands(p.(Add).operatorValue, sV) {
+			return fmt.Errorf("cannot merge policy of type 'value' with policy of type 'add' unless the contents of `add` is a subset of that in 'value'")
 		}
 	}
 	if _, found := containsFunc(reflect.TypeOf(Default{})); found {
@@ -106,7 +104,7 @@ func (v Value) CheckForConflict(containsFunc func(policyType reflect.Type) (Meta
 		if _, ok := v.operatorValue.([]any); ok {
 			return fmt.Errorf("cannot merge policy of type 'value' with policy of type 'one_of' if the contents of 'value' is an array")
 		} else {
-			if !containsDeepEqual(p.(OneOf).operatorValue, v.OperatorValue()) {
+			if !containsOperand(p.(OneOf).operatorValue, v.OperatorValue()) {
 				return fmt.Errorf("cannot merge policy of type 'value' with policy of type 'one_of' unless the value of 'value' is contained within `one_of`")
 			}
 		}
@@ -115,10 +113,8 @@ func (v Value) CheckForConflict(containsFunc func(policyType reflect.Type) (Meta
 		if sV, ok := v.operatorValue.([]any); !ok {
 			return fmt.Errorf("cannot merge policy of type 'value' with policy of type 'subset_of' unless the contents of 'value' is an array")
 		} else {
-			for _, v := range sV {
-				if !containsDeepEqual(p.(SubsetOf).operatorValue, v) {
-					return fmt.Errorf("cannot merge policy of type 'value' with policy of type 'subset_of' unless the contents of `value` is a subset of that in 'subset_of'")
-				}
+			if !isSubsetOfOperands(sV, p.(SubsetOf).operatorValue) {
+				return fmt.Errorf("cannot merge policy of type 'value' with policy of type 'subset_of' unless the contents of `value` is a subset of that in 'subset_of'")
 			}
 		}
 	}
@@ -126,10 +122,8 @@ func (v Value) CheckForConflict(containsFunc func(policyType reflect.Type) (Meta
 		if sV, ok := v.operatorValue.([]any); !ok {
 			return fmt.Errorf("cannot merge policy of type 'value' with policy of type 'superset_of' unless the contents of 'value' is an array")
 		} else {
-			for _, v := range p.(SupersetOf).operatorValue {
-				if !containsDeepEqual(sV, v) {
-					return fmt.Errorf("cannot merge policy of type 'value' with policy of type 'superset_of' unless the contents of `value` is a superset of that in 'superset_of'")
-				}
+			if !isSubsetOfOperands(p.(SupersetOf).operatorValue, sV) {
+				return fmt.Errorf("cannot merge policy of type 'value' with policy of type 'superset_of' unless the contents of `value` is a superset of that in 'superset_of'")
 			}
 		}
 	}

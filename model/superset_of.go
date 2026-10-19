@@ -3,7 +3,6 @@ package model
 import (
 	"fmt"
 	"reflect"
-	"sort"
 )
 
 var (
@@ -63,16 +62,14 @@ func (s SupersetOf) Resolve(metadataParameterValue any) (any, error) {
 	operatorSlice := reflect.ValueOf(s.operatorValue)
 	metadataSlice := reflect.ValueOf(metadataParameterValue)
 
+	if operatorSlice.Len() == 0 {
+		return metadataParameterValue, nil
+	}
+
 	// Compute intersection
-	for i := 0; i < operatorSlice.Len(); i++ {
-		found := false
-		for j := 0; j < metadataSlice.Len(); j++ {
-			if reflect.DeepEqual(operatorSlice.Index(i).Interface(), metadataSlice.Index(j).Interface()) {
-				found = true
-				break
-			}
-		}
-		if !found {
+	present := newOperandSetFromReflect(metadataSlice)
+	for i := range operatorSlice.Len() {
+		if !present.contains(operatorSlice.Index(i).Interface()) {
 			return nil, fmt.Errorf("provided metadata is not a superset of the defined operator values")
 		}
 	}
@@ -97,10 +94,8 @@ func (s SupersetOf) CheckForConflict(containsFunc func(policyType reflect.Type) 
 		if sV, ok := p.OperatorValue().([]any); !ok {
 			return fmt.Errorf("cannot merge policy of type 'superset_of' with policy of type 'value' unless the value of 'value' is an array")
 		} else {
-			for _, v := range s.operatorValue {
-				if !containsDeepEqual(sV, v) {
-					return fmt.Errorf("cannot merge policy of type 'superset_of' with policy of type 'value' unless the contents of `value` is a superset of that in 'superset_of'")
-				}
+			if !isSubsetOfOperands(s.operatorValue, sV) {
+				return fmt.Errorf("cannot merge policy of type 'superset_of' with policy of type 'value' unless the contents of `value` is a superset of that in 'superset_of'")
 			}
 		}
 	}
@@ -108,10 +103,8 @@ func (s SupersetOf) CheckForConflict(containsFunc func(policyType reflect.Type) 
 		return fmt.Errorf("cannot merge policy of type 'superset_of' with policy of type 'one_of'")
 	}
 	if p, found := containsFunc(reflect.TypeOf(SubsetOf{})); found {
-		for _, v := range s.operatorValue {
-			if !containsDeepEqual(p.OperatorValue().([]any), v) {
-				return fmt.Errorf("cannot merge policy of type 'superset_of' with policy of type 'subset_of' unless the contents of `subset_of` is a superset of that in 'superset_of'")
-			}
+		if !isSubsetOfOperands(s.operatorValue, p.OperatorValue().([]any)) {
+			return fmt.Errorf("cannot merge policy of type 'superset_of' with policy of type 'subset_of' unless the contents of `subset_of` is a superset of that in 'superset_of'")
 		}
 	}
 	return nil
@@ -144,36 +137,12 @@ func (s SupersetOf) combineArray(metadataParameterValue any) (any, error) {
 	}
 
 	result := reflect.MakeSlice(sliceA.Type(), 0, sliceA.Len()+sliceB.Len())
-	seen := make(map[string]bool)
-
-	hashElement := func(element any) (string, error) {
-		switch e := element.(type) {
-		case map[string]any:
-			keys := make([]string, 0, len(e))
-			for k := range e {
-				keys = append(keys, k)
-			}
-			// Sort keys to ensure consistent hash
-			sort.Strings(keys)
-			sortedMap := make([]string, 0, len(e)*2)
-			for _, k := range keys {
-				sortedMap = append(sortedMap, k, fmt.Sprintf("%v", e[k]))
-			}
-			return fmt.Sprintf("%v", sortedMap), nil
-		default:
-			return fmt.Sprintf("%#v", element), nil
-		}
-	}
+	seen := newOperandAccumulator(sliceA.Len() + sliceB.Len())
 
 	for i := 0; i < sliceA.Len(); i++ {
 		elem := sliceA.Index(i).Interface()
 		if isValidElement(elem) {
-			hash, err := hashElement(elem)
-			if err != nil {
-				return nil, fmt.Errorf("failed to hash element in sliceA: %v", err)
-			}
-			if !seen[hash] {
-				seen[hash] = true
+			if seen.add(elem) {
 				result = reflect.Append(result, reflect.ValueOf(elem))
 			}
 		} else {
@@ -184,12 +153,7 @@ func (s SupersetOf) combineArray(metadataParameterValue any) (any, error) {
 	for i := 0; i < sliceB.Len(); i++ {
 		elem := sliceB.Index(i).Interface()
 		if isValidElement(elem) {
-			hash, err := hashElement(elem)
-			if err != nil {
-				return nil, fmt.Errorf("failed to hash element in sliceB: %v", err)
-			}
-			if !seen[hash] {
-				seen[hash] = true
+			if seen.add(elem) {
 				result = reflect.Append(result, reflect.ValueOf(elem))
 			}
 		} else {

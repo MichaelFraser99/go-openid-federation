@@ -400,6 +400,22 @@ The validators the built-in types use are exported for custom types to reuse.
 
 ## Metadata policy
 
+### How operand values are compared
+
+Operand equality is defined on the JSON value, and it is defined for the shapes a JSON decode produces: `nil`, `bool`, `string`, `float64`, `[]any` and `map[string]any`, plus the Go integer types. Such a value is compared by its canonical JSON encoding, which `encoding/json` writes with object member names sorted at every level.
+
+Two operands are therefore the same operand when they encode identically. `{"a": "b c"}` and `{"a b": "c"}` are different objects, member order does not matter, and `{"a": "1"}` differs from `{"a": 1}`. Numbers compare as numbers, so `0` and `-0` are one operand, as are a Go `int` and a `float64` holding the same integer.
+
+That encoding is also the key of a set, so membership is a lookup rather than a scan. Comparing two operators, merging two chain levels, and applying an operator to metadata are each linear in the number of operands, which a peer supplies.
+
+Everything else compares by `reflect.DeepEqual`, which is exact on Go types and bytes and never treats two operands as one when they are not. A peer cannot reach this path, because every operand from a peer arrives through a JSON decode. A consumer building a policy in Go reaches it with:
+
+- Any other Go type, such as a struct, a `[]string` or a `map[string]string`. These are compared by Go identity rather than by the JSON they would render, which is the conservative answer: a struct whose fields are all unexported renders as `{}`, so keying it would make every such struct one operand.
+- A string holding bytes that are not valid UTF-8, anywhere in the value, including an object member name. `encoding/json` substitutes U+FFFD rather than failing, so the encoding would lose the distinction.
+- A number with no JSON form. An infinity compares equal to itself. A `NaN` is equal to nothing, not even itself, as in Go and IEEE 754, so each one survives deduplication and satisfies no requirement.
+
+Comparison on that path is a scan, so a policy built in Go from a large number of these values costs more than a policy of JSON values. Published policies hold JSON values by definition, so this affects only a consumer applying a policy it never serialises.
+
 All seven operators from the specification are implemented: `value`, `add`, `default`, `one_of`, `subset_of`, `superset_of` and `essential`.
 
 Policies are combined down a trust chain by `model.ProcessAndExtractPolicy` and applied to a subject's metadata by `model.ApplyPolicy`. Operators resolve in a fixed order: `value`, `add`, `default`, `one_of`, `subset_of`, `superset_of`, then `essential`. Combinations that cannot be satisfied, such as a `subset_of` and a `superset_of` with no overlap, are rejected when the policies are merged.
@@ -520,9 +536,8 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | Trust mark type identifiers as object member names | Values are validated, member names are not | [#140](https://github.com/MichaelFraser99/go-openid-federation/issues/140) |
 | JWK sets whose keys omit `kty` | Accepted on read, so the fault surfaces at verification | [#146](https://github.com/MichaelFraser99/go-openid-federation/issues/146) |
 | A `jwks` member name that case-folds to `keys` | Supplies the verification keys through Go's case-insensitive decode | [#147](https://github.com/MichaelFraser99/go-openid-federation/issues/147) |
-| Object valued policy operands | Deduplicated by a lossy string hash at construction and in `add` and `superset_of`, so distinct objects collide, including nested ones | [#150](https://github.com/MichaelFraser99/go-openid-federation/issues/150) |
-| Policy operand comparisons | Unbounded, and quadratic in the operand count, which a peer supplies | [#151](https://github.com/MichaelFraser99/go-openid-federation/issues/151) |
 | Error classes on the fetch path | A peer's fault is reported as a server error | [#148](https://github.com/MichaelFraser99/go-openid-federation/issues/148) |
+| Policy merge against trust chain length | Cost grows faster than the chain, which `MaxTrustChainDepth` leaves unbounded by default | [#153](https://github.com/MichaelFraser99/go-openid-federation/issues/153) |
 
 ## License
 

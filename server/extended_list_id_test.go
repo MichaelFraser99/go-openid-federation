@@ -79,7 +79,7 @@ func TestServer_ExtendedList_MalformedEntityIdentifier(t *testing.T) {
 			if err != nil {
 				t.Fatalf("the handler did not answer, which is what a panic looks like to a caller: %v", err)
 			}
-			validateErrorResponse(t, response, nil, tc.expectStatus, tc.expectError, extendedListingUnavailableError)
+			validateErrorResponse(t, response, nil, tc.expectStatus, tc.expectError, extendedListingMalformedIdentifierError)
 		})
 	}
 }

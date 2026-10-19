@@ -92,12 +92,6 @@ func ValidateJWKShape(key map[string]any) error {
 		if crv, ok := key["crv"].(string); !ok || crv == "" {
 			return fmt.Errorf("has a missing or malformed 'crv' claim, which RFC 7518 requires for an EC key")
 		}
-		return nil
-	}
-	if crv, present := key["crv"]; present {
-		if _, ok := crv.(string); !ok {
-			return fmt.Errorf("has a malformed 'crv' claim")
-		}
 	}
 	return nil
 }

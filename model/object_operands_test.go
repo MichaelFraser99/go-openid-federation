@@ -78,6 +78,17 @@ func TestProcessAndExtractPolicy_ObjectValuedOperands(t *testing.T) {
 			expectErr: "subset_of",
 		},
 		{
+			name:      "objects in value that superset_of also lists",
+			reference: "6.1.3.1.6",
+			policy:    `{"openid_relying_party":{"x":{"value":[{"a":1}],"superset_of":[{"a":1}]}}}`,
+		},
+		{
+			name:      "objects in value that superset_of does not list",
+			reference: "6.1.3.1.6",
+			policy:    `{"openid_relying_party":{"x":{"value":[{"a":1}],"superset_of":[{"b":2}]}}}`,
+			expectErr: "superset_of",
+		},
+		{
 			name:      "nested objects compare by value",
 			reference: "6.1.3.1.5",
 			policy:    `{"openid_relying_party":{"x":{"value":[{"a":{"b":[1,2]}}],"subset_of":[{"a":{"b":[1,2]}}]}}}`,
@@ -121,5 +132,68 @@ func TestProcessAndExtractPolicy_ObjectValuedOperands(t *testing.T) {
 				t.Fatalf("[%s] expected a policy error naming %q, got %v", tc.reference, tc.expectErr, err)
 			}
 		})
+	}
+}
+
+func TestAddSubordinate_IgnoresANilConfiguration(t *testing.T) {
+	intermediate := &IntermediateConfiguration{}
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("a nil subordinate configuration panicked: %v", r)
+		}
+	}()
+
+	intermediate.AddSubordinate("https://leaf.example.com", nil)
+
+	cfg := ServerConfiguration{IntermediateConfiguration: intermediate}
+	if _, err := cfg.GetSubordinate(t.Context(), "https://leaf.example.com"); err == nil {
+		t.Fatal("expected a subordinate that was never stored to be reported as not found")
+	}
+}
+
+func TestContainsDeepEqual_CompositeHoldingAMapDoesNotPanic(t *testing.T) {
+	tests := []struct {
+		name     string
+		haystack []any
+		needle   any
+		expect   bool
+	}{
+		{name: "an array holding a map, matching", haystack: []any{[1]any{map[string]any{"a": 1}}}, needle: [1]any{map[string]any{"a": 1}}, expect: true},
+		{name: "an array holding a map, not matching", haystack: []any{[1]any{map[string]any{"a": 1}}}, needle: [1]any{map[string]any{"b": 2}}},
+		{name: "a struct holding a slice", haystack: []any{struct{ V []int }{V: []int{1}}}, needle: struct{ V []int }{V: []int{1}}, expect: true},
+		{name: "scalars still take the cheap path", haystack: []any{"a", "b"}, needle: "b", expect: true},
+		{name: "a scalar that is absent", haystack: []any{"a", "b"}, needle: "c"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("comparing a composite value panicked: %v", r)
+				}
+			}()
+			if got := containsDeepEqual(tc.haystack, tc.needle); got != tc.expect {
+				t.Errorf("expected %v, got %v", tc.expect, got)
+			}
+		})
+	}
+}
+
+func TestGetSubordinateJWKs_SkipsANilConfiguration(t *testing.T) {
+	intermediate := &IntermediateConfiguration{}
+	intermediate.AddSubordinate("https://leaf.example.com", &SubordinateConfiguration{})
+	intermediate.subordinates["https://nil.example.com"] = nil
+
+	cfg := ServerConfiguration{IntermediateConfiguration: intermediate}
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("a nil subordinate configuration in the map panicked: %v", r)
+		}
+	}()
+
+	if _, err := cfg.GetSubordinateJWKs(t.Context()); err != nil {
+		t.Fatalf("expected the signers to be collected, got %v", err)
 	}
 }

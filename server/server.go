@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"sync"
 
 	"github.com/MichaelFraser99/go-openid-federation/model"
@@ -74,23 +75,40 @@ func (s *Server) Configure(h *http.ServeMux) {
 	if s.cfg.HttpClient == nil {
 		s.cfg.HttpClient = http.DefaultClient
 	}
-	h.HandleFunc("GET /.well-known/openid-federation", func(w http.ResponseWriter, r *http.Request) { s.HandleWellKnown(w, r)() })
+	h.HandleFunc("GET /.well-known/openid-federation", s.handle(s.HandleWellKnown))
 	if s.cfg.IntermediateConfiguration != nil {
-		h.HandleFunc("GET /list", func(w http.ResponseWriter, r *http.Request) { s.List(w, r)() })
-		h.HandleFunc("GET /fetch", func(w http.ResponseWriter, r *http.Request) { s.Fetch(w, r)() })
-		h.HandleFunc("GET /resolve", func(w http.ResponseWriter, r *http.Request) { s.Resolve(w, r)() })
+		h.HandleFunc("GET /list", s.handle(s.List))
+		h.HandleFunc("GET /fetch", s.handle(s.Fetch))
+		h.HandleFunc("GET /resolve", s.handle(s.Resolve))
 
 		if s.cfg.Extensions.ExtendedListing.Enabled {
-			h.HandleFunc("GET /extended-list", func(w http.ResponseWriter, r *http.Request) { s.ExtendedList(w, r)() })
+			h.HandleFunc("GET /extended-list", s.handle(s.ExtendedList))
 		}
 		if s.cfg.Extensions.SubordinateStatus.Enabled {
-			h.HandleFunc("GET /subordinate-status", func(w http.ResponseWriter, r *http.Request) { s.SubordinateStatus(w, r)() })
+			h.HandleFunc("GET /subordinate-status", s.handle(s.SubordinateStatus))
 		}
 	}
 	if s.cfg.TrustMarkRetriever != nil {
-		h.HandleFunc("POST /trust-mark-status", func(w http.ResponseWriter, r *http.Request) { s.TrustMarkStatus(w, r)() })
-		h.HandleFunc("GET /trust-mark-list", func(w http.ResponseWriter, r *http.Request) { s.TrustMarkList(w, r)() })
-		h.HandleFunc("GET /trust-mark", func(w http.ResponseWriter, r *http.Request) { s.TrustMark(w, r)() })
+		h.HandleFunc("POST /trust-mark-status", s.handle(s.TrustMarkStatus))
+		h.HandleFunc("GET /trust-mark-list", s.handle(s.TrustMarkList))
+		h.HandleFunc("GET /trust-mark", s.handle(s.TrustMark))
+	}
+}
+
+const unexpectedFailureError = "an unexpected failure occurred while serving this request"
+
+func (s *Server) handle(handler func(http.ResponseWriter, *http.Request) ResponseFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				s.cfg.LogError(r.Context(), "recovered from a panic while serving a federation endpoint",
+					slog.String("path", r.URL.Path),
+					slog.String("panic", fmt.Sprintf("%v", recovered)),
+					slog.String("stack", string(debug.Stack())))
+				s.RespondWithError(r.Context(), w, model.NewServerError(unexpectedFailureError))()
+			}
+		}()
+		handler(w, r)()
 	}
 }
 

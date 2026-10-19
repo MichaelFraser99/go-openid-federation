@@ -96,11 +96,11 @@ func TestServer_Resolve_MalformedPeerKeyDoesNotPanic(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to read the response body: %v", err)
 			}
-			if response.StatusCode == http.StatusOK {
-				t.Fatalf("expected a malformed peer key to be refused, got 200 with %s", raw)
+			if response.StatusCode != http.StatusBadRequest {
+				t.Fatalf("expected a malformed peer key to be refused as a bad chain, got %d with %s", response.StatusCode, raw)
 			}
-			if !strings.Contains(string(raw), `"error"`) {
-				t.Fatalf("expected a JSON error response, got %s", raw)
+			if !strings.Contains(string(raw), `"invalid_trust_chain"`) {
+				t.Fatalf("expected the chain to be refused as invalid, got %s", raw)
 			}
 		})
 	}

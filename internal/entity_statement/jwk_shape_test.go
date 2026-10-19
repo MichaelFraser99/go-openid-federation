@@ -53,7 +53,8 @@ func TestValidateJWKShape(t *testing.T) {
 		{name: "an EC key with no crv", reference: "RFC 7518 6.2.1.1", key: map[string]any{"kty": "EC"}, expectErr: "'crv' claim"},
 		{name: "an EC key with a numeric crv", reference: "RFC 7518 6.2.1.1", key: map[string]any{"kty": "EC", "crv": 7}, expectErr: "'crv' claim"},
 		{name: "an EC key with an empty crv", reference: "RFC 7518 6.2.1.1", key: map[string]any{"kty": "EC", "crv": ""}, expectErr: "'crv' claim"},
-		{name: "a non-EC key with a numeric crv", reference: "RFC 7517 4.1", key: map[string]any{"kty": "OKP", "crv": 7}, expectErr: "'crv' claim"},
+		{name: "a non-EC key with a numeric crv is ignored", reference: "RFC 7517 4", key: map[string]any{"kty": "OKP", "crv": 7}},
+		{name: "an RSA key with a null crv is ignored", reference: "RFC 7517 4", key: map[string]any{"kty": "RSA", "n": "AQAB", "e": "AQAB", "crv": nil}},
 		{name: "an RSA key with no crv is fine", reference: "RFC 7518 6.3.1", key: map[string]any{"kty": "RSA", "n": "AQAB", "e": "AQAB"}},
 		{name: "an OKP key with a string crv is fine", reference: "RFC 8037 2", key: map[string]any{"kty": "OKP", "crv": "Ed25519", "x": "AQAB"}},
 	}

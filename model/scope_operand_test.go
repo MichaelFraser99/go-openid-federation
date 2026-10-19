@@ -109,6 +109,33 @@ func TestApplyPolicy_ScopeOperandTypes(t *testing.T) {
 	}
 }
 
+func TestMergePolicyOperators_ScopeDefaultIsSplitIntoTokens(t *testing.T) {
+	var first, second PolicyOperators
+	if err := json.Unmarshal([]byte(`{"default":"openid profile"}`), &first); err != nil {
+		t.Fatalf("the first fixture did not parse: %v", err)
+	}
+	if err := json.Unmarshal([]byte(`{"default":"openid profile"}`), &second); err != nil {
+		t.Fatalf("the second fixture did not parse: %v", err)
+	}
+
+	merged, err := MergePolicyOperators("scope", first, second)
+	if err != nil {
+		t.Fatalf("expected two equal space separated defaults to merge, got %v", err)
+	}
+	if len(merged) != 1 {
+		t.Fatalf("expected one merged operator, got %d", len(merged))
+	}
+
+	value := merged[0].OperatorValue()
+	tokens, ok := value.([]any)
+	if !ok {
+		t.Fatalf("expected the merged default to be a token slice so the two levels compare per token, got %T", value)
+	}
+	if len(tokens) != 2 || tokens[0] != "openid" || tokens[1] != "profile" {
+		t.Errorf("expected the default to be split into its tokens, got %v", tokens)
+	}
+}
+
 func TestMergePolicyOperators_ScopeOperandTypesDoNotPanic(t *testing.T) {
 	tests := []struct {
 		name   string

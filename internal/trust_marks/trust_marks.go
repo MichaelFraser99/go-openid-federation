@@ -30,7 +30,7 @@ func Status(ctx context.Context, cfg model.ServerConfiguration, trustMark string
 		cfg.LogInfo(ctx, "error determining trust mark status", slog.String("error", err.Error()))
 		return nil, err
 	}
-	if status == nil {
+	if status == nil || strings.TrimSpace(*status) == "" {
 		cfg.LogInfo(ctx, "trust mark status retriever returned no status and no error, treating the trust mark as unknown")
 		return nil, model.NewNotFoundError("unknown trust mark")
 	}
@@ -63,7 +63,7 @@ func Issue(ctx context.Context, cfg model.ServerConfiguration, trustMarkIdentifi
 		cfg.LogInfo(ctx, "error issuing trust mark", slog.String("error", err.Error()))
 		return nil, err
 	}
-	if trustMark == nil {
+	if trustMark == nil || strings.TrimSpace(*trustMark) == "" {
 		cfg.LogInfo(ctx, "trust mark issuer returned no trust mark and no error, treating the entity as not holding it")
 		return nil, model.NewNotFoundError("entity does not have the specified trust mark")
 	}

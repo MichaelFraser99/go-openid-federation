@@ -79,6 +79,15 @@ func sortAndValidatePolicy(policy *MetadataPolicy) error {
 	}
 	for _, parameters := range policy.byEntityType() {
 		for _, operators := range parameters {
+			for _, operator := range operators.Metadata {
+				value := operator.OperatorValue()
+				if value == nil || reflect.TypeOf(value).Kind() != reflect.Slice {
+					continue
+				}
+				if length := reflect.ValueOf(value).Len(); length > MaxPolicyOperandValues {
+					return fmt.Errorf("a metadata policy operator must not carry more than %d values, got %d", MaxPolicyOperandValues, length)
+				}
+			}
 			if err := validatePoliciesCanCombine(sortByPriority(operators.Metadata)); err != nil {
 				return err
 			}

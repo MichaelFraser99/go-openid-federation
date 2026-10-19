@@ -50,10 +50,23 @@ func (m OpenIDConnectOpenIDProviderMetadata) VerifyMetadata() error {
 	if err := VerifyObjectClaim(m, "jwks"); err != nil {
 		return err
 	}
+	if err := VerifyAlgValuesClaim(m, "id_token_signing_alg_values_supported", true); err != nil {
+		return err
+	}
+	for _, key := range []string{
+		"request_object_signing_alg_values_supported",
+		"userinfo_signing_alg_values_supported",
+	} {
+		if err := VerifyAlgValuesClaim(m, key, true); err != nil {
+			return err
+		}
+	}
+	if err := VerifyAlgValuesClaim(m, "token_endpoint_auth_signing_alg_values_supported", false); err != nil {
+		return err
+	}
 	for _, key := range []string{
 		"response_types_supported",
 		"subject_types_supported",
-		"id_token_signing_alg_values_supported",
 		"client_registration_types_supported",
 		"scopes_supported",
 		"claims_supported",

@@ -30,13 +30,17 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 	parsedTrustChain = []model.EntityStatement{route[0]}
 
 	exp := model.CalculateChainExpiration(route)
-	if time.Now().UTC().Equal(time.Unix(exp, 0).UTC()) || time.Now().UTC().After(time.Unix(exp, 0).UTC()) {
-		return nil, nil, nil, model.NewInvalidTrustChainError("trust chain expired")
+	if err = model.VerifyChainExpiry(exp); err != nil {
+		return nil, nil, nil, err
 	}
 
 	for i := 0; i < len(route)-1; i++ {
 		signedResponse, subordinateStatement, err := subordinate_statement.Retrieve(ctx, cfg, route[i+1], route[i].Sub)
 		if err != nil {
+			cfg.LogInfo(ctx, "subordinate statement unusable", slog.String("issuer", string(route[i+1].Sub)), slog.String("subject", string(route[i].Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, nil, nil, walkNotCompleted(ctxErr)
+			}
 			return nil, nil, nil, fmt.Errorf("failed to retrieve subordinate statement: %w", err)
 		}
 		trustChain = append(trustChain, *signedResponse)
@@ -115,7 +119,10 @@ func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 		}
 		deadEnds[subjectKey] = struct{}{}
 		if errors.Is(err, model.ErrInvalidMetadata) {
-			return signedPath, path, false, model.NewInvalidMetadataError(fmt.Sprintf("entity configuration for %s failed validation: %s", subject, err.Error()))
+			return signedPath, path, false, model.NewInvalidMetadataError(fmt.Sprintf("entity configuration for %s failed validation", subject))
+		}
+		if errors.Is(err, model.ErrInvalidTrustChain) {
+			return signedPath, path, false, model.NewInvalidTrustChainError(fmt.Sprintf("entity configuration for %s failed validation", subject))
 		}
 		return signedPath, path, false, model.NewNotFoundError(fmt.Sprintf("failed to retrieve entity configuration for %s", subject))
 	}
@@ -211,11 +218,16 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 
 	if len(trustChain) == 1 {
 		cfg.LogInfo(ctx, "trust chain has single entry, returning metadata directly", slog.String("subject", string(processedChain[0].Sub)), slog.Int("trust_marks_count", len(processedChain[0].TrustMarks)))
+		singleExp := model.CalculateChainExpiration(processedChain)
+		if err := model.VerifyChainExpiry(singleExp); err != nil {
+			cfg.LogInfo(ctx, "trust chain expiry unusable", slog.Int64("exp", singleExp), slog.String("error", err.Error()))
+			return nil, err
+		}
 		return &model.ResolveResponse{
 			Iss:        issuerEntityIdentifier,
 			Sub:        processedChain[0].Sub,
 			Iat:        time.Now().UTC().Unix(),
-			Exp:        processedChain[0].Exp,
+			Exp:        singleExp,
 			TrustChain: trustChain,
 			Metadata:   processedChain[0].Metadata,
 			TrustMarks: processedChain[0].TrustMarks,
@@ -268,9 +280,9 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 
 	exp := model.CalculateChainExpiration(processedChain)
 	cfg.LogInfo(ctx, "checking chain expiration", slog.Int64("exp", exp), slog.Int64("now", time.Now().UTC().Unix()))
-	if time.Now().UTC().Equal(time.Unix(exp, 0)) || time.Now().UTC().After(time.Unix(exp, 0)) {
-		cfg.LogInfo(ctx, "trust chain has expired", slog.Int64("exp", exp))
-		return nil, model.NewInvalidTrustChainError("trust chain expired")
+	if err := model.VerifyChainExpiry(exp); err != nil {
+		cfg.LogInfo(ctx, "trust chain expiry unusable", slog.Int64("exp", exp), slog.String("error", err.Error()))
+		return nil, err
 	}
 
 	result := &model.ResolveResponse{

@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -79,6 +80,17 @@ func fetch(ctx context.Context, cfg model.Configuration, entityIdentifier model.
 }
 
 func Validate(ctx context.Context, cfg model.Configuration, entityIdentifier model.EntityIdentifier, entityConfigurationJwt string) (*model.EntityStatement, error) {
+	entityConfiguration, err := validate(ctx, cfg, entityIdentifier, entityConfigurationJwt)
+	if err != nil {
+		if errors.Is(err, model.ErrInvalidMetadata) || errors.Is(err, model.ErrInvalidTrustChain) {
+			return nil, err
+		}
+		return nil, model.NewInvalidTrustChainError(err.Error())
+	}
+	return entityConfiguration, nil
+}
+
+func validate(ctx context.Context, cfg model.Configuration, entityIdentifier model.EntityIdentifier, entityConfigurationJwt string) (*model.EntityStatement, error) {
 	parts := strings.Split(entityConfigurationJwt, ".")
 	if len(parts) != 3 {
 		return nil, fmt.Errorf("invalid JWT structure")
@@ -102,6 +114,10 @@ func Validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 	err = json.Unmarshal(body, &bodyMap)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JWT body: %s", err.Error())
+	}
+
+	if err = entity_statement.ValidateStatementHeader(headMap); err != nil {
+		return nil, err
 	}
 
 	kid, ok := headMap["kid"]
@@ -138,16 +154,23 @@ func Validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 	if err = entity_statement.VerifyAgainstJwks(entityConfigurationJwt, sKid, parsedJwks); err != nil {
 		return nil, err
 	}
-	//todo: validate optional claims
+	for _, claim := range []string{"metadata_policy", "metadata_policy_crit", "constraints", "source_endpoint"} {
+		if _, present := bodyMap[claim]; present {
+			return nil, model.NewInvalidTrustChainError(fmt.Sprintf("the %q claim is permitted only in subordinate statements, not in an entity configuration", claim))
+		}
+	}
 
 	var entityConfiguration model.EntityStatement
 	err = json.Unmarshal(body, &entityConfiguration)
 	if err != nil {
-		return nil, fmt.Errorf("malformed 'metadata' claim: %w", err)
+		if errors.Is(err, model.ErrInvalidMetadata) {
+			return nil, fmt.Errorf("invalid entity statement: %w", err)
+		}
+		return nil, model.NewInvalidTrustChainError(fmt.Sprintf("invalid entity statement: %s", err.Error()))
 	}
 
 	if entityConfiguration.Iss != entityConfiguration.Sub {
-		return nil, fmt.Errorf("'iss' and 'sub' claims do not match")
+		return nil, model.NewInvalidTrustChainError("'iss' and 'sub' claims do not match")
 	}
 
 	if entityConfiguration.Iss != entityIdentifier {
@@ -175,10 +198,13 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 	entityConfiguration.AuthorityHints = cfg.AuthorityHints
 	entityConfiguration.TrustMarks = cfg.TrustMarks
 	entityConfiguration.Iat = time.Now().UTC().Unix()
-	entityConfiguration.Exp = time.Now().Add(cfg.EntityConfigurationLifetime).UTC().Unix()
+	entityConfigurationLifetime, err := model.ResolveStatementLifetime("EntityConfigurationLifetime", cfg.EntityConfigurationLifetime, model.DefaultEntityConfigurationLifetime)
+	if err != nil {
+		return nil, err
+	}
+	entityConfiguration.Exp = time.Now().Add(entityConfigurationLifetime).UTC().Unix()
 	entityConfiguration.MetadataPolicy = nil
 	entityConfiguration.Constraints = nil
-	entityConfiguration.MetadataPolicyCrit = nil
 	entityConfiguration.SourceEndpoint = nil
 
 	metadata := model.Metadata{}
@@ -311,11 +337,28 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 		return nil, fmt.Errorf("failed to deserialize entity cfg: %s", err.Error())
 	}
 
-	return jwt.New(cfg.SignerConfiguration.Signer, map[string]any{
+	if err = model.VerifyIssuedStatement(entityConfigurationBytes, cfg.EntityTypes); err != nil {
+		return nil, fmt.Errorf("refusing to publish an entity configuration this implementation would reject: %s", err.Error())
+	}
+
+	if josemodel.GetAlgorithm(cfg.SignerConfiguration.Algorithm) == josemodel.Unknown {
+		return nil, fmt.Errorf("refusing to publish an entity configuration this implementation would reject: %q is not a supported signing algorithm", cfg.SignerConfiguration.Algorithm)
+	}
+
+	token, err := jwt.New(cfg.SignerConfiguration.Signer, map[string]any{
 		"kid": cfg.SignerConfiguration.KeyID,
 		"typ": "entity-statement+jwt",
 		"alg": cfg.SignerConfiguration.Algorithm,
 	}, entityConfigurationMap, jwt.Opts{Algorithm: josemodel.GetAlgorithm(cfg.SignerConfiguration.Algorithm)})
+	if err != nil {
+		return nil, err
+	}
+
+	if err = entity_statement.VerifyIssuedSignature(*token, cfg.SignerConfiguration.KeyID, cfg.SignerConfiguration.Algorithm, cfg.SignerConfiguration.Signer); err != nil {
+		return nil, fmt.Errorf("refusing to publish an entity configuration this implementation would reject: %s", err.Error())
+	}
+
+	return token, nil
 }
 
 type publicKeyComparer interface {

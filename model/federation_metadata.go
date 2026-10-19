@@ -28,7 +28,13 @@ func (m FederationMetadata) VerifyMetadata() error {
 		}
 	}
 
-	if err := VerifyStringArrayClaim(m, "endpoint_auth_signing_alg_values_supported"); err != nil {
+	for _, k := range []string{"jwks", "jwks_uri", "signed_jwks_uri"} {
+		if _, present := m[k]; present {
+			return fmt.Errorf("%s must not be used in federation_entity metadata", k)
+		}
+	}
+
+	if err := VerifyAlgValuesClaim(m, "endpoint_auth_signing_alg_values_supported", false); err != nil {
 		return err
 	}
 	return nil

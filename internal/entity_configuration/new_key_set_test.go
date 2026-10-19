@@ -74,7 +74,14 @@ func TestNew_LeafWithoutFederationMetadataPublishesNone(t *testing.T) {
 		{
 			name: "a leaf with only provider metadata gains no federation_entity",
 			metadata: &model.Metadata{
-				OpenIDConnectOpenIDProviderMetadata: &model.OpenIDConnectOpenIDProviderMetadata{"issuer": "https://leaf.example.com"},
+				OpenIDConnectOpenIDProviderMetadata: &model.OpenIDConnectOpenIDProviderMetadata{
+					"issuer":                                "https://leaf.example.com",
+					"authorization_endpoint":                "https://leaf.example.com/authorize",
+					"jwks_uri":                              "https://leaf.example.com/jwks",
+					"response_types_supported":              []string{"id_token"},
+					"subject_types_supported":               []string{"public"},
+					"id_token_signing_alg_values_supported": []string{"ES256"},
+				},
 			},
 			expectKey: false,
 		},

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -77,6 +78,17 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 }
 
 func Validate(cfg model.Configuration, issuer model.EntityStatement, subordinateStatementJwt string) (*model.EntityStatement, error) {
+	subordinateStatement, err := validate(cfg, issuer, subordinateStatementJwt)
+	if err != nil {
+		if errors.Is(err, model.ErrInvalidMetadata) || errors.Is(err, model.ErrInvalidTrustChain) {
+			return nil, err
+		}
+		return nil, model.NewInvalidTrustChainError(err.Error())
+	}
+	return subordinateStatement, nil
+}
+
+func validate(cfg model.Configuration, issuer model.EntityStatement, subordinateStatementJwt string) (*model.EntityStatement, error) {
 	parts := strings.Split(subordinateStatementJwt, ".")
 	if len(parts) != 3 {
 		return nil, fmt.Errorf("invalid JWT structure")
@@ -102,6 +114,10 @@ func Validate(cfg model.Configuration, issuer model.EntityStatement, subordinate
 		return nil, fmt.Errorf("failed to unmarshal JWT body: %s", err.Error())
 	}
 
+	if err = entity_statement.ValidateStatementHeader(headMap); err != nil {
+		return nil, err
+	}
+
 	kid, ok := headMap["kid"]
 	if !ok {
 		return nil, fmt.Errorf("missing required header claim 'kid'")
@@ -114,12 +130,23 @@ func Validate(cfg model.Configuration, issuer model.EntityStatement, subordinate
 	if err = entity_statement.VerifyAgainstJwks(subordinateStatementJwt, sKid, issuer.JWKs); err != nil {
 		return nil, err
 	}
-	//todo: validate optional claims
+	for _, claim := range []string{"authority_hints", "trust_anchor_hints", "trust_marks", "trust_mark_issuers", "trust_mark_owners"} {
+		if _, present := bodyMap[claim]; present {
+			return nil, model.NewInvalidTrustChainError(fmt.Sprintf("the %q claim is permitted only in entity configurations, not in a subordinate statement", claim))
+		}
+	}
 
 	var subordinateStatement model.EntityStatement
 	err = json.Unmarshal(body, &subordinateStatement)
 	if err != nil {
-		return nil, fmt.Errorf("malformed 'metadata' claim: %s", err.Error())
+		if errors.Is(err, model.ErrInvalidMetadata) {
+			return nil, fmt.Errorf("invalid entity statement: %w", err)
+		}
+		return nil, model.NewInvalidTrustChainError(fmt.Sprintf("invalid entity statement: %s", err.Error()))
+	}
+
+	if subordinateStatement.Iss == subordinateStatement.Sub {
+		return nil, model.NewInvalidTrustChainError("a statement whose 'iss' and 'sub' claims match is an entity configuration, not a subordinate statement")
 	}
 
 	if subordinateStatement.Iss != issuer.Sub {
@@ -176,11 +203,20 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		seen[sKid] = struct{}{}
 	}
 
+	subordinateStatementLifetime, err := model.ResolveStatementLifetime("SubordinateStatementLifetime", configuration.IntermediateConfiguration.SubordinateStatementLifetime, model.DefaultSubordinateStatementLifetime)
+	if err != nil {
+		return nil, err
+	}
+
+	if subjectIdentifier == configuration.EntityIdentifier {
+		return nil, fmt.Errorf("refusing to publish a subordinate statement about this entity itself, as a statement whose 'iss' and 'sub' claims match is an entity configuration")
+	}
+
 	subordinateStatement := model.EntityStatement{
 		Sub:  subjectIdentifier,
 		Iss:  configuration.EntityIdentifier,
 		Iat:  time.Now().UTC().Unix(),
-		Exp:  time.Now().Add(configuration.IntermediateConfiguration.SubordinateStatementLifetime).UTC().Unix(),
+		Exp:  time.Now().Add(subordinateStatementLifetime).UTC().Unix(),
 		JWKs: subjectSubordinateConfiguration.JWKs,
 	}
 
@@ -203,9 +239,26 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		return nil, fmt.Errorf("failed to deserialize entity configuration: %s", err.Error())
 	}
 
-	return jwt.New(signerConfiguration.Signer, map[string]any{
+	if err = model.VerifyIssuedStatement(subordinateStatementBytes, configuration.EntityTypes); err != nil {
+		return nil, fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %s", err.Error())
+	}
+
+	if josemodel.GetAlgorithm(signerConfiguration.Algorithm) == josemodel.Unknown {
+		return nil, fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %q is not a supported signing algorithm", signerConfiguration.Algorithm)
+	}
+
+	token, err := jwt.New(signerConfiguration.Signer, map[string]any{
 		"kid": signerConfiguration.KeyID,
 		"typ": "entity-statement+jwt",
 		"alg": signerConfiguration.Algorithm,
 	}, subordinateStatementMap, jwt.Opts{Algorithm: josemodel.GetAlgorithm(signerConfiguration.Algorithm)})
+	if err != nil {
+		return nil, err
+	}
+
+	if err = entity_statement.VerifyIssuedSignature(*token, signerConfiguration.KeyID, signerConfiguration.Algorithm, signerConfiguration.Signer); err != nil {
+		return nil, fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %s", err.Error())
+	}
+
+	return token, nil
 }

@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-A Go library implementing the [OpenID Federation](https://openid.net/specs/openid-federation-1_0.html) specification. It provides the building blocks for participating in a federation as either a **server** (an entity/intermediate/trust anchor that publishes statements and serves federation endpoints) or a **client** (a relying party that builds and resolves trust chains). This is a library, not a runnable service — the `Makefile` `build` target that produces an AWS Lambda `bootstrap`/`main.zip` refers to a `main.go` that does not exist in this repo; treat it as a downstream-consumer packaging convention, not something you can run here.
+A Go library implementing the [OpenID Federation](https://openid.net/specs/openid-federation-1_1.html) specification. It provides the building blocks for participating in a federation as either a **server** (an entity/intermediate/trust anchor that publishes statements and serves federation endpoints) or a **client** (a relying party that builds and resolves trust chains). This is a library, not a runnable service — the `Makefile` `build` target that produces an AWS Lambda `bootstrap`/`main.zip` refers to a `main.go` that does not exist in this repo; treat it as a downstream-consumer packaging convention, not something you can run here.
 
 ## Commands
 
 - **Test:** `go test ./...` (also `make test`). CI runs `go test -v ./...`.
 - **Single test:** `go test ./model -run TestMetadataProcessingE2E` (add `-v` for verbose).
-- **Lint:** `golangci-lint run` (version pinned to v2.6.1 in CI and pre-commit; match it locally). Run `pre-commit run --all-files` to reproduce the full pre-commit gate (end-of-file/trailing-whitespace fixers, yaml check, `no-commit-to-branch`, and `golangci-lint-full`).
-- **Go version:** 1.25.x (see `go.mod`).
+- **Lint:** `golangci-lint run` (version pinned to v2.13.1 in CI and pre-commit; match it locally). Run `pre-commit run --all-files` to reproduce the full pre-commit gate (end-of-file/trailing-whitespace fixers, yaml check, `no-commit-to-branch`, and `golangci-lint-full`).
+- **Go version:** 1.26 (see `go.mod`).
 
 ## Architecture
 
@@ -57,7 +57,7 @@ Each federation entity type has its own file implementing `EntityTypeIdentifier`
 
 ## Conventions
 
-- `//todo:` comments mark known incomplete areas (unimplemented claims like `constraints`/`crit`/`trust_mark_owners`, consumer-defined metadata types, error-type revisits). They are intentional signposts, not stray notes.
+- `//todo:` comments mark known incomplete areas across the client, server and model packages (the unimplemented `constraints` claim, trust mark delegation, content-type matching, error-type revisits, and handler duplication). They are intentional signposts, not stray notes.
 - Logging is optional and nil-safe: `Configuration.LogInfo`/`LogError` no-op when no `*slog.Logger` is set. Use them rather than a package logger.
 - Tests live alongside code as `_test.go`; `model_test/` and `server_test/` hold shared test helpers/fixtures (e.g. `server_test/testserver.go`).
 - Comments are not to be added by agents. Code is self-documenting and the comments are not welcome

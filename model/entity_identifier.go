@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"net/url"
+	"strings"
 )
 
 type EntityIdentifier string
@@ -10,23 +11,27 @@ type EntityIdentifier string
 func ValidateEntityIdentifier(value string) (*EntityIdentifier, error) {
 	parsedUrl, err := url.Parse(value)
 	if err != nil {
-		return nil, fmt.Errorf("entity identifiers must be a valid url: %s", err.Error())
+		return nil, fmt.Errorf("entity identifiers must be a valid url")
 	}
 
 	if parsedUrl.Scheme != "https" {
 		return nil, fmt.Errorf("entity identifiers must use the https scheme")
 	}
 
-	if parsedUrl.Host == "" {
+	if parsedUrl.Hostname() == "" {
 		return nil, fmt.Errorf("entity identifiers must have a host component")
 	}
 
-	if parsedUrl.RawFragment != "" || parsedUrl.Fragment != "" {
+	if strings.Contains(value, "#") {
 		return nil, fmt.Errorf("entity identifiers must not contain Fragment components")
 	}
 
-	if parsedUrl.RawQuery != "" {
+	if strings.Contains(value, "?") {
 		return nil, fmt.Errorf("entity identifiers must not contain Query components")
+	}
+
+	if parsedUrl.User != nil {
+		return nil, fmt.Errorf("entity identifiers must not contain Userinfo components")
 	}
 
 	return (*EntityIdentifier)(&value), nil

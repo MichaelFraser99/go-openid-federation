@@ -111,7 +111,12 @@ func TestNew_IssuesConformingEntityConfigurations(t *testing.T) {
 				cfg.IntermediateConfiguration = &model.IntermediateConfiguration{}
 				cfg.EntityConfiguration.Metadata = &model.Metadata{
 					OpenIDConnectOpenIDProviderMetadata: &model.OpenIDConnectOpenIDProviderMetadata{
-						"issuer": string(identifier),
+						"issuer":                                string(identifier),
+						"authorization_endpoint":                "https://leaf.example.com/authorize",
+						"jwks_uri":                              "https://leaf.example.com/jwks",
+						"response_types_supported":              []string{"id_token"},
+						"subject_types_supported":               []string{"public"},
+						"id_token_signing_alg_values_supported": []string{"ES256"},
 					},
 				}
 			},
@@ -156,8 +161,7 @@ func TestNew_IssuesConformingEntityConfigurations(t *testing.T) {
 			name: "subordinate statement only claims are not published",
 			configure: func(_ *testing.T, cfg *model.ServerConfiguration) {
 				cfg.EntityConfiguration.Constraints = map[string]any{"max_path_length": 1}
-				cfg.EntityConfiguration.MetadataPolicyCrit = []string{"regexp"}
-				cfg.EntityConfiguration.SourceEndpoint = "https://ta.example.com/fetch"
+				cfg.EntityConfiguration.SourceEndpoint = josemodel.Pointer("https://ta.example.com/fetch")
 			},
 			validate: func(t *testing.T, claims map[string]any) {
 				for _, claim := range []string{"constraints", "metadata_policy_crit", "source_endpoint", "metadata_policy"} {

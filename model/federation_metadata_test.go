@@ -1,6 +1,7 @@
 package model
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -243,6 +244,69 @@ func TestFederationMetadata_VerifyMetadata(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			err := tt.metadata.VerifyMetadata()
 			tt.validate(t, err)
+		})
+	}
+}
+
+func TestFederationMetadata_Section5Restrictions(t *testing.T) {
+	tests := []struct {
+		name      string
+		section   string
+		metadata  FederationMetadata
+		expectErr string
+	}{
+		{
+			name:     "a plain federation entity is valid",
+			section:  "5.1.1",
+			metadata: FederationMetadata{"organization_name": "Example"},
+		},
+		{
+			name:      "jwks must not be used",
+			section:   "5.2.1",
+			metadata:  FederationMetadata{"jwks": map[string]any{"keys": []any{}}},
+			expectErr: "jwks must not be used in federation_entity metadata",
+		},
+		{
+			name:      "jwks_uri must not be used",
+			section:   "5.2.1",
+			metadata:  FederationMetadata{"jwks_uri": "https://leaf.example.com/jwks"},
+			expectErr: "jwks_uri must not be used in federation_entity metadata",
+		},
+		{
+			name:      "signed_jwks_uri must not be used",
+			section:   "5.2.1",
+			metadata:  FederationMetadata{"signed_jwks_uri": "https://leaf.example.com/jwks.jwt"},
+			expectErr: "signed_jwks_uri must not be used in federation_entity metadata",
+		},
+		{
+			name:      "endpoint_auth_signing_alg_values_supported must not contain none",
+			section:   "5.1.1",
+			metadata:  FederationMetadata{"endpoint_auth_signing_alg_values_supported": []any{"RS256", "none"}},
+			expectErr: "must not contain the value 'none'",
+		},
+		{
+			name:     "endpoint_auth_signing_alg_values_supported without none is valid",
+			section:  "5.1.1",
+			metadata: FederationMetadata{"endpoint_auth_signing_alg_values_supported": []any{"RS256", "ES256"}},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.metadata.VerifyMetadata()
+
+			if tc.expectErr == "" {
+				if err != nil {
+					t.Fatalf("[%s] expected the metadata to be valid, got %v", tc.section, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("[%s] expected an error containing %q, got none", tc.section, tc.expectErr)
+			}
+			if !strings.Contains(err.Error(), tc.expectErr) {
+				t.Fatalf("[%s] expected an error containing %q, got %v", tc.section, tc.expectErr, err)
+			}
 		})
 	}
 }

@@ -79,7 +79,7 @@ func (v Value) ResolutionHierarchy() int {
 }
 
 func (v Value) Merge(valueToMerge any) (MetadataPolicyOperator, error) {
-	if reflect.DeepEqual(v.operatorValue, valueToMerge) {
+	if operandsEqual(v.operatorValue, valueToMerge) {
 		return v, nil
 	}
 	return nil, fmt.Errorf("merging %v and %v not possible", v.operatorValue, valueToMerge)

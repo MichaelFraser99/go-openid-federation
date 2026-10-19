@@ -106,15 +106,12 @@ func (a Add) combineArray(metadataParameterValue any) (any, error) {
 	}
 
 	result := reflect.MakeSlice(sliceA.Type(), 0, sliceA.Len()+sliceB.Len())
-	seen := make(map[string]bool)
+	seen := newOperandAccumulator(sliceA.Len() + sliceB.Len())
 
 	for i := 0; i < sliceA.Len(); i++ {
 		elem := sliceA.Index(i).Interface()
 		if isValidElement(elem) {
-			if key, ok := canonicalOperandKey(elem); !ok || !seen[key] {
-				if ok {
-					seen[key] = true
-				}
+			if seen.add(elem) {
 				result = reflect.Append(result, reflect.ValueOf(elem))
 			}
 		} else {
@@ -125,10 +122,7 @@ func (a Add) combineArray(metadataParameterValue any) (any, error) {
 	for i := 0; i < sliceB.Len(); i++ {
 		elem := sliceB.Index(i).Interface()
 		if isValidElement(elem) {
-			if key, ok := canonicalOperandKey(elem); !ok || !seen[key] {
-				if ok {
-					seen[key] = true
-				}
+			if seen.add(elem) {
 				result = reflect.Append(result, reflect.ValueOf(elem))
 			}
 		} else {

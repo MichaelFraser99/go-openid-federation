@@ -65,8 +65,7 @@ func (o OneOf) Resolve(metadataParameterValue any) (any, error) {
 	}
 
 	// Ensure metadata parameter's type matches with items in the operator value
-	allowed := newOperandSetFromReflect(reflect.ValueOf(o.operatorValue))
-	if allowed.contains(metadataParameterValue) {
+	if operandsContain(reflect.ValueOf(o.operatorValue), metadataParameterValue) {
 		return metadataParameterValue, nil
 	}
 

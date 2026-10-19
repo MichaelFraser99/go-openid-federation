@@ -25,9 +25,10 @@ func operandJSON(n int) string {
 }
 
 func TestPolicyOperands_ScaleLinearly(t *testing.T) {
-	// Each of these was quadratic in the operand count, and a peer supplies the
-	// operands inside a subordinate statement. The budget is generous: at the
-	// previous cost the 60,000 cases took tens of seconds.
+	// A peer supplies the operands inside a subordinate statement, so every
+	// resolve path must stay linear in their count. subset_of and superset_of
+	// were quadratic and took tens of seconds at 60,000; one_of was already
+	// linear and is held here against a regression.
 	const budget = 5 * time.Second
 
 	tests := []struct {
@@ -49,7 +50,7 @@ func TestPolicyOperands_ScaleLinearly(t *testing.T) {
 
 			metadata := any(operandStrings(tc.count))
 			if tc.operator == "one_of" {
-				metadata = "value-7"
+				metadata = fmt.Sprintf("value-%d", tc.count-1)
 			}
 
 			started := time.Now()

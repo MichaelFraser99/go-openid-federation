@@ -62,6 +62,10 @@ func (s SupersetOf) Resolve(metadataParameterValue any) (any, error) {
 	operatorSlice := reflect.ValueOf(s.operatorValue)
 	metadataSlice := reflect.ValueOf(metadataParameterValue)
 
+	if operatorSlice.Len() == 0 {
+		return metadataParameterValue, nil
+	}
+
 	// Compute intersection
 	present := newOperandSetFromReflect(metadataSlice)
 	for i := range operatorSlice.Len() {
@@ -133,15 +137,12 @@ func (s SupersetOf) combineArray(metadataParameterValue any) (any, error) {
 	}
 
 	result := reflect.MakeSlice(sliceA.Type(), 0, sliceA.Len()+sliceB.Len())
-	seen := make(map[string]bool)
+	seen := newOperandAccumulator(sliceA.Len() + sliceB.Len())
 
 	for i := 0; i < sliceA.Len(); i++ {
 		elem := sliceA.Index(i).Interface()
 		if isValidElement(elem) {
-			if key, ok := canonicalOperandKey(elem); !ok || !seen[key] {
-				if ok {
-					seen[key] = true
-				}
+			if seen.add(elem) {
 				result = reflect.Append(result, reflect.ValueOf(elem))
 			}
 		} else {
@@ -152,10 +153,7 @@ func (s SupersetOf) combineArray(metadataParameterValue any) (any, error) {
 	for i := 0; i < sliceB.Len(); i++ {
 		elem := sliceB.Index(i).Interface()
 		if isValidElement(elem) {
-			if key, ok := canonicalOperandKey(elem); !ok || !seen[key] {
-				if ok {
-					seen[key] = true
-				}
+			if seen.add(elem) {
 				result = reflect.Append(result, reflect.ValueOf(elem))
 			}
 		} else {

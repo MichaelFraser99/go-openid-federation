@@ -406,25 +406,13 @@ func DeduplicateSlice(input []any) []any {
 		return input
 	}
 
-	seen := make(map[string]struct{}, len(input))
-	var unkeyed []any
+	seen := newOperandAccumulator(len(input))
 	result := make([]any, 0, len(input))
 
 	for _, elem := range input {
-		key, ok := canonicalOperandKey(elem)
-		if !ok {
-			if slices.ContainsFunc(unkeyed, func(candidate any) bool { return reflect.DeepEqual(candidate, elem) }) {
-				continue
-			}
-			unkeyed = append(unkeyed, elem)
+		if seen.add(elem) {
 			result = append(result, elem)
-			continue
 		}
-		if _, present := seen[key]; present {
-			continue
-		}
-		seen[key] = struct{}{}
-		result = append(result, elem)
 	}
 
 	return result

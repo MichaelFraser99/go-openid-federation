@@ -3,13 +3,16 @@ package model
 import (
 	"context"
 	"crypto"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
 	"net/http"
+	"net/url"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -294,15 +297,142 @@ type EntityStatement struct { //todo: allow for additional claims to be set - th
 	Exp                int64                         `json:"exp"`
 	JWKs               josemodel.Jwks                `json:"jwks"`
 	AuthorityHints     []EntityIdentifier            `json:"authority_hints,omitempty"`
+	TrustAnchorHints   []EntityIdentifier            `json:"trust_anchor_hints,omitempty"`
 	Metadata           *Metadata                     `json:"metadata,omitempty"`
 	MetadataPolicy     *MetadataPolicy               `json:"metadata_policy,omitempty"`
-	Constraints        any                           `json:"constraints,omitempty"`          //todo
-	Crit               any                           `json:"crit,omitempty"`                 //todo - also note - empty array is banned
-	MetadataPolicyCrit any                           `json:"metadata_policy_crit,omitempty"` //todo - also note - empty array is banned
+	Constraints        any                           `json:"constraints,omitempty"` //todo
+	Crit               []string                      `json:"crit,omitempty"`
+	MetadataPolicyCrit []string                      `json:"metadata_policy_crit,omitempty"`
 	TrustMarks         []TrustMarkHolder             `json:"trust_marks,omitempty"`
 	TrustMarkIssuers   map[string][]EntityIdentifier `json:"trust_mark_issuers,omitempty"`
-	TrustMarkOwners    any                           `json:"trust_mark_owners,omitempty"` //todo
-	SourceEndpoint     any                           `json:"source_endpoint,omitempty"`   //todo
+	TrustMarkOwners    map[string]TrustMarkOwner     `json:"trust_mark_owners,omitempty"`
+	SourceEndpoint     *string                       `json:"source_endpoint,omitempty"`
+}
+
+type TrustMarkOwner struct {
+	Sub              EntityIdentifier `json:"sub"`
+	JWKs             josemodel.Jwks   `json:"jwks"`
+	AdditionalClaims map[string]any   `json:"-"`
+}
+
+const IatLeeway = 60 * time.Second
+
+var entityStatementClaims = []string{
+	"iss", "sub", "iat", "exp", "jwks", "aud", "crit",
+	"authority_hints", "trust_anchor_hints", "metadata", "metadata_policy",
+	"metadata_policy_crit", "constraints", "trust_marks", "trust_mark_issuers",
+	"trust_mark_owners", "source_endpoint",
+}
+
+var standardPolicyOperators = []string{
+	"value", "add", "default", "one_of", "subset_of", "superset_of", "essential",
+}
+
+func parseEntityIdentifierArray(claim string, value any) ([]EntityIdentifier, error) {
+	entries, ok := value.([]any)
+	if !ok {
+		return nil, fmt.Errorf("'%s' claim is malformed", claim)
+	}
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("'%s' claim must not be the empty array", claim)
+	}
+	parsed := make([]EntityIdentifier, 0, len(entries))
+	for _, entry := range entries {
+		sEntry, ok := entry.(string)
+		if !ok {
+			return nil, fmt.Errorf("'%s' claim contains malformed entity identifier", claim)
+		}
+		entityIdentifier, err := ValidateEntityIdentifier(sEntry)
+		if err != nil {
+			return nil, fmt.Errorf("'%s' claim contains invalid entity identifier: %s", claim, err.Error())
+		}
+		parsed = append(parsed, *entityIdentifier)
+	}
+	return parsed, nil
+}
+
+func parseTrustMarkOwners(value any) (map[string]TrustMarkOwner, error) {
+	owners, ok := value.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("'trust_mark_owners' claim must be a JSON object")
+	}
+	parsed := make(map[string]TrustMarkOwner, len(owners))
+	for trustMarkType, owner := range owners {
+		ownerObject, ok := owner.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("'trust_mark_owners' entry for %q must be a JSON object", trustMarkType)
+		}
+
+		sub, present := ownerObject["sub"]
+		if !present {
+			return nil, fmt.Errorf("'trust_mark_owners' entry for %q is missing the required 'sub' member", trustMarkType)
+		}
+		sSub, ok := sub.(string)
+		if !ok {
+			return nil, fmt.Errorf("'trust_mark_owners' entry for %q has a malformed 'sub' member", trustMarkType)
+		}
+		parsedSub, err := ValidateEntityIdentifier(sSub)
+		if err != nil {
+			return nil, fmt.Errorf("'trust_mark_owners' entry for %q has a 'sub' member that is not a valid entity identifier: %s", trustMarkType, err.Error())
+		}
+
+		jwks, present := ownerObject["jwks"]
+		if !present {
+			return nil, fmt.Errorf("'trust_mark_owners' entry for %q is missing the required 'jwks' member", trustMarkType)
+		}
+		jwksObject, ok := jwks.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("'trust_mark_owners' entry for %q has a malformed 'jwks' member", trustMarkType)
+		}
+		if keys, present := jwksObject["keys"]; !present {
+			return nil, fmt.Errorf("'trust_mark_owners' entry for %q has a 'jwks' member with no 'keys' array", trustMarkType)
+		} else if _, ok := keys.([]any); !ok {
+			return nil, fmt.Errorf("'trust_mark_owners' entry for %q has a 'jwks' member whose 'keys' is not an array", trustMarkType)
+		}
+		jwksBytes, err := json.Marshal(jwksObject)
+		if err != nil {
+			return nil, fmt.Errorf("'trust_mark_owners' entry for %q has an unserialisable 'jwks' member", trustMarkType)
+		}
+		var parsedJwks josemodel.Jwks
+		if err = json.Unmarshal(jwksBytes, &parsedJwks); err != nil {
+			return nil, fmt.Errorf("'trust_mark_owners' entry for %q has an invalid 'jwks' member: %s", trustMarkType, err.Error())
+		}
+
+		additional := map[string]any{}
+		for member, memberValue := range ownerObject {
+			if member != "sub" && member != "jwks" {
+				additional[member] = memberValue
+			}
+		}
+
+		parsed[trustMarkType] = TrustMarkOwner{Sub: *parsedSub, JWKs: parsedJwks, AdditionalClaims: additional}
+	}
+	return parsed, nil
+}
+
+func parseCritClaim(claim string, value any, forbidden []string) ([]string, error) {
+	entries, ok := value.([]any)
+	if !ok {
+		return nil, fmt.Errorf("'%s' claim must be an array of strings", claim)
+	}
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("'%s' claim must not be the empty array", claim)
+	}
+	parsed := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		sEntry, ok := entry.(string)
+		if !ok {
+			return nil, fmt.Errorf("'%s' claim must be an array of strings", claim)
+		}
+		if slices.Contains(forbidden, sEntry) {
+			return nil, fmt.Errorf("'%s' claim must not list %q, which is defined by this specification", claim, sEntry)
+		}
+		if slices.Contains(parsed, sEntry) {
+			return nil, fmt.Errorf("'%s' claim must not contain duplicate entries - %q appears more than once", claim, sEntry)
+		}
+		parsed = append(parsed, sEntry)
+	}
+	return parsed, nil
 }
 
 func (e *EntityStatement) UnmarshalJSON(data []byte) error {
@@ -316,16 +446,20 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("missing required body claim 'iss'")
 	} else if sIss, ok := iss.(string); !ok {
 		return fmt.Errorf("'iss' claim is malformed")
+	} else if parsedIss, err := ValidateEntityIdentifier(sIss); err != nil {
+		return fmt.Errorf("'iss' claim is not a valid entity identifier: %s", err.Error())
 	} else {
-		e.Iss = EntityIdentifier(sIss)
+		e.Iss = *parsedIss
 	}
 
 	if sub, ok := jsonMap["sub"]; !ok {
 		return fmt.Errorf("missing required body claim 'sub'")
 	} else if sSub, ok := sub.(string); !ok {
 		return fmt.Errorf("'sub' claim is malformed")
+	} else if parsedSub, err := ValidateEntityIdentifier(sSub); err != nil {
+		return fmt.Errorf("'sub' claim is not a valid entity identifier: %s", err.Error())
 	} else {
-		e.Sub = EntityIdentifier(sSub)
+		e.Sub = *parsedSub
 	}
 
 	if _, ok := jsonMap["iat"]; !ok {
@@ -333,6 +467,9 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 	} else if fIat, ok := jsonMap["iat"].(float64); !ok {
 		return fmt.Errorf("'iat' claim is malformed")
 	} else {
+		if int64(fIat) > time.Now().Add(IatLeeway).UTC().Unix() {
+			return fmt.Errorf("entity statement is issued in the future")
+		}
 		e.Iat = int64(fIat)
 	}
 
@@ -348,27 +485,35 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 	}
 
 	if authorityHints, ok := jsonMap["authority_hints"]; ok {
-		if sAuthorityHints, ok := authorityHints.([]any); !ok {
-			return fmt.Errorf("'authority_hints' claim is malformed")
-		} else {
-			parsedAuthorityHints := make([]EntityIdentifier, 0)
-			for _, hint := range sAuthorityHints {
-				if sHint, ok := hint.(string); !ok {
-					return fmt.Errorf("'authority_hints' claim contains malformed entity identifier")
-				} else if entityIdentifier, err := ValidateEntityIdentifier(sHint); err != nil {
-					return fmt.Errorf("'authority_hints' claim contains invalid entity identifier: %s", err.Error())
-				} else {
-					parsedAuthorityHints = append(parsedAuthorityHints, *entityIdentifier)
-				}
-			}
-			e.AuthorityHints = parsedAuthorityHints
+		parsed, err := parseEntityIdentifierArray("authority_hints", authorityHints)
+		if err != nil {
+			return err
 		}
+		e.AuthorityHints = parsed
+	}
 
+	if trustAnchorHints, ok := jsonMap["trust_anchor_hints"]; ok {
+		parsed, err := parseEntityIdentifierArray("trust_anchor_hints", trustAnchorHints)
+		if err != nil {
+			return err
+		}
+		e.TrustAnchorHints = parsed
 	}
 
 	if jwks, ok := jsonMap["jwks"]; !ok {
 		return fmt.Errorf("missing required body claim 'jwks'")
 	} else {
+		jwksObject, ok := jwks.(map[string]any)
+		if !ok {
+			return fmt.Errorf("malformed 'jwks' claim: must be a JSON object")
+		}
+		keys, present := jwksObject["keys"]
+		if !present {
+			return fmt.Errorf("malformed 'jwks' claim: missing required 'keys' member")
+		}
+		if _, ok := keys.([]any); !ok {
+			return fmt.Errorf("malformed 'jwks' claim: 'keys' must be an array")
+		}
 		bytes, err := json.Marshal(jwks)
 		if err != nil {
 			return fmt.Errorf("malformed 'jwks' claim: invalid JSON")
@@ -447,19 +592,44 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 	}
 
 	if crit, ok := jsonMap["crit"]; ok {
-		e.Crit = crit
+		parsed, err := parseCritClaim("crit", crit, entityStatementClaims)
+		if err != nil {
+			return err
+		}
+		for _, name := range parsed {
+			if _, present := jsonMap[name]; !present {
+				return fmt.Errorf("'crit' claim lists %q, which is not present in the entity statement", name)
+			}
+		}
+		return fmt.Errorf("'crit' claim lists %v, none of which this implementation understands", parsed)
 	}
 
 	if metadataPolicyCrit, ok := jsonMap["metadata_policy_crit"]; ok {
-		e.MetadataPolicyCrit = metadataPolicyCrit
+		parsed, err := parseCritClaim("metadata_policy_crit", metadataPolicyCrit, standardPolicyOperators)
+		if err != nil {
+			return err
+		}
+		e.MetadataPolicyCrit = parsed
 	}
 
 	if trustMarkOwners, ok := jsonMap["trust_mark_owners"]; ok {
-		e.TrustMarkOwners = trustMarkOwners
+		parsed, err := parseTrustMarkOwners(trustMarkOwners)
+		if err != nil {
+			return err
+		}
+		e.TrustMarkOwners = parsed
 	}
 
 	if sourceEndpoint, ok := jsonMap["source_endpoint"]; ok {
-		e.SourceEndpoint = sourceEndpoint
+		sEndpoint, ok := sourceEndpoint.(string)
+		if !ok {
+			return fmt.Errorf("'source_endpoint' claim must be a string")
+		}
+		parsed, err := url.Parse(sEndpoint)
+		if err != nil || !parsed.IsAbs() || parsed.Host == "" {
+			return fmt.Errorf("'source_endpoint' claim must be a valid absolute URL")
+		}
+		e.SourceEndpoint = &sEndpoint
 	}
 
 	return nil
@@ -485,6 +655,47 @@ type MetadataPolicyOperator interface {
 type TrustMarkHolder struct {
 	TrustMarkType string `json:"trust_mark_type"`
 	TrustMark     string `json:"trust_mark"`
+}
+
+func (t *TrustMarkHolder) UnmarshalJSON(data []byte) error {
+	var holder struct {
+		TrustMarkType *string `json:"trust_mark_type"`
+		TrustMark     *string `json:"trust_mark"`
+	}
+	if err := json.Unmarshal(data, &holder); err != nil {
+		return err
+	}
+	if holder.TrustMarkType == nil || *holder.TrustMarkType == "" {
+		return fmt.Errorf("each entry in 'trust_marks' requires a non-empty 'trust_mark_type' member")
+	}
+	if holder.TrustMark == nil || *holder.TrustMark == "" {
+		return fmt.Errorf("each entry in 'trust_marks' requires a non-empty 'trust_mark' member")
+	}
+
+	parts := strings.Split(*holder.TrustMark, ".")
+	if len(parts) != 3 {
+		return fmt.Errorf("the 'trust_mark' member of a 'trust_marks' entry must be a signed JWT")
+	}
+	body, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return fmt.Errorf("the 'trust_mark' member of a 'trust_marks' entry is not a decodable JWT: %s", err.Error())
+	}
+	var claims struct {
+		TrustMarkType *string `json:"trust_mark_type"`
+	}
+	if err = json.Unmarshal(body, &claims); err != nil {
+		return fmt.Errorf("the 'trust_mark' member of a 'trust_marks' entry has an unparseable body: %s", err.Error())
+	}
+	if claims.TrustMarkType == nil {
+		return fmt.Errorf("the 'trust_mark' member of a 'trust_marks' entry has no 'trust_mark_type' claim")
+	}
+	if *claims.TrustMarkType != *holder.TrustMarkType {
+		return fmt.Errorf("the 'trust_mark_type' member %q does not match the 'trust_mark_type' claim %q in the trust mark itself", *holder.TrustMarkType, *claims.TrustMarkType)
+	}
+
+	t.TrustMarkType = *holder.TrustMarkType
+	t.TrustMark = *holder.TrustMark
+	return nil
 }
 
 type Metadata struct {
@@ -531,6 +742,19 @@ func (m *Metadata) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
+
+	for entityType, entityMetadata := range bytesMap {
+		parameters, ok := entityMetadata.(map[string]any)
+		if !ok {
+			return fmt.Errorf("the value of entity type %q must be a JSON object", entityType)
+		}
+		for parameter, value := range parameters {
+			if value == nil {
+				return fmt.Errorf("metadata parameter %q of entity type %q must not be null", parameter, entityType)
+			}
+		}
+	}
+
 	if federation, ok := bytesMap["federation_entity"]; ok {
 		m.FederationMetadata, err = ReMarshalJsonAsEntityMetadata[FederationMetadata](federation)
 		if err != nil {

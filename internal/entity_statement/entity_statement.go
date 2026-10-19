@@ -12,6 +12,41 @@ import (
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 )
 
+func ValidateStatementHeader(headMap map[string]any) error {
+	typ, ok := headMap["typ"]
+	if !ok {
+		return fmt.Errorf("missing required header claim 'typ'")
+	}
+	sTyp, ok := typ.(string)
+	if !ok {
+		return fmt.Errorf("malformed header claim 'typ'")
+	}
+	if !strings.EqualFold(sTyp, "entity-statement+jwt") && !strings.EqualFold(sTyp, "application/entity-statement+jwt") {
+		return fmt.Errorf("entity statements must set the 'typ' header to 'entity-statement+jwt', got %q", sTyp)
+	}
+
+	if crit, present := headMap["crit"]; present {
+		entries, ok := crit.([]any)
+		if !ok {
+			return fmt.Errorf("the 'crit' header must be an array of strings")
+		}
+		if len(entries) == 0 {
+			return fmt.Errorf("the 'crit' header must not be the empty array")
+		}
+		names := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			name, ok := entry.(string)
+			if !ok {
+				return fmt.Errorf("the 'crit' header must be an array of strings")
+			}
+			names = append(names, name)
+		}
+		return fmt.Errorf("the 'crit' header lists %v, which this implementation does not understand", names)
+	}
+
+	return nil
+}
+
 func SelectKey(jwks josemodel.Jwks, kid string) (map[string]any, error) {
 	if kid == "" {
 		return nil, fmt.Errorf("header claim 'kid' must be a non-empty string")

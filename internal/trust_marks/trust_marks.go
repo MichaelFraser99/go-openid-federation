@@ -73,12 +73,8 @@ type ValidateOptions struct {
 	issuerKeys *issuerKeyCache
 }
 
-func trustMarkTypeIsOwned(trustMarkOwners any, trustMarkType string) bool {
-	owners, ok := trustMarkOwners.(map[string]any)
-	if !ok {
-		return false
-	}
-	_, owned := owners[trustMarkType]
+func trustMarkTypeIsOwned(trustMarkOwners map[string]model.TrustMarkOwner, trustMarkType string) bool {
+	_, owned := trustMarkOwners[trustMarkType]
 	return owned
 }
 

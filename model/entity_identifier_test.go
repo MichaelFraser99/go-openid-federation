@@ -1,6 +1,7 @@
 package model
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -135,6 +136,48 @@ func TestValidate(t *testing.T) {
 		t.Run(testName, func(t *testing.T) {
 			result, err := ValidateEntityIdentifier(tt.input)
 			tt.validate(t, result, err)
+		})
+	}
+}
+
+func TestValidateEntityIdentifier_Section1_2(t *testing.T) {
+	tests := []struct {
+		name      string
+		value     string
+		expectErr string
+	}{
+		{name: "a plain https identifier", value: "https://leaf.example.com"},
+		{name: "a port and path are permitted", value: "https://leaf.example.com:8443/tenant"},
+		{name: "an empty host name with a port", value: "https://:443", expectErr: "host component"},
+		{name: "an empty host name", value: "https://", expectErr: "host component"},
+		{name: "an empty but present query", value: "https://leaf.example.com?", expectErr: "Query"},
+		{name: "a populated query", value: "https://leaf.example.com?x=1", expectErr: "Query"},
+		{name: "an empty but present fragment", value: "https://leaf.example.com#", expectErr: "Fragment"},
+		{name: "a populated fragment", value: "https://leaf.example.com#f", expectErr: "Fragment"},
+		{name: "a query inside a path", value: "https://leaf.example.com/a?b", expectErr: "Query"},
+		{name: "the http scheme", value: "http://leaf.example.com", expectErr: "https scheme"},
+		{name: "an opaque https url", value: "https:leaf.example.com", expectErr: "host component"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			parsed, err := ValidateEntityIdentifier(tc.value)
+
+			if tc.expectErr == "" {
+				if err != nil {
+					t.Fatalf("expected %q to be a valid entity identifier, got %v", tc.value, err)
+				}
+				if string(*parsed) != tc.value {
+					t.Errorf("expected %q to be returned unchanged, got %q", tc.value, string(*parsed))
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("expected %q to be rejected, got a valid identifier", tc.value)
+			}
+			if !strings.Contains(err.Error(), tc.expectErr) {
+				t.Fatalf("expected an error about %q, got %v", tc.expectErr, err)
+			}
 		})
 	}
 }

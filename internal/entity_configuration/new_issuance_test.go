@@ -157,7 +157,7 @@ func TestNew_IssuesConformingEntityConfigurations(t *testing.T) {
 			configure: func(_ *testing.T, cfg *model.ServerConfiguration) {
 				cfg.EntityConfiguration.Constraints = map[string]any{"max_path_length": 1}
 				cfg.EntityConfiguration.MetadataPolicyCrit = []string{"regexp"}
-				cfg.EntityConfiguration.SourceEndpoint = "https://ta.example.com/fetch"
+				cfg.EntityConfiguration.SourceEndpoint = josemodel.Pointer("https://ta.example.com/fetch")
 			},
 			validate: func(t *testing.T, claims map[string]any) {
 				for _, claim := range []string{"constraints", "metadata_policy_crit", "source_endpoint", "metadata_policy"} {

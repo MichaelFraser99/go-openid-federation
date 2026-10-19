@@ -339,7 +339,7 @@ func TestEntityStatement_UnmarshalJSON(t *testing.T) {
 				"exp": 4102444800,
 				"authority_hints": ["https://anchor.example.com"],
 				"jwks": {"keys": [{"kid": "test-key", "kty": "RSA"}]},
-				"trust_marks": [{"trust_mark_type": "https://example.com/trust-mark", "trust_mark": "jwt-value"}],
+				"trust_marks": [{"trust_mark_type": "https://example.com/trust-mark", "trust_mark": "eyJ0eXAiOiJ0cnVzdC1tYXJrK2p3dCIsImFsZyI6IlJTMjU2Iiwia2lkIjoidGVzdC1rZXkifQ.eyJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlLmNvbSIsInN1YiI6Imh0dHBzOi8vc3ViamVjdC5leGFtcGxlLmNvbSIsInRydXN0X21hcmtfdHlwZSI6Imh0dHBzOi8vZXhhbXBsZS5jb20vdHJ1c3QtbWFyayIsImlhdCI6MTcxMDAwMDAwMH0.signature"}],
 				"trust_mark_issuers": {
 					"https://example.com/trust-mark": ["https://issuer.example.com"]
 				},
@@ -358,17 +358,18 @@ func TestEntityStatement_UnmarshalJSON(t *testing.T) {
 				Exp:            4102444800,
 				AuthorityHints: []EntityIdentifier{EntityIdentifier("https://anchor.example.com")},
 				JWKs:           josemodel.Jwks{Keys: []map[string]any{{"kid": "test-key", "kty": "RSA"}}},
-				TrustMarks:     []TrustMarkHolder{{TrustMarkType: "https://example.com/trust-mark", TrustMark: "jwt-value"}},
+				TrustMarks:     []TrustMarkHolder{{TrustMarkType: "https://example.com/trust-mark", TrustMark: "eyJ0eXAiOiJ0cnVzdC1tYXJrK2p3dCIsImFsZyI6IlJTMjU2Iiwia2lkIjoidGVzdC1rZXkifQ.eyJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlLmNvbSIsInN1YiI6Imh0dHBzOi8vc3ViamVjdC5leGFtcGxlLmNvbSIsInRydXN0X21hcmtfdHlwZSI6Imh0dHBzOi8vZXhhbXBsZS5jb20vdHJ1c3QtbWFyayIsImlhdCI6MTcxMDAwMDAwMH0.signature"}},
 				TrustMarkIssuers: map[string][]EntityIdentifier{
 					"https://example.com/trust-mark": {EntityIdentifier("https://issuer.example.com")},
 				},
-				TrustMarkOwners: map[string]any{
-					"https://example.com/trust-mark": map[string]any{
-						"sub":  "https://issuer.example.com",
-						"jwks": map[string]any{"keys": []any{}},
+				TrustMarkOwners: map[string]TrustMarkOwner{
+					"https://example.com/trust-mark": {
+						Sub:              EntityIdentifier("https://issuer.example.com"),
+						JWKs:             josemodel.Jwks{Keys: []map[string]any{}},
+						AdditionalClaims: map[string]any{},
 					},
 				},
-				SourceEndpoint: "https://subject.example.com/source",
+				SourceEndpoint: josemodel.Pointer("https://subject.example.com/source"),
 			},
 			wantErr: false,
 		},

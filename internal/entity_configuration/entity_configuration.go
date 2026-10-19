@@ -104,6 +104,10 @@ func Validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 		return nil, fmt.Errorf("failed to unmarshal JWT body: %s", err.Error())
 	}
 
+	if err = entity_statement.ValidateStatementHeader(headMap); err != nil {
+		return nil, err
+	}
+
 	kid, ok := headMap["kid"]
 	if !ok {
 		return nil, fmt.Errorf("missing required header claim 'kid'")
@@ -138,12 +142,16 @@ func Validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 	if err = entity_statement.VerifyAgainstJwks(entityConfigurationJwt, sKid, parsedJwks); err != nil {
 		return nil, err
 	}
-	//todo: validate optional claims
+	for _, claim := range []string{"metadata_policy", "metadata_policy_crit", "constraints", "source_endpoint"} {
+		if _, present := bodyMap[claim]; present {
+			return nil, fmt.Errorf("the %q claim is permitted only in subordinate statements, not in an entity configuration", claim)
+		}
+	}
 
 	var entityConfiguration model.EntityStatement
 	err = json.Unmarshal(body, &entityConfiguration)
 	if err != nil {
-		return nil, fmt.Errorf("malformed 'metadata' claim: %w", err)
+		return nil, fmt.Errorf("invalid entity statement: %w", err)
 	}
 
 	if entityConfiguration.Iss != entityConfiguration.Sub {

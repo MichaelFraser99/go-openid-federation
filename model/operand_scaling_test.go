@@ -8,6 +8,13 @@ import (
 	"time"
 )
 
+const (
+	scalingBaseCount = 40000
+	scalingFactor    = 4
+	scalingTolerance = 9
+	scalingBudget    = 3 * time.Second
+)
+
 func operandStrings(n int) []any {
 	out := make([]any, n)
 	for i := range out {
@@ -24,50 +31,57 @@ func operandJSON(n int) string {
 	return "[" + strings.Join(vals, ",") + "]"
 }
 
-func TestPolicyOperands_ScaleLinearly(t *testing.T) {
-	// A peer supplies the operands inside a subordinate statement, so every
-	// resolve path must stay linear in their count. subset_of and superset_of
-	// were quadratic and took tens of seconds at 60,000; one_of was already
-	// linear and is held here against a regression.
-	const budget = 5 * time.Second
+func assertScalesLinearly(t *testing.T, measure func(*testing.T, int) time.Duration) {
+	t.Helper()
 
+	small := measure(t, scalingBaseCount)
+	if small > scalingBudget {
+		t.Fatalf("%d operands took %s, which is beyond any linear cost", scalingBaseCount, small)
+	}
+
+	large := measure(t, scalingBaseCount*scalingFactor)
+	if large > time.Duration(scalingTolerance)*small {
+		t.Fatalf("%d operands took %s and %d took %s, a factor of %.1f for %dx the work, which is the quadratic cost returning",
+			scalingBaseCount, small, scalingBaseCount*scalingFactor, large, float64(large)/float64(small), scalingFactor)
+	}
+	t.Logf("%s at %d, %s at %d, a factor of %.1f", small, scalingBaseCount, large, scalingBaseCount*scalingFactor, float64(large)/float64(small))
+}
+
+func TestPolicyOperands_ResolveScalesLinearly(t *testing.T) {
 	tests := []struct {
 		name     string
 		operator string
-		count    int
 	}{
-		{name: "subset_of resolve", operator: "subset_of", count: 60000},
-		{name: "superset_of resolve", operator: "superset_of", count: 60000},
-		{name: "one_of resolve", operator: "one_of", count: 60000},
+		{name: "subset_of", operator: "subset_of"},
+		{name: "superset_of", operator: "superset_of"},
+		{name: "one_of", operator: "one_of"},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			var parsed PolicyOperators
-			if err := json.Unmarshal([]byte(`{"`+tc.operator+`":`+operandJSON(tc.count)+`}`), &parsed); err != nil {
-				t.Fatalf("the fixture did not parse: %v", err)
-			}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assertScalesLinearly(t, func(t *testing.T, count int) time.Duration {
+				t.Helper()
+				var parsed PolicyOperators
+				if err := json.Unmarshal([]byte(`{"`+test.operator+`":`+operandJSON(count)+`}`), &parsed); err != nil {
+					t.Fatalf("the fixture did not parse: %v", err)
+				}
 
-			metadata := any(operandStrings(tc.count))
-			if tc.operator == "one_of" {
-				metadata = fmt.Sprintf("value-%d", tc.count-1)
-			}
+				metadata := any(operandStrings(count))
+				if test.operator == "one_of" {
+					metadata = fmt.Sprintf("value-%d", count-1)
+				}
 
-			started := time.Now()
-			if _, err := parsed.Metadata[0].Resolve(metadata); err != nil {
-				t.Fatalf("expected the operator to resolve, got %v", err)
-			}
-			if elapsed := time.Since(started); elapsed > budget {
-				t.Fatalf("resolving %d operands took %s, which is the quadratic cost returning", tc.count, elapsed)
-			}
+				started := time.Now()
+				if _, err := parsed.Metadata[0].Resolve(metadata); err != nil {
+					t.Fatalf("expected the operator to resolve, got %v", err)
+				}
+				return time.Since(started)
+			})
 		})
 	}
 }
 
 func TestPolicyOperands_MergeScalesLinearly(t *testing.T) {
-	const budget = 5 * time.Second
-	const count = 40000
-
 	tests := []struct {
 		name  string
 		first string
@@ -79,23 +93,57 @@ func TestPolicyOperands_MergeScalesLinearly(t *testing.T) {
 		{name: "two superset_of levels", first: "superset_of", other: "superset_of"},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			var a, b PolicyOperators
-			if err := json.Unmarshal([]byte(`{"`+tc.first+`":`+operandJSON(count)+`}`), &a); err != nil {
-				t.Fatalf("the first fixture did not parse: %v", err)
-			}
-			if err := json.Unmarshal([]byte(`{"`+tc.other+`":`+operandJSON(count)+`}`), &b); err != nil {
-				t.Fatalf("the second fixture did not parse: %v", err)
-			}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assertScalesLinearly(t, func(t *testing.T, count int) time.Duration {
+				t.Helper()
+				var a, b PolicyOperators
+				if err := json.Unmarshal([]byte(`{"`+test.first+`":`+operandJSON(count)+`}`), &a); err != nil {
+					t.Fatalf("the first fixture did not parse: %v", err)
+				}
+				if err := json.Unmarshal([]byte(`{"`+test.other+`":`+operandJSON(count)+`}`), &b); err != nil {
+					t.Fatalf("the second fixture did not parse: %v", err)
+				}
 
-			started := time.Now()
-			if _, err := MergePolicyOperators("contacts", a, b); err != nil {
-				t.Fatalf("expected the two levels to merge, got %v", err)
-			}
-			if elapsed := time.Since(started); elapsed > budget {
-				t.Fatalf("merging %d operands took %s, which is the quadratic cost returning", count, elapsed)
-			}
+				started := time.Now()
+				if _, err := MergePolicyOperators("contacts", a, b); err != nil {
+					t.Fatalf("expected the two levels to merge, got %v", err)
+				}
+				return time.Since(started)
+			})
+		})
+	}
+}
+
+func TestPolicyOperands_ConflictDetectionScalesLinearly(t *testing.T) {
+	tests := []struct {
+		name  string
+		first string
+		other string
+	}{
+		{name: "subset_of against superset_of", first: "subset_of", other: "superset_of"},
+		{name: "value against add", first: "value", other: "add"},
+		{name: "value against subset_of", first: "value", other: "subset_of"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assertScalesLinearly(t, func(t *testing.T, count int) time.Duration {
+				t.Helper()
+				operands := operandJSON(count)
+				raw := `{"openid_relying_party":{"contacts":{"` + test.first + `":` + operands + `,"` + test.other + `":` + operands + `}}}`
+
+				var policy MetadataPolicy
+				if err := json.Unmarshal([]byte(raw), &policy); err != nil {
+					t.Fatalf("the fixture did not parse: %v", err)
+				}
+
+				started := time.Now()
+				if err := sortAndValidatePolicy(&policy); err != nil {
+					t.Fatalf("expected the policy to validate, got %v", err)
+				}
+				return time.Since(started)
+			})
 		})
 	}
 }
@@ -118,47 +166,3 @@ func benchmarkSubsetResolve(b *testing.B, n int) {
 
 func BenchmarkSubsetOfResolve1000(b *testing.B)  { benchmarkSubsetResolve(b, 1000) }
 func BenchmarkSubsetOfResolve10000(b *testing.B) { benchmarkSubsetResolve(b, 10000) }
-
-func TestPolicyOperands_ConflictDetectionScalesLinearly(t *testing.T) {
-	// validatePoliciesCanCombine compares each operand of one operator against
-	// each operand of another, on every statement's own policy, so this is
-	// reachable from a single subordinate statement.
-	const budget = 5 * time.Second
-	const count = 40000
-
-	tests := []struct {
-		name   string
-		policy string
-	}{
-		{
-			name:   "subset_of against superset_of",
-			policy: `{"openid_relying_party":{"contacts":{"subset_of":` + operandJSON(count) + `,"superset_of":` + operandJSON(count) + `}}}`,
-		},
-		{
-			name:   "value against add",
-			policy: `{"openid_relying_party":{"contacts":{"value":` + operandJSON(count) + `,"add":` + operandJSON(count) + `}}}`,
-		},
-		{
-			name:   "value against subset_of",
-			policy: `{"openid_relying_party":{"contacts":{"value":` + operandJSON(count) + `,"subset_of":` + operandJSON(count) + `}}}`,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			var policy MetadataPolicy
-			if err := json.Unmarshal([]byte(tc.policy), &policy); err != nil {
-				t.Fatalf("the policy fixture did not parse: %v", err)
-			}
-			subordinate := EntityStatement{Iss: "https://ta.example.com", Sub: "https://leaf.example.com", MetadataPolicy: &policy}
-
-			started := time.Now()
-			if _, err := ProcessAndExtractPolicy([]EntityStatement{{}, subordinate, {}}); err != nil {
-				t.Fatalf("expected the policy to validate, got %v", err)
-			}
-			if elapsed := time.Since(started); elapsed > budget {
-				t.Fatalf("validating %d operands took %s, which is the quadratic cost returning", count, elapsed)
-			}
-		})
-	}
-}

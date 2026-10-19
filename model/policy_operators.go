@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"reflect"
 	"slices"
 	"strings"
@@ -18,31 +19,35 @@ func scopeOperatorSlice(value any) []any {
 
 func normaliseOperand(value any) (any, bool) {
 	switch typed := value.(type) {
+	case nil, bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		return value, true
 	case string:
 		if !utf8.ValidString(typed) {
 			return nil, false
 		}
-	case []string:
-		for _, member := range typed {
-			if !utf8.ValidString(member) {
-				return nil, false
-			}
-		}
-	case map[string]string:
-		for key, member := range typed {
-			if !utf8.ValidString(key) || !utf8.ValidString(member) {
-				return nil, false
-			}
-		}
+		return value, true
 	case float64:
 		if typed == 0 {
 			return float64(0), true
 		}
-	case float32:
-		if typed == 0 {
-			return float32(0), true
+		return value, true
+	case []any:
+		if typed == nil {
+			return value, true
 		}
+		normalised := make([]any, len(typed))
+		for i, member := range typed {
+			replacement, ok := normaliseOperand(member)
+			if !ok {
+				return nil, false
+			}
+			normalised[i] = replacement
+		}
+		return normalised, true
 	case map[string]any:
+		if typed == nil {
+			return value, true
+		}
 		normalised := make(map[string]any, len(typed))
 		for key, member := range typed {
 			if !utf8.ValidString(key) {
@@ -55,18 +60,8 @@ func normaliseOperand(value any) (any, bool) {
 			normalised[key] = replacement
 		}
 		return normalised, true
-	case []any:
-		normalised := make([]any, len(typed))
-		for i, member := range typed {
-			replacement, ok := normaliseOperand(member)
-			if !ok {
-				return nil, false
-			}
-			normalised[i] = replacement
-		}
-		return normalised, true
 	}
-	return value, true
+	return nil, false
 }
 
 func canonicalOperandKey(value any) (string, bool) {
@@ -81,8 +76,49 @@ func canonicalOperandKey(value any) (string, bool) {
 	return string(raw), true
 }
 
+const operandWalkLimit = 100
+
 func operandCanMatch(value any) bool {
-	return reflect.DeepEqual(value, value)
+	return operandValueCanMatch(reflect.ValueOf(value), 0)
+}
+
+func operandValueCanMatch(value reflect.Value, depth int) bool {
+	if depth > operandWalkLimit {
+		return false
+	}
+	switch value.Kind() {
+	case reflect.Float32, reflect.Float64:
+		return !math.IsNaN(value.Float())
+	case reflect.Complex64, reflect.Complex128:
+		held := value.Complex()
+		return !math.IsNaN(real(held)) && !math.IsNaN(imag(held))
+	case reflect.Interface, reflect.Pointer:
+		if value.IsNil() {
+			return true
+		}
+		return operandValueCanMatch(value.Elem(), depth+1)
+	case reflect.Slice, reflect.Array:
+		for i := range value.Len() {
+			if !operandValueCanMatch(value.Index(i), depth+1) {
+				return false
+			}
+		}
+	case reflect.Map:
+		for iter := value.MapRange(); iter.Next(); {
+			if !operandValueCanMatch(iter.Key(), depth+1) || !operandValueCanMatch(iter.Value(), depth+1) {
+				return false
+			}
+		}
+	case reflect.Struct:
+		for i := range value.NumField() {
+			if !operandValueCanMatch(value.Field(i), depth+1) {
+				return false
+			}
+		}
+	case reflect.Func:
+		return value.IsNil()
+	}
+	return true
 }
 
 func operandsEqual(left, right any) bool {
@@ -92,6 +128,9 @@ func operandsEqual(left, right any) bool {
 		return leftKey == rightKey
 	}
 	if leftKeyed != rightKeyed {
+		return false
+	}
+	if !operandCanMatch(left) {
 		return false
 	}
 	return reflect.DeepEqual(left, right)
@@ -122,9 +161,16 @@ func (s operandSet) contains(value any) bool {
 		_, present := s.keyed[key]
 		return present
 	}
+	if !operandCanMatch(value) {
+		return false
+	}
 	return slices.ContainsFunc(s.unkeyed, func(candidate any) bool {
 		return reflect.DeepEqual(candidate, value)
 	})
+}
+
+func (s operandSet) fallbackCount() int {
+	return len(s.unkeyed)
 }
 
 func newOperandSetFromReflect(values reflect.Value) operandSet {
@@ -137,6 +183,9 @@ func newOperandSetFromReflect(values reflect.Value) operandSet {
 
 func operandsContain(values reflect.Value, value any) bool {
 	needle, keyedNeedle := canonicalOperandKey(value)
+	if !keyedNeedle && !operandCanMatch(value) {
+		return false
+	}
 	for i := range values.Len() {
 		candidate := values.Index(i).Interface()
 		if key, ok := canonicalOperandKey(candidate); ok {
@@ -145,7 +194,7 @@ func operandsContain(values reflect.Value, value any) bool {
 			}
 			continue
 		}
-		if reflect.DeepEqual(candidate, value) {
+		if !keyedNeedle && reflect.DeepEqual(candidate, value) {
 			return true
 		}
 	}

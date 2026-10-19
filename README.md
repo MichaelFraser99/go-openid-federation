@@ -402,14 +402,19 @@ The validators the built-in types use are exported for custom types to reuse.
 
 ### How operand values are compared
 
-Policy operators compare their operand values by canonical JSON encoding. Two values are the same value when they encode identically, so `{"a": "b c"}` and `{"a b": "c"}` are different objects, member order does not matter, and `{"a": "1"}` differs from `{"a": 1}`. Numbers compare as numbers, so `0` and `-0` are one value, and a Go `int` and a `float64` holding the same integer are one value.
+Operand equality is defined on the JSON value, and it is defined for the shapes a JSON decode produces: `nil`, `bool`, `string`, `float64`, `[]any` and `map[string]any`, plus the Go integer types. Such a value is compared by its canonical JSON encoding, which `encoding/json` writes with object member names sorted at every level.
+
+Two operands are therefore the same operand when they encode identically. `{"a": "b c"}` and `{"a b": "c"}` are different objects, member order does not matter, and `{"a": "1"}` differs from `{"a": 1}`. Numbers compare as numbers, so `0` and `-0` are one operand, as are a Go `int` and a `float64` holding the same integer.
 
 That encoding is also the key of a set, so membership is a lookup rather than a scan. Comparing two operators, merging two chain levels, and applying an operator to metadata are each linear in the number of operands, which a peer supplies.
 
-A value with no canonical encoding falls back to `reflect.DeepEqual`, which compares Go types and bytes. Two kinds of value take that path, and a peer can send neither, because every operand from a peer arrives through a JSON decode:
+Everything else compares by `reflect.DeepEqual`, which is exact on Go types and bytes and never treats two operands as one when they are not. A peer cannot reach this path, because every operand from a peer arrives through a JSON decode. A consumer building a policy in Go reaches it with:
 
-- A string holding bytes that are not valid UTF-8, anywhere in the value, including an object member name. `encoding/json` would substitute U+FFFD and lose the distinction.
-- A number with no JSON form, such as a `NaN` or an infinity. A `NaN` is not equal to itself, as in Go and IEEE 754, so each one survives deduplication.
+- Any other Go type, such as a struct, a `[]string` or a `map[string]string`. These are compared by Go identity rather than by the JSON they would render, which is the conservative answer: a struct whose fields are all unexported renders as `{}`, so keying it would make every such struct one operand.
+- A string holding bytes that are not valid UTF-8, anywhere in the value, including an object member name. `encoding/json` substitutes U+FFFD rather than failing, so the encoding would lose the distinction.
+- A number with no JSON form. An infinity compares equal to itself. A `NaN` is equal to nothing, not even itself, as in Go and IEEE 754, so each one survives deduplication and satisfies no requirement.
+
+Comparison on that path is a scan, so a policy built in Go from a large number of these values costs more than a policy of JSON values. Published policies hold JSON values by definition, so this affects only a consumer applying a policy it never serialises.
 
 All seven operators from the specification are implemented: `value`, `add`, `default`, `one_of`, `subset_of`, `superset_of` and `essential`.
 

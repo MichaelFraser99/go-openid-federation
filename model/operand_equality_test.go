@@ -2,7 +2,9 @@ package model
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -169,7 +171,6 @@ func TestOperands_StringsWithNoJSONEncodingStayDistinct(t *testing.T) {
 }
 
 func TestOperands_ValuesThatCannotMatchDoNotAccumulate(t *testing.T) {
-	// Unguarded this is quadratic: 8,000 took 500ms against the 3ms below.
 	const count = 8000
 	const budget = 250 * time.Millisecond
 
@@ -194,8 +195,8 @@ func TestOperands_ValuesThatCannotMatchDoNotAccumulate(t *testing.T) {
 	}
 
 	set := newOperandSet([]any{math.NaN(), math.NaN(), "a", string([]byte{0xff})})
-	if len(set.unkeyed) != 1 {
-		t.Errorf("only the value that can match itself belongs in the fallback bucket, got %d entries", len(set.unkeyed))
+	if set.fallbackCount() != 1 {
+		t.Errorf("only the value that can match itself belongs in the fallback bucket, got %d entries", set.fallbackCount())
 	}
 }
 
@@ -471,4 +472,82 @@ func mustSupersetOf(t *testing.T, operand []any) SupersetOf {
 		t.Fatalf("no error expected building 'superset_of', got: %v", err)
 	}
 	return *operator
+}
+
+func TestOperands_MergePreservesTheCurrentLevelOrder(t *testing.T) {
+	const count = 24
+
+	current := make([]any, count)
+	incoming := make([]any, 0, count+1)
+	for i := range count {
+		current[i] = fmt.Sprintf("value-%d", count-1-i)
+		incoming = append(incoming, fmt.Sprintf("value-%d", i))
+	}
+	incoming = append(incoming, "value-extra")
+
+	tests := []struct {
+		name  string
+		build func(any) (MetadataPolicyOperator, error)
+	}{
+		{name: "one_of", build: func(v any) (MetadataPolicyOperator, error) { return NewOneOf(v) }},
+		{name: "subset_of", build: func(v any) (MetadataPolicyOperator, error) { return NewSubsetOf(v) }},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			operator, err := test.build(current)
+			if err != nil {
+				t.Fatalf("no error expected building the operator, got: %v", err)
+			}
+			merged, err := operator.Merge(incoming)
+			if err != nil {
+				t.Fatalf("no error expected merging, got: %v", err)
+			}
+			got, ok := merged.OperatorValue().([]any)
+			if !ok {
+				t.Fatalf("expected an array operand, got %T", merged.OperatorValue())
+			}
+			if !reflect.DeepEqual(got, current) {
+				t.Errorf("expected the current level's order %v, got %v", current, got)
+			}
+		})
+	}
+}
+
+func TestOperands_AddUnionIsASet(t *testing.T) {
+	tests := []struct {
+		name     string
+		metadata []any
+		operand  []any
+		expect   []any
+	}{
+		{
+			name:     "an operand the metadata already holds",
+			metadata: []any{"x", "y"},
+			operand:  []any{"y"},
+			expect:   []any{"x", "y"},
+		},
+		{
+			name:     "an operand listed twice",
+			metadata: []any{"x"},
+			operand:  []any{"y", "y"},
+			expect:   []any{"x", "y"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			operator, err := NewAdd(test.operand)
+			if err != nil {
+				t.Fatalf("no error expected building the operator, got: %v", err)
+			}
+			resolved, err := operator.Resolve(test.metadata)
+			if err != nil {
+				t.Fatalf("no error expected resolving, got: %v", err)
+			}
+			if !reflect.DeepEqual(resolved, any(test.expect)) {
+				t.Errorf("expected %v, got %v", test.expect, resolved)
+			}
+		})
+	}
 }

@@ -80,6 +80,17 @@ func fetch(ctx context.Context, cfg model.Configuration, entityIdentifier model.
 }
 
 func Validate(ctx context.Context, cfg model.Configuration, entityIdentifier model.EntityIdentifier, entityConfigurationJwt string) (*model.EntityStatement, error) {
+	entityConfiguration, err := validate(ctx, cfg, entityIdentifier, entityConfigurationJwt)
+	if err != nil {
+		if errors.Is(err, model.ErrInvalidMetadata) || errors.Is(err, model.ErrInvalidTrustChain) {
+			return nil, err
+		}
+		return nil, model.NewInvalidTrustChainError(err.Error())
+	}
+	return entityConfiguration, nil
+}
+
+func validate(ctx context.Context, cfg model.Configuration, entityIdentifier model.EntityIdentifier, entityConfigurationJwt string) (*model.EntityStatement, error) {
 	parts := strings.Split(entityConfigurationJwt, ".")
 	if len(parts) != 3 {
 		return nil, fmt.Errorf("invalid JWT structure")
@@ -187,19 +198,14 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 	entityConfiguration.AuthorityHints = cfg.AuthorityHints
 	entityConfiguration.TrustMarks = cfg.TrustMarks
 	entityConfiguration.Iat = time.Now().UTC().Unix()
-	entityConfigurationLifetime := cfg.EntityConfigurationLifetime
-	if entityConfigurationLifetime <= 0 {
-		entityConfigurationLifetime = model.DefaultEntityConfigurationLifetime
+	entityConfigurationLifetime, err := model.ResolveStatementLifetime("EntityConfigurationLifetime", cfg.EntityConfigurationLifetime, model.DefaultEntityConfigurationLifetime)
+	if err != nil {
+		return nil, err
 	}
 	entityConfiguration.Exp = time.Now().Add(entityConfigurationLifetime).UTC().Unix()
 	entityConfiguration.MetadataPolicy = nil
 	entityConfiguration.Constraints = nil
-	entityConfiguration.MetadataPolicyCrit = nil
 	entityConfiguration.SourceEndpoint = nil
-
-	if len(entityConfiguration.Crit) > 0 {
-		return nil, fmt.Errorf("this implementation cannot issue an entity configuration carrying a 'crit' claim, as it has no way to carry the critical extension claims themselves")
-	}
 
 	metadata := model.Metadata{}
 	if cfg.EntityConfiguration.Metadata != nil {
@@ -331,8 +337,7 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 		return nil, fmt.Errorf("failed to deserialize entity cfg: %s", err.Error())
 	}
 
-	var roundTrip model.EntityStatement
-	if err = json.Unmarshal(entityConfigurationBytes, &roundTrip); err != nil {
+	if err = model.VerifyIssuedStatement(entityConfigurationBytes, cfg.EntityTypes, cfg.DiscardUnrecognisedEntityTypes); err != nil {
 		return nil, fmt.Errorf("refusing to publish an entity configuration this implementation would reject: %s", err.Error())
 	}
 

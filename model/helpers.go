@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"time"
 )
 
 func ReMarshalJsonAsEntityMetadata[T any](data any) (*T, error) {
@@ -290,6 +291,38 @@ func joinScopeTokens(values []string) string {
 		}
 	}
 	return strings.Join(tokens, " ")
+}
+
+func ResolveStatementLifetime(name string, configured, fallback time.Duration) (time.Duration, error) {
+	if configured < 0 {
+		return 0, fmt.Errorf("%s must not be negative, got %s", name, configured)
+	}
+	if configured < time.Second {
+		return fallback, nil
+	}
+	return configured, nil
+}
+
+func VerifyIssuedStatement(claims []byte, registry EntityTypeRegistry, discardUnrecognised bool) error {
+	var issued EntityStatement
+	if err := json.Unmarshal(claims, &issued); err != nil {
+		return err
+	}
+	if issued.Metadata != nil {
+		if err := issued.Metadata.Verify(registry, discardUnrecognised); err != nil {
+			return err
+		}
+	}
+	if issued.MetadataPolicy != nil {
+		if err := issued.MetadataPolicy.Verify(registry, discardUnrecognised); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ChainHasExpired(exp int64) bool {
+	return time.Now().Add(-ClockSkewLeeway).UTC().Unix() > exp
 }
 
 func CalculateChainExpiration(chain []EntityStatement) int64 {

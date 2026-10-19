@@ -9,7 +9,7 @@ import (
 
 func TestTrustMarkHolder_BoundsAllocationForALargeTrustMark(t *testing.T) {
 	const inputBytes = 1 << 20
-	const allocationCeiling = 12 << 20
+	const allocationCeiling = 2 * inputBytes
 
 	holder := []byte(`{"trust_mark_type":"https://tm.example.com/a","trust_mark":"` + strings.Repeat(".", inputBytes) + `"}`)
 

@@ -209,7 +209,7 @@ The response is determined before it is written, so a caller can run code betwee
 | `EntityIdentifier` | The entity's own identifier |
 | `AuthorityHints` | Identifiers of the entity's immediate superiors |
 | `TrustMarks` | Trust marks to publish in the entity configuration |
-| `EntityConfiguration` | The entity statement to publish. The library sets `iss`, `sub`, `iat`, `exp`, `authority_hints`, `trust_marks`, `trust_mark_issuers` and `jwks`. It clears the subordinate-statement-only claims `metadata_policy`, `metadata_policy_crit`, `constraints` and `source_endpoint`. It refuses to issue a configuration that carries `crit` |
+| `EntityConfiguration` | The entity statement to publish. The library sets `iss`, `sub`, `iat`, `exp`, `authority_hints`, `trust_marks` and `jwks`, and sets `trust_mark_issuers` when a `TrustMarkIssuerRetriever` is configured. It clears the subordinate-statement-only claims `metadata_policy`, `constraints` and `source_endpoint` |
 | `EntityConfigurationLifetime` | How long a generated entity configuration remains valid. Defaults to `model.DefaultEntityConfigurationLifetime` when unset |
 | `IntermediateConfiguration` | Set if the entity issues subordinate statements |
 | `Extensions` | Opt-in extension endpoints |
@@ -267,9 +267,11 @@ A `SubordinateConfiguration` may carry its own `SignerConfiguration`. When prese
 
 Parsing applies the claim rules from section 3.2 of the specification. Three of these reject statements that earlier releases accepted.
 
-- A statement is rejected when it is expired or future-dated. Both comparisons allow `model.ClockSkewLeeway` of clock skew. The `iat` claim must be before the `exp` claim.
+- A statement is rejected when it is expired or future-dated. Both comparisons allow `model.ClockSkewLeeway` of clock skew, and so does the trust chain expiry check, so the two layers agree on what expired means. The `iat` claim must be before the `exp` claim.
 - A statement that carries a `crit` claim is rejected, with no opt-in. The library has no way to carry the critical extension claims themselves. See issue #132.
 - A statement that carries a `metadata_policy_crit` claim is rejected. The claim names metadata policy operators that an implementation must understand, and this library understands none beyond the seven standard operators.
+
+`EntityStatement` has no field for either `crit` or `metadata_policy_crit`. Both claims are refused on the way in, and the library cannot emit either, so there is no field to set.
 
 Both issuance paths check their own output against these rules. `Server.HandleWellKnown` and the fetch endpoint fail rather than publish a statement that this library would refuse to read.
 
@@ -483,7 +485,11 @@ Entity statements and configurations, subordinate statements, trust chain constr
 |---|---|---|
 | `constraints` claim | Parsed and carried, never enforced | [#50](https://github.com/MichaelFraser99/go-openid-federation/issues/50) |
 | Configurable trust anchors and their keys | Not supported, so a caller-supplied chain cannot be anchored | [#48](https://github.com/MichaelFraser99/go-openid-federation/issues/48) |
-| `metadata_policy_crit` enforcement | Any value is rejected, rather than unknown operators alone | [#72](https://github.com/MichaelFraser99/go-openid-federation/issues/72) |
+| `metadata_policy` in an entity configuration | Rejected on read, but `ProcessAndExtractPolicy` still seeds from the first chain entry | [#51](https://github.com/MichaelFraser99/go-openid-federation/issues/51) |
+| Clock skew tolerance | `model.ClockSkewLeeway` is a constant and cannot be configured | [#141](https://github.com/MichaelFraser99/go-openid-federation/issues/141) |
+| JWS `alg` against the signing key | The `alg` header is not compared to the `alg` member of the selected JWK | [#142](https://github.com/MichaelFraser99/go-openid-federation/issues/142) |
+| Resolved metadata validation | Entity type validation runs on parse, not after a metadata policy is applied | [#144](https://github.com/MichaelFraser99/go-openid-federation/issues/144) |
+| Server configuration validation | A bad `ServerConfiguration` is reported when a peer first fetches, not at startup | [#145](https://github.com/MichaelFraser99/go-openid-federation/issues/145) |
 | Extension claims | Dropped on parse and cannot be issued | [#132](https://github.com/MichaelFraser99/go-openid-federation/issues/132) |
 | `trust_chain` and `peer_trust_chain` JOSE headers | Not read or written | [#139](https://github.com/MichaelFraser99/go-openid-federation/issues/139) |
 | Trust mark type identifiers as object member names | Values are validated, member names are not | [#140](https://github.com/MichaelFraser99/go-openid-federation/issues/140) |

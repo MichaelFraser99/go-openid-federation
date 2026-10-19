@@ -296,22 +296,20 @@ type SubordinateStatusEvent struct {
 }
 
 type EntityStatement struct { //todo: allow for additional claims to be set - think profiles
-	Iss                EntityIdentifier              `json:"iss"`
-	Sub                EntityIdentifier              `json:"sub"`
-	Iat                int64                         `json:"iat"`
-	Exp                int64                         `json:"exp"`
-	JWKs               josemodel.Jwks                `json:"jwks"`
-	AuthorityHints     []EntityIdentifier            `json:"authority_hints,omitempty"`
-	TrustAnchorHints   []EntityIdentifier            `json:"trust_anchor_hints,omitempty"`
-	Metadata           *Metadata                     `json:"metadata,omitempty"`
-	MetadataPolicy     *MetadataPolicy               `json:"metadata_policy,omitempty"`
-	Constraints        any                           `json:"constraints,omitempty"` //todo
-	Crit               []string                      `json:"crit,omitempty"`
-	MetadataPolicyCrit []string                      `json:"metadata_policy_crit,omitempty"`
-	TrustMarks         []TrustMarkHolder             `json:"trust_marks,omitempty"`
-	TrustMarkIssuers   map[string][]EntityIdentifier `json:"trust_mark_issuers,omitempty"`
-	TrustMarkOwners    map[string]TrustMarkOwner     `json:"trust_mark_owners,omitempty"`
-	SourceEndpoint     *string                       `json:"source_endpoint,omitempty"`
+	Iss              EntityIdentifier              `json:"iss"`
+	Sub              EntityIdentifier              `json:"sub"`
+	Iat              int64                         `json:"iat"`
+	Exp              int64                         `json:"exp"`
+	JWKs             josemodel.Jwks                `json:"jwks"`
+	AuthorityHints   []EntityIdentifier            `json:"authority_hints,omitempty"`
+	TrustAnchorHints []EntityIdentifier            `json:"trust_anchor_hints,omitempty"`
+	Metadata         *Metadata                     `json:"metadata,omitempty"`
+	MetadataPolicy   *MetadataPolicy               `json:"metadata_policy,omitempty"`
+	Constraints      any                           `json:"constraints,omitempty"` //todo
+	TrustMarks       []TrustMarkHolder             `json:"trust_marks,omitempty"`
+	TrustMarkIssuers map[string][]EntityIdentifier `json:"trust_mark_issuers,omitempty"`
+	TrustMarkOwners  map[string]TrustMarkOwner     `json:"trust_mark_owners,omitempty"`
+	SourceEndpoint   *string                       `json:"source_endpoint,omitempty"`
 }
 
 type TrustMarkOwner struct {
@@ -431,9 +429,6 @@ func parseNumericDate(claim string, value any) (int64, error) {
 	f, ok := value.(float64)
 	if !ok {
 		return 0, fmt.Errorf("'%s' claim is malformed", claim)
-	}
-	if math.IsNaN(f) || math.IsInf(f, 0) {
-		return 0, fmt.Errorf("'%s' claim is not a valid numeric date", claim)
 	}
 	if f < 0 {
 		return 0, fmt.Errorf("'%s' claim must not be negative", claim)
@@ -672,7 +667,7 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 		if !ok {
 			return fmt.Errorf("'source_endpoint' claim must be a string")
 		}
-		if err := verifyHTTPSURLValue("source_endpoint", sEndpoint, false); err != nil {
+		if err := verifyHTTPSURLValue("source_endpoint", sEndpoint, true); err != nil {
 			return err
 		}
 		if parsed, err := url.Parse(sEndpoint); err != nil || !parsed.IsAbs() || parsed.Host == "" {

@@ -57,7 +57,7 @@ Each federation entity type has its own file implementing `EntityTypeIdentifier`
 
 ## Conventions
 
-- `//todo:` comments mark known incomplete areas (the unimplemented `constraints` claim, consumer-defined metadata types, error-type revisits). They are intentional signposts, not stray notes.
+- `//todo:` comments mark known incomplete areas across the client, server and model packages (the unimplemented `constraints` claim, trust mark delegation, content-type matching, error-type revisits, and handler duplication). They are intentional signposts, not stray notes.
 - Logging is optional and nil-safe: `Configuration.LogInfo`/`LogError` no-op when no `*slog.Logger` is set. Use them rather than a package logger.
 - Tests live alongside code as `_test.go`; `model_test/` and `server_test/` hold shared test helpers/fixtures (e.g. `server_test/testserver.go`).
 - Comments are not to be added by agents. Code is self-documenting and the comments are not welcome

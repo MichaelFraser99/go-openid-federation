@@ -1,6 +1,7 @@
 package entity_configuration
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -8,6 +9,23 @@ import (
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
+
+type strictRelyingPartyType struct{}
+
+func (strictRelyingPartyType) Identifier() string { return "openid_relying_party" }
+
+func (strictRelyingPartyType) VerifyMetadata(metadata map[string]any) error {
+	if _, present := metadata["organization_name"]; !present {
+		return errors.New("this deployment requires 'organization_name'")
+	}
+	return nil
+}
+
+func (strictRelyingPartyType) VerifyMetadataPolicy(map[string]model.PolicyOperators) error {
+	return nil
+}
+
+func (strictRelyingPartyType) VerifyResolvedMetadata(map[string]any) error { return nil }
 
 func TestNew_RefusesConfigurationsItsOwnParserRejects(t *testing.T) {
 	signerConfiguration, _ := issuanceSigner(t)
@@ -18,14 +36,6 @@ func TestNew_RefusesConfigurationsItsOwnParserRejects(t *testing.T) {
 		configure func(cfg *model.ServerConfiguration)
 		expectErr string
 	}{
-		{
-			name: "a crit claim cannot be carried",
-			step: "3.2 step 13",
-			configure: func(cfg *model.ServerConfiguration) {
-				cfg.EntityConfiguration.Crit = []string{"x-custom"}
-			},
-			expectErr: "cannot issue an entity configuration carrying a 'crit' claim",
-		},
 		{
 			name: "a trust mark owner with no key set",
 			step: "3.2 step 22",
@@ -62,6 +72,39 @@ func TestNew_RefusesConfigurationsItsOwnParserRejects(t *testing.T) {
 			expectErr: "refusing to publish",
 		},
 	}
+
+	t.Run("a consumer registered entity type is applied at issuance", func(t *testing.T) {
+		cfg := model.ServerConfiguration{
+			EntityIdentifier:            "https://leaf.example.com",
+			SignerConfiguration:         signerConfiguration,
+			EntityConfigurationLifetime: time.Hour,
+		}
+		cfg.EntityTypes = model.EntityTypeRegistry{
+			"openid_relying_party": strictRelyingPartyType{},
+		}
+		cfg.EntityConfiguration.Metadata = &model.Metadata{
+			OpenIDRelyingPartyMetadata: &model.OpenIDRelyingPartyMetadata{"redirect_uris": []any{"https://leaf.example.com/cb"}},
+		}
+
+		if _, err := New(t.Context(), cfg); err == nil {
+			t.Fatal("expected the consumer registered entity type to refuse issuance")
+		} else if !strings.Contains(err.Error(), "refusing to publish") {
+			t.Fatalf("expected a refusal to publish, got %v", err)
+		}
+	})
+
+	t.Run("a negative lifetime is refused", func(t *testing.T) {
+		cfg := model.ServerConfiguration{
+			EntityIdentifier:            "https://leaf.example.com",
+			SignerConfiguration:         signerConfiguration,
+			EntityConfigurationLifetime: -time.Hour,
+		}
+		if _, err := New(t.Context(), cfg); err == nil {
+			t.Fatal("expected a negative lifetime to be refused")
+		} else if !strings.Contains(err.Error(), "must not be negative") {
+			t.Fatalf("expected the negative lifetime to be named, got %v", err)
+		}
+	})
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

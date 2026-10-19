@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
+	"strings"
 	"testing"
 	"time"
 
@@ -89,8 +90,8 @@ func TestResolveMetadata_RejectsUnsupportedCriticalPolicyOperator(t *testing.T) 
 
 			if _, err := ResolveMetadata(t.Context(), model.Configuration{}, criticalOperatorAnchor, chain, nil); err == nil {
 				t.Fatal("chain accepted although metadata_policy_crit lists an operator the library does not support")
-			} else {
-				t.Logf("rejected with: %v", err)
+			} else if !strings.Contains(err.Error(), "none of which this implementation understands") {
+				t.Fatalf("expected the rejection to name the unsupported operator, got %v", err)
 			}
 		})
 	}

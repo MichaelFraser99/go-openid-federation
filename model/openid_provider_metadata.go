@@ -54,13 +54,15 @@ func (m OpenIDConnectOpenIDProviderMetadata) VerifyMetadata() error {
 		return err
 	}
 	for _, key := range []string{
-		"token_endpoint_auth_signing_alg_values_supported",
 		"request_object_signing_alg_values_supported",
 		"userinfo_signing_alg_values_supported",
 	} {
-		if err := VerifyAlgValuesClaim(m, key, false); err != nil {
+		if err := VerifyAlgValuesClaim(m, key, true); err != nil {
 			return err
 		}
+	}
+	if err := VerifyAlgValuesClaim(m, "token_endpoint_auth_signing_alg_values_supported", false); err != nil {
+		return err
 	}
 	for _, key := range []string{
 		"response_types_supported",

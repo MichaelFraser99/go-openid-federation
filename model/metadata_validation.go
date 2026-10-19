@@ -98,6 +98,9 @@ func verifyHTTPSURLValue(key string, v any, allowQuery bool) error {
 	if parsedURL.RawFragment != "" || parsedURL.Fragment != "" {
 		return fmt.Errorf("'%s' must not contain a fragment component", key)
 	}
+	if parsedURL.User != nil {
+		return fmt.Errorf("'%s' must not contain a userinfo component", key)
+	}
 	return nil
 }
 
@@ -110,7 +113,7 @@ func VerifyAlgClaim(m map[string]any, key string, allowNone bool) error {
 	if !ok {
 		return fmt.Errorf("'%s' must be a string", key)
 	}
-	if !allowNone && s == "none" {
+	if !allowNone && strings.EqualFold(strings.TrimSpace(s), "none") {
 		return fmt.Errorf("'%s' must not be the value 'none'", key)
 	}
 	return nil
@@ -125,8 +128,12 @@ func VerifyAlgValuesClaim(m map[string]any, key string, allowNone bool) error {
 	if !ok {
 		return fmt.Errorf("'%s' must be an array of strings", key)
 	}
-	if !allowNone && slices.Contains(slice, "none") {
-		return fmt.Errorf("'%s' must not contain the value 'none'", key)
+	if !allowNone {
+		for _, alg := range slice {
+			if strings.EqualFold(strings.TrimSpace(alg), "none") {
+				return fmt.Errorf("'%s' must not contain the value 'none'", key)
+			}
+		}
 	}
 	return nil
 }

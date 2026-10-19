@@ -161,7 +161,6 @@ func TestNew_IssuesConformingEntityConfigurations(t *testing.T) {
 			name: "subordinate statement only claims are not published",
 			configure: func(_ *testing.T, cfg *model.ServerConfiguration) {
 				cfg.EntityConfiguration.Constraints = map[string]any{"max_path_length": 1}
-				cfg.EntityConfiguration.MetadataPolicyCrit = []string{"regexp"}
 				cfg.EntityConfiguration.SourceEndpoint = josemodel.Pointer("https://ta.example.com/fetch")
 			},
 			validate: func(t *testing.T, claims map[string]any) {

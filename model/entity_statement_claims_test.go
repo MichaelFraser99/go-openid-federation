@@ -340,10 +340,26 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			expectErr: "must not contain a fragment component",
 		},
 		{
-			name:      "source_endpoint carrying a query",
+			name:   "source_endpoint carrying a query is accepted",
+			step:   "3.2 step 23 and 5.1.1",
+			claims: `"source_endpoint":"https://ta.example.com/fetch?sub=x"`,
+			assert: func(t *testing.T, statement EntityStatement) {
+				if statement.SourceEndpoint == nil || *statement.SourceEndpoint != "https://ta.example.com/fetch?sub=x" {
+					t.Errorf("expected the query to be kept, got %v", statement.SourceEndpoint)
+				}
+			},
+		},
+		{
+			name:      "source_endpoint carrying userinfo",
+			step:      "1.2",
+			claims:    `"source_endpoint":"https://ta.example.com@evil.example/fetch"`,
+			expectErr: "must not contain a userinfo component",
+		},
+		{
+			name:      "source_endpoint with no host",
 			step:      "3.2 step 23",
-			claims:    `"source_endpoint":"https://ta.example.com/fetch?sub=x"`,
-			expectErr: "must not contain a query component",
+			claims:    `"source_endpoint":"https:///fetch"`,
+			expectErr: "must be a valid absolute URL",
 		},
 		{
 			name:      "source_endpoint over a non-http scheme",

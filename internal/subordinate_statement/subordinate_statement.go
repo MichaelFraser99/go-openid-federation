@@ -78,6 +78,17 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 }
 
 func Validate(cfg model.Configuration, issuer model.EntityStatement, subordinateStatementJwt string) (*model.EntityStatement, error) {
+	subordinateStatement, err := validate(cfg, issuer, subordinateStatementJwt)
+	if err != nil {
+		if errors.Is(err, model.ErrInvalidMetadata) || errors.Is(err, model.ErrInvalidTrustChain) {
+			return nil, err
+		}
+		return nil, model.NewInvalidTrustChainError(err.Error())
+	}
+	return subordinateStatement, nil
+}
+
+func validate(cfg model.Configuration, issuer model.EntityStatement, subordinateStatementJwt string) (*model.EntityStatement, error) {
 	parts := strings.Split(subordinateStatementJwt, ".")
 	if len(parts) != 3 {
 		return nil, fmt.Errorf("invalid JWT structure")
@@ -192,9 +203,13 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		seen[sKid] = struct{}{}
 	}
 
-	subordinateStatementLifetime := configuration.IntermediateConfiguration.SubordinateStatementLifetime
-	if subordinateStatementLifetime <= 0 {
-		subordinateStatementLifetime = model.DefaultSubordinateStatementLifetime
+	subordinateStatementLifetime, err := model.ResolveStatementLifetime("SubordinateStatementLifetime", configuration.IntermediateConfiguration.SubordinateStatementLifetime, model.DefaultSubordinateStatementLifetime)
+	if err != nil {
+		return nil, err
+	}
+
+	if subjectIdentifier == configuration.EntityIdentifier {
+		return nil, fmt.Errorf("refusing to publish a subordinate statement about this entity itself, as a statement whose 'iss' and 'sub' claims match is an entity configuration")
 	}
 
 	subordinateStatement := model.EntityStatement{
@@ -224,8 +239,7 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		return nil, fmt.Errorf("failed to deserialize entity configuration: %s", err.Error())
 	}
 
-	var roundTrip model.EntityStatement
-	if err = json.Unmarshal(subordinateStatementBytes, &roundTrip); err != nil {
+	if err = model.VerifyIssuedStatement(subordinateStatementBytes, configuration.EntityTypes, configuration.DiscardUnrecognisedEntityTypes); err != nil {
 		return nil, fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %s", err.Error())
 	}
 

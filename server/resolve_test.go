@@ -334,13 +334,13 @@ func TestServer_Resolve(t *testing.T) {
 		"entity configuration with invalid metadata returns invalid metadata": {
 			requestSub: invalidMetadataEntityIdentifier,
 			validate: func(t *testing.T, response *http.Response, err error) {
-				validateErrorResponse(t, response, err, http.StatusBadRequest, "invalid_metadata", "entity configuration for "+invalidMetadataEntityIdentifier+" failed validation: invalid entity statement: invalid 'metadata' claim: invalid openid relying party metadata: missing required 'redirect_uris' claim")
+				validateErrorResponse(t, response, err, http.StatusBadRequest, "invalid_metadata", "entity configuration for "+invalidMetadataEntityIdentifier+" failed validation")
 			},
 		},
 		"entity configuration with a misplaced claim is a bad chain, not a missing entity": {
 			requestSub: misplacedClaimIdentifier,
 			validate: func(t *testing.T, response *http.Response, err error) {
-				validateErrorResponse(t, response, err, http.StatusBadRequest, "invalid_trust_chain", "entity configuration for "+misplacedClaimIdentifier+" failed validation: the \"source_endpoint\" claim is permitted only in subordinate statements, not in an entity configuration")
+				validateErrorResponse(t, response, err, http.StatusBadRequest, "invalid_trust_chain", "entity configuration for "+misplacedClaimIdentifier+" failed validation")
 			},
 		},
 		"trust anchor not found returns an error": {

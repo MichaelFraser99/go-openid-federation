@@ -108,9 +108,9 @@ func TestOAuthAuthorizationServerMetadata_VerifyResolvedMetadata(t *testing.T) {
 		metadata OAuthAuthorizationServerMetadata
 		wantErr  bool
 	}{
-		"empty metadata is valid": {
+		"an empty object does not satisfy a type that requires parameters": {
 			metadata: OAuthAuthorizationServerMetadata{},
-			wantErr:  false,
+			wantErr:  true,
 		},
 		"complete metadata": {
 			metadata: OAuthAuthorizationServerMetadata{

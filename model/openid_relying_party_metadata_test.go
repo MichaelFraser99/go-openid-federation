@@ -76,9 +76,9 @@ func TestOpenIDRelyingPartyMetadata_VerifyResolvedMetadata(t *testing.T) {
 		metadata OpenIDRelyingPartyMetadata
 		wantErr  bool
 	}{
-		"empty metadata is valid": {
+		"an empty object does not satisfy a type that requires parameters": {
 			metadata: OpenIDRelyingPartyMetadata{},
-			wantErr:  false,
+			wantErr:  true,
 		},
 		"redirect_uris supplied": {
 			metadata: OpenIDRelyingPartyMetadata{

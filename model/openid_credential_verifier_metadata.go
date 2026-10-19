@@ -29,8 +29,5 @@ func (m OpenIDCredentialVerifierMetadata) VerifyMetadata() error {
 }
 
 func (m OpenIDCredentialVerifierMetadata) VerifyResolvedMetadata() error {
-	if len(m) == 0 {
-		return nil
-	}
 	return VerifyRequiredClaims(m, "vp_formats_supported")
 }

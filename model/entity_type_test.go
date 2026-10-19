@@ -315,12 +315,12 @@ func TestDefaultEntityTypeRegistry_DelegatesToTheCorrectValidator(t *testing.T) 
 			expectedError: "'redirect_uris' must be an array of strings",
 		},
 		"openid_provider": {
-			metadata:      map[string]any{"issuer": "http://insecure.example.com"},
-			expectedError: "'issuer' must use the 'https' scheme",
+			metadata:      map[string]any{"authorization_endpoint": "http://insecure.example.com"},
+			expectedError: "'authorization_endpoint' must use the 'https' scheme",
 		},
 		"oauth_authorization_server": {
-			metadata:      map[string]any{"issuer": "http://insecure.example.com"},
-			expectedError: "'issuer' must use the 'https' scheme",
+			metadata:      map[string]any{"response_types_supported": "not-an-array"},
+			expectedError: "'response_types_supported' must be an array of strings",
 		},
 		"oauth_client": {
 			metadata:      map[string]any{"jwks_uri": "http://insecure.example.com"},

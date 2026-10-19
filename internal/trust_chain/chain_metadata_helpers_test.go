@@ -47,7 +47,7 @@ func chainSignStatement(t *testing.T, signer crypto.Signer, body map[string]any)
 	return *token
 }
 
-func chainWithClaims(t *testing.T, subjectMetadata map[string]any, subordinateExtra, anchorExtra map[string]any) []string {
+func chainWithClaims(t *testing.T, subjectMetadata map[string]any, subordinateExtra map[string]any) []string {
 	t.Helper()
 	subjectKey := chainSigningKey(t)
 	anchorKey := chainSigningKey(t)
@@ -88,10 +88,6 @@ func chainWithClaims(t *testing.T, subjectMetadata map[string]any, subordinateEx
 	for k, v := range subordinateExtra {
 		subordinate[k] = v
 	}
-	for k, v := range anchorExtra {
-		anchor[k] = v
-	}
-
 	return []string{
 		chainSignStatement(t, subjectKey, subject),
 		chainSignStatement(t, anchorKey, subordinate),

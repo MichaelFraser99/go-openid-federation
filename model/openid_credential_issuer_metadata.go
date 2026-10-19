@@ -35,9 +35,6 @@ func (m OpenIDCredentialIssuerMetadata) VerifyMetadata() error {
 }
 
 func (m OpenIDCredentialIssuerMetadata) VerifyResolvedMetadata() error {
-	if len(m) == 0 {
-		return nil
-	}
 	return VerifyRequiredClaims(m,
 		"credential_issuer",
 		"credential_endpoint",

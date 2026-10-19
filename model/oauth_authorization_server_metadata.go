@@ -43,8 +43,5 @@ func (m OAuthAuthorizationServerMetadata) VerifyMetadata() error {
 }
 
 func (m OAuthAuthorizationServerMetadata) VerifyResolvedMetadata() error {
-	if len(m) == 0 {
-		return nil
-	}
 	return VerifyRequiredClaims(m, "issuer", "response_types_supported")
 }

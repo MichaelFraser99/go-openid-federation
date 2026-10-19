@@ -64,9 +64,6 @@ func (m OpenIDConnectOpenIDProviderMetadata) VerifyMetadata() error {
 }
 
 func (m OpenIDConnectOpenIDProviderMetadata) VerifyResolvedMetadata() error {
-	if len(m) == 0 {
-		return nil
-	}
 	if err := VerifyRequiredClaims(m,
 		"issuer",
 		"authorization_endpoint",

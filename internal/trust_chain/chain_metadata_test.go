@@ -1,6 +1,7 @@
 package trust_chain
 
 import (
+	"errors"
 	"reflect"
 	"slices"
 	"testing"
@@ -53,7 +54,7 @@ func TestResolveMetadata_AppliesImmediateSuperiorMetadata(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			chain := chainWithClaims(t, test.subjectMetadata, test.subordinateExtra, nil)
+			chain := chainWithClaims(t, test.subjectMetadata, test.subordinateExtra)
 			result, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chain, nil)
 			if err != nil {
 				t.Fatalf("no error expected resolving, got: %v", err)
@@ -71,7 +72,7 @@ func TestResolveMetadata_SuperiorMetadataOnlyAffectsTypesTheSubjectPublishes(t *
 			"federation_entity": map[string]any{"contacts": []any{"superior-set@ta.example.com"}},
 			"oauth_resource":    map[string]any{"resource": "https://leaf.example.com/api"},
 		},
-	}, nil)
+	})
 
 	result, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chain, nil)
 	if err != nil {
@@ -131,15 +132,29 @@ func TestResolveMetadata_PartialMetadataIsCompletedBeforeItIsJudged(t *testing.T
 			subjectMetadata: map[string]any{"openid_relying_party": map[string]any{"client_name": "Leaf RP"}},
 		},
 		{
-			name:            "an entity type declared as the empty object stays acceptable",
+			name:            "an entity type declared as the empty object that nothing completes",
 			subjectMetadata: map[string]any{"openid_relying_party": map[string]any{}},
-			resolves:        true,
+		},
+		{
+			name:            "an entity type declared as the empty object that a policy completes",
+			subjectMetadata: map[string]any{"openid_relying_party": map[string]any{}},
+			subordinateExtra: map[string]any{"metadata_policy": map[string]any{"openid_relying_party": map[string]any{
+				"redirect_uris": map[string]any{"value": []any{"https://leaf.example.com/cb"}},
+			}}},
+			resolves: true,
+		},
+		{
+			name:            "a policy that removes the last parameter of a type",
+			subjectMetadata: map[string]any{"openid_relying_party": map[string]any{"redirect_uris": []any{"https://leaf.example.com/cb"}}},
+			subordinateExtra: map[string]any{"metadata_policy": map[string]any{"openid_relying_party": map[string]any{
+				"redirect_uris": map[string]any{"value": nil},
+			}}},
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			chain := chainWithClaims(t, test.subjectMetadata, test.subordinateExtra, nil)
+			chain := chainWithClaims(t, test.subjectMetadata, test.subordinateExtra)
 			_, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chain, nil)
 			if test.resolves {
 				if err != nil {
@@ -223,5 +238,87 @@ func TestResolveMetadata_PolicyFromEveryLevelStillMerges(t *testing.T) {
 		if !slices.Contains(got, want) {
 			t.Errorf("expected the merged policy to contribute %v, got %v", want, got)
 		}
+	}
+}
+
+func TestResolveMetadata_SingleEntryChainIsJudgedOnItsOwnMetadata(t *testing.T) {
+	tests := []struct {
+		name     string
+		metadata map[string]any
+		resolves bool
+	}{
+		{
+			name:     "a complete entity type",
+			metadata: map[string]any{"openid_relying_party": map[string]any{"redirect_uris": []any{"https://ta.example.com/cb"}}},
+			resolves: true,
+		},
+		{
+			name:     "an entity type missing a required parameter",
+			metadata: map[string]any{"openid_relying_party": map[string]any{"client_name": "Anchor RP"}},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			chain := chainWithClaims(t, test.metadata, nil)
+			_, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chain[:1], nil)
+			if test.resolves {
+				if err != nil {
+					t.Errorf("expected the entity configuration to resolve, got: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Error("a chain of one has no superior to complete it, so it must be judged as it stands")
+			}
+		})
+	}
+}
+
+func TestResolveMetadata_SuperiorCannotCreateAnInvalidCombination(t *testing.T) {
+	chain := chainWithClaims(t,
+		map[string]any{"openid_relying_party": map[string]any{
+			"redirect_uris": []any{"https://leaf.example.com/cb"},
+			"jwks":          map[string]any{"keys": []any{}},
+		}},
+		map[string]any{"metadata": map[string]any{"openid_relying_party": map[string]any{
+			"jwks_uri": "https://ta.example.com/leaf/jwks",
+		}}})
+
+	if _, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chain, nil); err == nil {
+		t.Error("a superior must not be able to produce resolved metadata holding both key parameters")
+	}
+}
+
+func TestResolveMetadata_MetadataFaultsOnASingleEntryChainAreTypedAsInvalidMetadata(t *testing.T) {
+	tests := []struct {
+		name     string
+		metadata map[string]any
+	}{
+		{
+			name:     "a claim of the wrong shape",
+			metadata: map[string]any{"openid_relying_party": map[string]any{"redirect_uris": "not-an-array"}},
+		},
+		{
+			name:     "a missing required claim",
+			metadata: map[string]any{"openid_relying_party": map[string]any{"client_name": "Anchor RP"}},
+		},
+		{
+			name:     "an entity type resolving to the empty object",
+			metadata: map[string]any{"openid_relying_party": map[string]any{}},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			chain := chainWithClaims(t, test.metadata, nil)
+			_, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chain[:1], nil)
+			if err == nil {
+				t.Fatal("expected the entity configuration to be refused")
+			}
+			if !errors.Is(err, model.ErrInvalidMetadata) {
+				t.Errorf("a peer's metadata fault must be typed as invalid metadata, got %T: %v", err, err)
+			}
+		})
 	}
 }

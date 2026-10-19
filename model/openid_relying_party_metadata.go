@@ -36,10 +36,8 @@ func (m OpenIDRelyingPartyMetadata) VerifyMetadata() error {
 	if err := VerifyAlgClaim(m, "token_endpoint_auth_signing_alg", false); err != nil {
 		return err
 	}
-	_, hasJWKs := m["jwks"]
-	_, hasJWKsURI := m["jwks_uri"]
-	if hasJWKs && hasJWKsURI {
-		return fmt.Errorf("'jwks' and 'jwks_uri' must not be used together")
+	if err := m.verifyKeyParameterPair(); err != nil {
+		return err
 	}
 	if err := VerifyObjectClaim(m, "jwks"); err != nil {
 		return err
@@ -54,8 +52,16 @@ func (m OpenIDRelyingPartyMetadata) VerifyMetadata() error {
 }
 
 func (m OpenIDRelyingPartyMetadata) VerifyResolvedMetadata() error {
-	if len(m) == 0 {
-		return nil
+	if err := m.verifyKeyParameterPair(); err != nil {
+		return err
 	}
 	return VerifyRequiredClaims(m, "redirect_uris")
+}
+func (m OpenIDRelyingPartyMetadata) verifyKeyParameterPair() error {
+	_, hasJWKs := m["jwks"]
+	_, hasJWKsURI := m["jwks_uri"]
+	if hasJWKs && hasJWKsURI {
+		return fmt.Errorf("'jwks' and 'jwks_uri' must not be used together")
+	}
+	return nil
 }

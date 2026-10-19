@@ -202,7 +202,7 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 		response, err := entity_configuration.Validate(ctx, cfg, *parsedSub, trustChain[len(trustChain)-1])
 		if err != nil {
 			cfg.LogInfo(ctx, "failed to validate self-signed entity configuration", slog.String("entity", string(*parsedSub)), slog.String("error", err.Error()))
-			return nil, fmt.Errorf("error validating entity configuration in final chain entry: %s", err.Error())
+			return nil, fmt.Errorf("error validating entity configuration in final chain entry: %w", err)
 		}
 		processedChain = append(processedChain, *response)
 	} else {

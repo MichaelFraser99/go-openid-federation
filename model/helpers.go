@@ -120,8 +120,8 @@ func ProcessAndExtractPolicy(trustChain []EntityStatement) (*MetadataPolicy, err
 		}
 	}
 
-	if len(trustChain) < 2 {
-		return nil, fmt.Errorf("trust chain must have at least 2 statements")
+	if len(trustChain) < 3 {
+		return nil, fmt.Errorf("trust chain must hold at least one subordinate statement between the subject's and the trust anchor's entity configurations, got %d statements", len(trustChain))
 	}
 
 	var finalisedPolicy *MetadataPolicy
@@ -418,7 +418,8 @@ func DeduplicateSlice(input []any) []any {
 // ApplySuperiorMetadata returns the subject's metadata with the metadata parameters supplied by its
 // Immediate Superior applied over it. Parameters from the Subordinate Statement take precedence over
 // identically named parameters under the same Entity Type, and only Entity Types already present in
-// the subject's own metadata are affected. Neither input is modified.
+// the subject's own metadata are affected. The returned metadata holds fresh maps per Entity Type,
+// so neither input's own maps are written to, but parameter values are shared by reference.
 func ApplySuperiorMetadata(subject, superior *Metadata) *Metadata {
 	if subject == nil {
 		return nil

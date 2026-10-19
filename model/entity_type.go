@@ -131,6 +131,13 @@ func (m *Metadata) Verify(registry EntityTypeRegistry, discardUnrecognised bool)
 func (m *Metadata) VerifyResolved(registry EntityTypeRegistry) error {
 	merged := registry.withDefaults()
 	for entityType, entityMetadata := range m.byEntityType() {
+		if _, overridden := registry[entityType]; overridden {
+			if builtIn, isBuiltIn := builtInEntityTypeDefinitions[entityType]; isBuiltIn {
+				if err := builtIn.VerifyResolvedMetadata(entityMetadata); err != nil {
+					return fmt.Errorf("invalid resolved %s metadata: %w", entityType, err)
+				}
+			}
+		}
 		definition, recognised := merged[entityType]
 		if !recognised {
 			continue

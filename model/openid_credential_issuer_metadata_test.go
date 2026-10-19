@@ -98,9 +98,9 @@ func TestOpenIDCredentialIssuerMetadata_VerifyResolvedMetadata(t *testing.T) {
 		metadata OpenIDCredentialIssuerMetadata
 		wantErr  bool
 	}{
-		"empty metadata is valid": {
+		"an empty object does not satisfy a type that requires parameters": {
 			metadata: OpenIDCredentialIssuerMetadata{},
-			wantErr:  false,
+			wantErr:  true,
 		},
 		"complete metadata": {
 			metadata: base(),

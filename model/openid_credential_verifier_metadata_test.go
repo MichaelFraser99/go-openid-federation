@@ -55,9 +55,9 @@ func TestOpenIDCredentialVerifierMetadata_VerifyResolvedMetadata(t *testing.T) {
 		metadata OpenIDCredentialVerifierMetadata
 		wantErr  bool
 	}{
-		"empty metadata is valid": {
+		"an empty object does not satisfy a type that requires parameters": {
 			metadata: OpenIDCredentialVerifierMetadata{},
-			wantErr:  false,
+			wantErr:  true,
 		},
 		"vp_formats_supported supplied": {
 			metadata: OpenIDCredentialVerifierMetadata{

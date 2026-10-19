@@ -20,8 +20,5 @@ func (m OpenIDWalletProviderMetadata) VerifyMetadata() error {
 }
 
 func (m OpenIDWalletProviderMetadata) VerifyResolvedMetadata() error {
-	if len(m) == 0 {
-		return nil
-	}
 	return VerifyRequiredClaims(m, "vp_formats_supported")
 }

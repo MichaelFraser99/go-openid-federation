@@ -532,6 +532,7 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | JWK sets whose keys omit `kty` | Accepted on read, so the fault surfaces at verification | [#146](https://github.com/MichaelFraser99/go-openid-federation/issues/146) |
 | A `jwks` member name that case-folds to `keys` | Supplies the verification keys through Go's case-insensitive decode | [#147](https://github.com/MichaelFraser99/go-openid-federation/issues/147) |
 | Error classes on the fetch path | A peer's fault is reported as a server error | [#148](https://github.com/MichaelFraser99/go-openid-federation/issues/148) |
+| Policy merge against trust chain length | Cost grows faster than the chain, which `MaxTrustChainDepth` leaves unbounded by default | [#153](https://github.com/MichaelFraser99/go-openid-federation/issues/153) |
 
 ## License
 

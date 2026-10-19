@@ -366,13 +366,8 @@ type publicKeyComparer interface {
 }
 
 func publishedKeyUsableForSigning(existing, intended map[string]any, signerPublicKey crypto.PublicKey) error {
-	if kty, ok := existing["kty"].(string); !ok || kty == "" {
-		return fmt.Errorf("has a missing or malformed 'kty' claim")
-	}
-	if crv, present := existing["crv"]; present {
-		if _, ok := crv.(string); !ok {
-			return fmt.Errorf("has a malformed 'crv' claim")
-		}
+	if err := entity_statement.ValidateJWKShape(existing); err != nil {
+		return err
 	}
 
 	publishedKey, err := jwk.PublicFromJwk(existing)

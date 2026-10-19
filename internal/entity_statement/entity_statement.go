@@ -83,6 +83,25 @@ func VerifyIssuedSignature(token, kid, alg string, signer crypto.Signer) error {
 	return VerifyAgainstJwks(token, kid, josemodel.Jwks{Keys: []map[string]any{*publicJWK}})
 }
 
+func ValidateJWKShape(key map[string]any) error {
+	kty, ok := key["kty"].(string)
+	if !ok || kty == "" {
+		return fmt.Errorf("has a missing or malformed 'kty' claim")
+	}
+	if kty == "EC" {
+		if crv, ok := key["crv"].(string); !ok || crv == "" {
+			return fmt.Errorf("has a missing or malformed 'crv' claim, which RFC 7518 requires for an EC key")
+		}
+		return nil
+	}
+	if crv, present := key["crv"]; present {
+		if _, ok := crv.(string); !ok {
+			return fmt.Errorf("has a malformed 'crv' claim")
+		}
+	}
+	return nil
+}
+
 func SelectKey(jwks josemodel.Jwks, kid string) (map[string]any, error) {
 	if kid == "" {
 		return nil, fmt.Errorf("header claim 'kid' must be a non-empty string")
@@ -108,6 +127,9 @@ func SelectKey(jwks josemodel.Jwks, kid string) (map[string]any, error) {
 	selectedKey := keys[kid]
 	if selectedKey == nil {
 		return nil, fmt.Errorf("no matching key found in the included 'jwks'")
+	}
+	if err := ValidateJWKShape(selectedKey); err != nil {
+		return nil, fmt.Errorf("the selected key in the included 'jwks' %s", err.Error())
 	}
 	return selectedKey, nil
 }
@@ -154,17 +176,20 @@ func ExtractDetails(token string) (keyID, subject, issuer *string, err error) {
 		return nil, nil, nil, fmt.Errorf("failed to unmarshal JWT body to json: %s", err.Error())
 	}
 
-	if headMap["kid"] == nil {
-		return nil, nil, nil, fmt.Errorf("missing 'kid' claim")
+	kid, ok := headMap["kid"].(string)
+	if !ok {
+		return nil, nil, nil, fmt.Errorf("missing or malformed 'kid' claim")
 	}
 
-	if bodyMap["iss"] == nil {
-		return nil, nil, nil, fmt.Errorf("missing 'iss' claim")
+	sIss, ok := bodyMap["iss"].(string)
+	if !ok {
+		return nil, nil, nil, fmt.Errorf("missing or malformed 'iss' claim")
 	}
 
-	if bodyMap["sub"] == nil {
-		return nil, nil, nil, fmt.Errorf("missing 'sub' claim")
+	sSub, ok := bodyMap["sub"].(string)
+	if !ok {
+		return nil, nil, nil, fmt.Errorf("missing or malformed 'sub' claim")
 	}
 
-	return josemodel.Pointer(headMap["kid"].(string)), josemodel.Pointer(bodyMap["sub"].(string)), josemodel.Pointer(bodyMap["iss"].(string)), nil
+	return josemodel.Pointer(kid), josemodel.Pointer(sSub), josemodel.Pointer(sIss), nil
 }

@@ -152,7 +152,7 @@ func TestAddSubordinate_IgnoresANilConfiguration(t *testing.T) {
 	}
 }
 
-func TestContainsDeepEqual_CompositeHoldingAMapDoesNotPanic(t *testing.T) {
+func TestOperandSet_CompositeHoldingAMapDoesNotPanic(t *testing.T) {
 	tests := []struct {
 		name     string
 		haystack []any
@@ -173,7 +173,7 @@ func TestContainsDeepEqual_CompositeHoldingAMapDoesNotPanic(t *testing.T) {
 					t.Fatalf("comparing a composite value panicked: %v", r)
 				}
 			}()
-			if got := containsDeepEqual(tc.haystack, tc.needle); got != tc.expect {
+			if got := containsOperand(tc.haystack, tc.needle); got != tc.expect {
 				t.Errorf("expected %v, got %v", tc.expect, got)
 			}
 		})
@@ -234,7 +234,7 @@ func TestApplyPolicy_EmptyEntityTypeObjectDoesNotPanic(t *testing.T) {
 	}
 }
 
-func TestContainsDeepEqual_NilCandidate(t *testing.T) {
+func TestOperandSet_NilCandidate(t *testing.T) {
 	tests := []struct {
 		name     string
 		haystack []any
@@ -255,7 +255,7 @@ func TestContainsDeepEqual_NilCandidate(t *testing.T) {
 					t.Fatalf("a nil operand value panicked, which peer JSON can produce: %v", r)
 				}
 			}()
-			if got := containsDeepEqual(tc.haystack, tc.needle); got != tc.expect {
+			if got := containsOperand(tc.haystack, tc.needle); got != tc.expect {
 				t.Errorf("expected %v, got %v", tc.expect, got)
 			}
 		})

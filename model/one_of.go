@@ -65,11 +65,9 @@ func (o OneOf) Resolve(metadataParameterValue any) (any, error) {
 	}
 
 	// Ensure metadata parameter's type matches with items in the operator value
-	operatorSlice := reflect.ValueOf(o.operatorValue)
-	for i := 0; i < operatorSlice.Len(); i++ {
-		if reflect.DeepEqual(metadataParameterValue, operatorSlice.Index(i).Interface()) {
-			return metadataParameterValue, nil
-		}
+	allowed := newOperandSetFromReflect(reflect.ValueOf(o.operatorValue))
+	if allowed.contains(metadataParameterValue) {
+		return metadataParameterValue, nil
 	}
 
 	return nil, fmt.Errorf("metadata parameter value %v is not one of the allowed values", metadataParameterValue)
@@ -91,12 +89,11 @@ func (o OneOf) Merge(valueToMerge any) (MetadataPolicyOperator, error) {
 	intersection := make([]any, 0)
 
 	// Perform intersection
-	for i := 0; i < currentSlice.Len(); i++ {
-		for j := 0; j < mergeSlice.Len(); j++ {
-			if reflect.DeepEqual(currentSlice.Index(i).Interface(), mergeSlice.Index(j).Interface()) {
-				intersection = append(intersection, currentSlice.Index(i).Interface())
-				break
-			}
+	incoming := newOperandSetFromReflect(mergeSlice)
+	for i := range currentSlice.Len() {
+		value := currentSlice.Index(i).Interface()
+		if incoming.contains(value) {
+			intersection = append(intersection, value)
 		}
 	}
 
@@ -118,7 +115,7 @@ func (o OneOf) CheckForConflict(containsFunc func(policyType reflect.Type) (Meta
 		if _, ok := p.OperatorValue().([]any); ok {
 			return fmt.Errorf("cannot merge policy of type 'one_of' with policy of type 'value' if the value of 'value' is an array")
 		}
-		if !containsDeepEqual(o.operatorValue, p.OperatorValue()) {
+		if !containsOperand(o.operatorValue, p.OperatorValue()) {
 			return fmt.Errorf("cannot merge policy of type 'one_of' with policy of type 'value' unless the value of 'value' is contained within `one_of`")
 		}
 	}

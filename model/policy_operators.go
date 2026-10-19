@@ -15,25 +15,62 @@ func scopeOperatorSlice(value any) []any {
 	return []any{value}
 }
 
-func scalarKind(kind reflect.Kind) bool {
-	switch kind {
-	case reflect.Bool, reflect.String,
-		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
-		reflect.Float32, reflect.Float64:
-		return true
-	default:
-		return false
+func canonicalOperandKey(value any) (string, bool) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return "", false
 	}
+	return string(raw), true
 }
 
-func containsDeepEqual(haystack []any, needle any) bool {
-	return slices.ContainsFunc(haystack, func(candidate any) bool {
-		if candidate == nil || scalarKind(reflect.TypeOf(candidate).Kind()) {
-			return candidate == needle
+type operandSet struct {
+	keyed   map[string]struct{}
+	unkeyed []any
+}
+
+func newOperandSet(values []any) operandSet {
+	set := operandSet{keyed: make(map[string]struct{}, len(values))}
+	for _, value := range values {
+		if key, ok := canonicalOperandKey(value); ok {
+			set.keyed[key] = struct{}{}
+			continue
 		}
-		return reflect.DeepEqual(candidate, needle)
+		set.unkeyed = append(set.unkeyed, value)
+	}
+	return set
+}
+
+func (s operandSet) contains(value any) bool {
+	if key, ok := canonicalOperandKey(value); ok {
+		if _, present := s.keyed[key]; present {
+			return true
+		}
+	}
+	return slices.ContainsFunc(s.unkeyed, func(candidate any) bool {
+		return reflect.DeepEqual(candidate, value)
 	})
+}
+
+func newOperandSetFromReflect(values reflect.Value) operandSet {
+	collected := make([]any, values.Len())
+	for i := range values.Len() {
+		collected[i] = values.Index(i).Interface()
+	}
+	return newOperandSet(collected)
+}
+
+func containsOperand(superset []any, value any) bool {
+	return newOperandSet(superset).contains(value)
+}
+
+func isSubsetOfOperands(subset, superset []any) bool {
+	set := newOperandSet(superset)
+	for _, value := range subset {
+		if !set.contains(value) {
+			return false
+		}
+	}
+	return true
 }
 
 type PolicyOperators struct {

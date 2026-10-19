@@ -400,6 +400,14 @@ The validators the built-in types use are exported for custom types to reuse.
 
 ## Metadata policy
 
+### How operand values are compared
+
+Policy operators compare their operand values by canonical JSON encoding. Two values are the same value when they encode identically, so `{"a": "b c"}` and `{"a b": "c"}` are different objects, member order does not matter, and `{"a": "1"}` differs from `{"a": 1}`.
+
+That encoding is also the key of a set, so membership is a lookup rather than a scan: comparing two operators, merging two chain levels, and applying an operator to metadata are each linear in the number of values rather than quadratic.
+
+A value with no JSON encoding, which a consumer can construct in Go but a peer cannot send, falls back to `reflect.DeepEqual`. A `NaN` is therefore not equal to itself, as in Go and IEEE 754.
+
 All seven operators from the specification are implemented: `value`, `add`, `default`, `one_of`, `subset_of`, `superset_of` and `essential`.
 
 Policies are combined down a trust chain by `model.ProcessAndExtractPolicy` and applied to a subject's metadata by `model.ApplyPolicy`. Operators resolve in a fixed order: `value`, `add`, `default`, `one_of`, `subset_of`, `superset_of`, then `essential`. Combinations that cannot be satisfied, such as a `subset_of` and a `superset_of` with no overlap, are rejected when the policies are merged.
@@ -520,8 +528,6 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | Trust mark type identifiers as object member names | Values are validated, member names are not | [#140](https://github.com/MichaelFraser99/go-openid-federation/issues/140) |
 | JWK sets whose keys omit `kty` | Accepted on read, so the fault surfaces at verification | [#146](https://github.com/MichaelFraser99/go-openid-federation/issues/146) |
 | A `jwks` member name that case-folds to `keys` | Supplies the verification keys through Go's case-insensitive decode | [#147](https://github.com/MichaelFraser99/go-openid-federation/issues/147) |
-| Object valued policy operands | Deduplicated by a lossy string hash at construction and in `add` and `superset_of`, so distinct objects collide, including nested ones | [#150](https://github.com/MichaelFraser99/go-openid-federation/issues/150) |
-| Policy operand comparisons | Unbounded, and quadratic in the operand count, which a peer supplies | [#151](https://github.com/MichaelFraser99/go-openid-federation/issues/151) |
 | Error classes on the fetch path | A peer's fault is reported as a server error | [#148](https://github.com/MichaelFraser99/go-openid-federation/issues/148) |
 
 ## License

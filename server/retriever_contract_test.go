@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -127,7 +128,7 @@ func (r perEntityFailureRetriever) GetSubordinateSigners(context.Context) ([]mod
 	return nil, nil
 }
 
-func TestServer_ExtendedList_OneEntitysFaultDoesNotFailTheListing(t *testing.T) {
+func TestServer_ExtendedList_EntitySpecificFaultsAreOmittedAndOthersFail(t *testing.T) {
 	tests := []struct {
 		name         string
 		err          error
@@ -303,5 +304,104 @@ func TestServer_TrustMarkEndpoints_PassAClassifiedErrorThrough(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), "unsupported_parameter") {
 		t.Fatalf("expected a classified retriever error to choose what the peer sees, got %s", raw)
+	}
+}
+
+type leakingEverythingRetriever struct {
+	err error
+}
+
+func (r leakingEverythingRetriever) GetSubordinate(context.Context, model.EntityIdentifier) (*model.SubordinateConfiguration, error) {
+	return nil, r.err
+}
+
+func (r leakingEverythingRetriever) GetSubordinates(context.Context) (map[model.EntityIdentifier]*model.SubordinateConfiguration, error) {
+	return nil, r.err
+}
+
+func (r leakingEverythingRetriever) GetSubordinateSigners(context.Context) ([]model.SignerConfiguration, error) {
+	return nil, r.err
+}
+
+func (r leakingEverythingRetriever) GetExtendedSubordinates(context.Context, model.ExtendedListingFilter) (*model.ExtendedListingResponse, error) {
+	return nil, r.err
+}
+
+func (r leakingEverythingRetriever) GetSubordinateStatus(context.Context, model.EntityIdentifier) (*model.SubordinateStatusResponse, error) {
+	return nil, r.err
+}
+
+func TestServer_NoEndpointReflectsTheRetrieversMessage(t *testing.T) {
+	const secret = "dial tcp db.internal:5432: connect: refused for user admin password hunter2"
+
+	retriever := leakingEverythingRetriever{err: errors.New(secret)}
+	ts := contractServer(t, func(cfg *model.ServerConfiguration) {
+		cfg.MetadataRetriever = retriever
+		cfg.TrustMarkRetriever = leakingTrustMarkRetriever{err: errors.New(secret)}
+		cfg.Extensions = model.Extensions{
+			ExtendedListing:   model.ExtendedListingConfiguration{Enabled: true, SizeLimit: 10, MetadataRetriever: retriever},
+			SubordinateStatus: model.SubordinateStatusConfiguration{Enabled: true, MetadataRetriever: retriever},
+		}
+	})
+
+	paths := []string{
+		"/.well-known/openid-federation",
+		"/list",
+		"/list?entity_type=openid_relying_party",
+		"/fetch?sub=https://leaf.example.com",
+		"/extended-list",
+		"/extended-list?claims=subordinate_statement",
+		"/subordinate-status?sub=https://leaf.example.com",
+		"/trust-mark?sub=https://leaf.example.com&trust_mark_type=https://tm.example.com/a",
+		"/trust-mark-list?trust_mark_type=https://tm.example.com/a",
+	}
+
+	for _, path := range paths {
+		t.Run(path, func(t *testing.T) {
+			response, err := ts.Client().Get(ts.URL + path)
+			if err != nil {
+				t.Fatalf("the handler did not answer: %v", err)
+			}
+			defer response.Body.Close() //nolint:errcheck
+
+			raw, err := io.ReadAll(response.Body)
+			if err != nil {
+				t.Fatalf("failed to read the response body: %v", err)
+			}
+			for _, fragment := range []string{"db.internal", "hunter2", "admin", "dial tcp"} {
+				if strings.Contains(string(raw), fragment) {
+					t.Fatalf("the retriever's own message reached an unauthenticated caller: %s", raw)
+				}
+			}
+		})
+	}
+}
+
+type panickingLogHandler struct{}
+
+func (panickingLogHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+func (panickingLogHandler) Handle(context.Context, slog.Record) error {
+	panic("the log sink exploded")
+}
+
+func (h panickingLogHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+
+func (h panickingLogHandler) WithGroup(string) slog.Handler { return h }
+
+func TestServer_APanicInTheRecoveryPathStillAnswers(t *testing.T) {
+	ts := contractServer(t, func(cfg *model.ServerConfiguration) {
+		cfg.MetadataRetriever = panickingRetriever{}
+		cfg.Logger = slog.New(panickingLogHandler{})
+	})
+
+	response, err := ts.Client().Get(ts.URL + "/fetch?sub=https://leaf.example.com")
+	if err != nil {
+		t.Fatalf("a panic inside the recovery path dropped the connection, which is the failure recovery exists to remove: %v", err)
+	}
+	defer response.Body.Close() //nolint:errcheck
+
+	if response.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", response.StatusCode)
 	}
 }

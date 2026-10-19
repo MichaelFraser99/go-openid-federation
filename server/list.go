@@ -12,6 +12,8 @@ import (
 
 const listingUnavailableError = "unable to list subordinate entities at this time"
 
+const subordinateListingUnavailableError = "unable to list subordinate entities at this time"
+
 func (s *Server) List(w http.ResponseWriter, r *http.Request) ResponseFunc {
 	ctx := r.Context()
 
@@ -41,6 +43,7 @@ func (s *Server) List(w http.ResponseWriter, r *http.Request) ResponseFunc {
 
 	subordinates, err := s.cfg.GetSubordinates(ctx)
 	if err != nil {
+		err = s.retrieverError(err, subordinateListingUnavailableError)
 		s.cfg.LogError(ctx, "error retrieving subordinates", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(listingUnavailableError))
 	}

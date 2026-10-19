@@ -122,11 +122,20 @@ func (s *Server) handle(handler func(http.ResponseWriter, *http.Request) Respons
 				if recovered == http.ErrAbortHandler {
 					panic(recovered)
 				}
-				s.cfg.LogError(r.Context(), "recovered from a panic while serving a federation endpoint",
-					slog.String("path", r.URL.Path),
-					slog.String("panic", fmt.Sprintf("%v", recovered)),
-					slog.String("stack", string(debug.Stack())))
-				s.RespondWithError(r.Context(), w, model.NewServerError(unexpectedFailureError))()
+				func() {
+					defer func() { _ = recover() }()
+					code, body := s.parseError(model.NewServerError(unexpectedFailureError))
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(code)
+					_, _ = w.Write([]byte(body))
+				}()
+				func() {
+					defer func() { _ = recover() }()
+					s.cfg.LogError(r.Context(), "recovered from a panic while serving a federation endpoint",
+						slog.String("path", r.URL.Path),
+						slog.String("panic", fmt.Sprintf("%v", recovered)),
+						slog.String("stack", string(debug.Stack())))
+				}()
 			}
 		}()
 		handler(w, r)()

@@ -46,8 +46,6 @@ type Configuration struct {
 
 const DefaultMaxPeerResponseBytes int64 = 1 << 20
 
-var MaxPolicyComparisons = 1 << 20
-
 const (
 	DefaultEntityConfigurationLifetime  = time.Hour
 	DefaultSubordinateStatementLifetime = time.Hour

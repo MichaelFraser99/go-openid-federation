@@ -2,10 +2,8 @@ package model
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestApplyPolicy_ScopeOperandTypes(t *testing.T) {
@@ -234,132 +232,6 @@ func TestProcessAndExtractPolicy_ScopeOperandTypeIsCheckedWhateverTheMetadataHol
 			}
 			if !strings.Contains(err.Error(), tc.expectErr) {
 				t.Fatalf("[%s] expected an error naming %q, got %v", tc.reference, tc.expectErr, err)
-			}
-		})
-	}
-}
-
-func TestProcessAndExtractPolicy_BoundsConflictWork(t *testing.T) {
-	operand := func(n int) string {
-		values := make([]string, n)
-		for i := range values {
-			values[i] = fmt.Sprintf("%q", fmt.Sprintf("value-%d", i))
-		}
-		return "[" + strings.Join(values, ",") + "]"
-	}
-
-	tests := []struct {
-		name      string
-		policy    string
-		expectErr string
-	}{
-		{
-			name:   "a single large operand has no pair to compare against",
-			policy: `{"openid_relying_party":{"contacts":{"subset_of":` + operand(4000) + `}}}`,
-		},
-		{
-			name:   "two small operands are well inside the budget",
-			policy: `{"openid_relying_party":{"contacts":{"subset_of":` + operand(50) + `,"superset_of":` + operand(50) + `}}}`,
-		},
-		{
-			name:      "two large operands exceed the budget",
-			policy:    `{"openid_relying_party":{"contacts":{"subset_of":` + operand(2000) + `,"superset_of":` + operand(2000) + `}}}`,
-			expectErr: "operand comparisons",
-		},
-		{
-			name:      "four medium operands exceed the budget together",
-			policy:    `{"openid_relying_party":{"contacts":{"value":` + operand(700) + `,"add":` + operand(700) + `,"subset_of":` + operand(700) + `,"superset_of":` + operand(700) + `}}}`,
-			expectErr: "operand comparisons",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			var policy MetadataPolicy
-			if err := json.Unmarshal([]byte(tc.policy), &policy); err != nil {
-				t.Fatalf("the policy fixture did not parse: %v", err)
-			}
-			subordinate := EntityStatement{Iss: "https://ta.example.com", Sub: "https://leaf.example.com", MetadataPolicy: &policy}
-
-			_, err := ProcessAndExtractPolicy([]EntityStatement{{}, subordinate, {}})
-
-			if tc.expectErr == "" {
-				if err != nil {
-					t.Fatalf("expected a policy within the budget to be accepted, got %v", err)
-				}
-				return
-			}
-			if err == nil {
-				t.Fatal("expected a policy beyond the budget to be refused")
-			}
-			if !strings.Contains(err.Error(), tc.expectErr) {
-				t.Fatalf("expected an error naming the comparison budget, got %v", err)
-			}
-		})
-	}
-}
-
-func TestMergePolicyOperators_BoundsMergeWork(t *testing.T) {
-	operand := func(n int) string {
-		values := make([]string, n)
-		for i := range values {
-			values[i] = fmt.Sprintf("%q", fmt.Sprintf("value-%d", i))
-		}
-		return "[" + strings.Join(values, ",") + "]"
-	}
-
-	tests := []struct {
-		name      string
-		first     string
-		second    string
-		expectErr string
-	}{
-		{
-			name:   "two small operands merge",
-			first:  `{"subset_of":` + operand(50) + `}`,
-			second: `{"subset_of":` + operand(50) + `}`,
-		},
-		{
-			name:      "two large operands exceed the merge budget",
-			first:     `{"subset_of":` + operand(20000) + `}`,
-			second:    `{"subset_of":` + operand(20000) + `}`,
-			expectErr: "operand comparisons",
-		},
-		{
-			name:   "operands of different operators are not compared against each other",
-			first:  `{"subset_of":` + operand(20000) + `}`,
-			second: `{"add":` + operand(20000) + `}`,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			var first, second PolicyOperators
-			if err := json.Unmarshal([]byte(tc.first), &first); err != nil {
-				t.Fatalf("the first fixture did not parse: %v", err)
-			}
-			if err := json.Unmarshal([]byte(tc.second), &second); err != nil {
-				t.Fatalf("the second fixture did not parse: %v", err)
-			}
-
-			started := time.Now()
-			_, err := MergePolicyOperators("contacts", first, second)
-			elapsed := time.Since(started)
-
-			if tc.expectErr == "" {
-				if err != nil {
-					t.Fatalf("expected the merge to be attempted, got %v", err)
-				}
-				return
-			}
-			if err == nil {
-				t.Fatalf("expected a merge beyond the budget to be refused, it took %s", elapsed)
-			}
-			if !strings.Contains(err.Error(), tc.expectErr) {
-				t.Fatalf("expected an error naming the comparison budget, got %v", err)
-			}
-			if elapsed > time.Second {
-				t.Errorf("expected the budget to refuse before doing the work, it took %s", elapsed)
 			}
 		})
 	}

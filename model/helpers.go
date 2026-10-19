@@ -70,48 +70,6 @@ func sortByPriority(policies []MetadataPolicyOperator) []MetadataPolicyOperator 
 	return policies
 }
 
-func operandLength(value any) int {
-	if value == nil || reflect.TypeOf(value).Kind() != reflect.Slice {
-		return 1
-	}
-	return reflect.ValueOf(value).Len()
-}
-
-func verifyConflictWorkIsBounded(parameter string, operators []MetadataPolicyOperator) error {
-	lengths := make([]int, 0, len(operators))
-	for _, operator := range operators {
-		lengths = append(lengths, operandLength(operator.OperatorValue()))
-	}
-
-	comparisons := 0
-	for i := range lengths {
-		for j := i + 1; j < len(lengths); j++ {
-			comparisons += lengths[i] * lengths[j]
-			if comparisons > MaxPolicyComparisons {
-				return fmt.Errorf("the policy for %q requires more than %d operand comparisons to validate, which exceeds the limit this implementation applies", parameter, MaxPolicyComparisons)
-			}
-		}
-	}
-	return nil
-}
-
-func verifyMergeWorkIsBounded(parameter string, setA, setB []MetadataPolicyOperator) error {
-	comparisons := 0
-	for _, a := range setA {
-		lengthA := operandLength(a.OperatorValue())
-		for _, b := range setB {
-			if a.ResolutionHierarchy() != b.ResolutionHierarchy() {
-				continue
-			}
-			comparisons += lengthA * operandLength(b.OperatorValue())
-			if comparisons > MaxPolicyComparisons {
-				return fmt.Errorf("merging the policy for %q requires more than %d operand comparisons, which exceeds the limit this implementation applies", parameter, MaxPolicyComparisons)
-			}
-		}
-	}
-	return nil
-}
-
 func verifyScopeOperand(value any) error {
 	if value == nil {
 		return nil
@@ -137,9 +95,6 @@ func sortAndValidatePolicy(policy *MetadataPolicy) error {
 	}
 	for _, parameters := range policy.byEntityType() {
 		for parameter, operators := range parameters {
-			if err := verifyConflictWorkIsBounded(parameter, operators.Metadata); err != nil {
-				return err
-			}
 			if parameter == "scope" {
 				for _, operator := range operators.Metadata {
 					if operator.String() == "essential" {
@@ -234,10 +189,6 @@ func MergePolicyOperators(claimName string, policySetA, policySetB PolicyOperato
 	} else if len(policySetB.Metadata) == 0 {
 		return policySetA.Metadata, nil
 	} else {
-		if err := verifyMergeWorkIsBounded(claimName, policySetA.Metadata, policySetB.Metadata); err != nil {
-			return nil, err
-		}
-
 		structuredA := structureAsMap(policySetA.Metadata)
 		structuredB := structureAsMap(policySetB.Metadata)
 

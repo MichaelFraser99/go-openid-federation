@@ -43,6 +43,7 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 
 	subordinates, err := s.cfg.Extensions.ExtendedListing.MetadataRetriever.GetExtendedSubordinates(ctx, filter)
 	if err != nil {
+		err = s.retrieverError(err, extendedListingUnavailableError)
 		s.cfg.LogError(ctx, "error getting subordinates", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, err)
 	}

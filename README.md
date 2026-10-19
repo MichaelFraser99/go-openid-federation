@@ -230,9 +230,6 @@ When the library resolves a trust chain, it follows federation endpoints derived
 | `Configuration.MaxPeerResponseBytes` | `model.DefaultMaxPeerResponseBytes`, 1 MiB | The body of any response fetched from a peer |
 | `Configuration.MaxTrustChainDepth` | unlimited | Entities traversed while walking `authority_hints` |
 | `Configuration.MaxTrustMarkIssuers` | `model.DefaultMaxTrustMarkIssuers` | Distinct trust mark issuers resolved for one subject |
-| `model.MaxPolicyComparisons` | 1,048,576 | Operand comparisons a metadata policy may require, both within one statement and when merging two chain levels |
-
-Conflict detection between two policy operators on the same parameter compares every value of one against every value of the other, so the work is quadratic in the operand count and the operands come from a peer. A policy that would exceed `MaxPolicyComparisons` is refused as a policy error before the comparisons are performed, rather than being refused for its size: a single large operand with nothing to compare against is accepted. Raise or lower it by assignment if your federation's policies need a different bound.
 
 ### Retriever interfaces
 
@@ -523,7 +520,7 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | JWK sets whose keys omit `kty` | Accepted on read, so the fault surfaces at verification | [#146](https://github.com/MichaelFraser99/go-openid-federation/issues/146) |
 | A `jwks` member name that case-folds to `keys` | Supplies the verification keys through Go's case-insensitive decode | [#147](https://github.com/MichaelFraser99/go-openid-federation/issues/147) |
 | Object valued policy operands | Deduplicated by a lossy string hash at construction and in `add` and `superset_of`, so distinct objects collide, including nested ones | [#150](https://github.com/MichaelFraser99/go-openid-federation/issues/150) |
-| Policy operand comparisons | Bounded by `model.MaxPolicyComparisons`, a package variable rather than a field on `Configuration` | [#151](https://github.com/MichaelFraser99/go-openid-federation/issues/151) |
+| Policy operand comparisons | Unbounded, and quadratic in the operand count, which a peer supplies | [#151](https://github.com/MichaelFraser99/go-openid-federation/issues/151) |
 | Error classes on the fetch path | A peer's fault is reported as a server error | [#148](https://github.com/MichaelFraser99/go-openid-federation/issues/148) |
 
 ## License

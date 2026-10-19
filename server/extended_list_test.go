@@ -247,7 +247,7 @@ func TestServer_ExtendedList_RetrieverErrorPropagates(t *testing.T) {
 			err:             errors.New("boom"),
 			expectedStatus:  http.StatusInternalServerError,
 			expectedError:   "server_error",
-			expectedMessage: "boom",
+			expectedMessage: extendedListingUnavailableError,
 		},
 	}
 

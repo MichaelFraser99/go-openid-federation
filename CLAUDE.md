@@ -34,7 +34,7 @@ All JWS/JWK/JWT signing and verification goes through the sibling library `githu
 - `Extensions.ExtendedListing.Enabled` / `Extensions.SubordinateStatus.Enabled` → registers `/extended-list` / `/subordinate-status`.
 - `TrustMarkRetriever != nil` → registers the `/trust-mark*` endpoints.
 
-Data access is abstracted behind interfaces so consumers plug in their own storage: `Retriever` (subordinates + their signers), `TrustMarkRetriever`, `TrustMarkIssuerRetriever`, `ExtendedListingRetriever`, `SubordinateStatusRetriever`. Subordinate lookups are cached in-memory (`IntermediateConfiguration.subordinates`, TTL `SubordinateCacheTime`, `FlushCache()` to clear). `SetEntityIdentifier` / `SetHttpClient` on `Server` exist for test-server scenarios and are documented as not-for-production.
+Data access is abstracted behind interfaces so consumers plug in their own storage: `Retriever` (subordinates + their signers), `TrustMarkRetriever`, `TrustMarkIssuerRetriever`, `ExtendedListingRetriever`, `SubordinateStatusRetriever`. Subordinate lookups are cached in-memory (`IntermediateConfiguration.subordinates`, TTL `SubordinateCacheTime`, `FlushCache()` to clear). A request's trust chain walking is bounded by `MaxTrustChainDepth` (one chain's length) and `MaxEntitiesTraversed` (entity configurations fetched across every chain the request builds), both non-zero by default, with the dead-end memo held in `internal/resolvecache` so it is shared by every walk in one request. `SetEntityIdentifier` / `SetHttpClient` on `Server` exist for test-server scenarios and are documented as not-for-production.
 
 ### Metadata policy engine (the most intricate part)
 

@@ -7,12 +7,22 @@ type entry struct {
 	statement *model.EntityStatement
 }
 
+type DeadEnd struct {
+	Subject   model.EntityIdentifier
+	Remaining int
+}
+
 type Cache struct {
-	entries map[model.EntityIdentifier]entry
+	entries   map[model.EntityIdentifier]entry
+	deadEnds  map[DeadEnd]struct{}
+	traversed int
 }
 
 func New() *Cache {
-	return &Cache{entries: map[model.EntityIdentifier]entry{}}
+	return &Cache{
+		entries:  map[model.EntityIdentifier]entry{},
+		deadEnds: map[DeadEnd]struct{}{},
+	}
 }
 
 func (c *Cache) Load(identifier model.EntityIdentifier) (*string, *model.EntityStatement, bool) {
@@ -28,4 +38,29 @@ func (c *Cache) Store(identifier model.EntityIdentifier, signed *string, stateme
 		return
 	}
 	c.entries[identifier] = entry{signed: signed, statement: statement}
+}
+
+func (c *Cache) DeadEnds() map[DeadEnd]struct{} {
+	if c == nil {
+		return map[DeadEnd]struct{}{}
+	}
+	if c.deadEnds == nil {
+		c.deadEnds = map[DeadEnd]struct{}{}
+	}
+	return c.deadEnds
+}
+
+func (c *Cache) Traversed() int {
+	if c == nil {
+		return 0
+	}
+	return c.traversed
+}
+
+func (c *Cache) RecordTraversal() int {
+	if c == nil {
+		return 0
+	}
+	c.traversed++
+	return c.traversed
 }

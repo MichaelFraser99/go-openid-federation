@@ -243,8 +243,13 @@ When the library resolves a trust chain, it follows federation endpoints derived
 | Limit | Default | Applies to |
 |---|---|---|
 | `Configuration.MaxPeerResponseBytes` | `model.DefaultMaxPeerResponseBytes`, 1 MiB | The body of any response fetched from a peer |
-| `Configuration.MaxTrustChainDepth` | unlimited | Entities traversed while walking `authority_hints` |
+| `Configuration.MaxTrustChainDepth` | `model.DefaultMaxTrustChainDepth` | Entities on one path from the leaf to a trust anchor |
+| `Configuration.MaxEntitiesTraversed` | `model.DefaultMaxEntitiesTraversed` | Entity configurations one request may fetch while walking `authority_hints`, across every chain it builds |
 | `Configuration.MaxTrustMarkIssuers` | `model.DefaultMaxTrustMarkIssuers` | Distinct trust mark issuers resolved for one subject |
+
+> **Breaking change.** `MaxTrustChainDepth` was unlimited by default and described as bounding the entities traversed. It bounds the length of one chain, which is a different thing, and it now defaults to 10. A federation whose legitimate chains are longer than that must raise it. `MaxEntitiesTraversed` is the bound on entities traversed, and it defaults to 256.
+
+Both bounds apply to a whole request. One `/resolve` call builds a chain for the subject and another for each distinct trust mark issuer, and the entities already proven not to reach the trust anchor are remembered across all of them, so a shared graph of dead ends is walked once rather than once per issuer.
 
 ### Retriever interfaces
 
@@ -578,7 +583,6 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | Error classes on the fetch path | A peer's fault is reported as a server error | [#148](https://github.com/MichaelFraser99/go-openid-federation/issues/148) |
 | `subordinate_statement` on an unlistable entity | Table 4 of the extended listing draft makes the attribute a MUST when requested, and an entity the subordinate store does not hold is returned without it | [#126](https://github.com/MichaelFraser99/go-openid-federation/issues/126) |
 | Shape rules after a policy is applied | Required claims and the relying party key pair are checked on the resolved metadata, the remaining claim shape rules are not, so a policy can set a value the parser would refuse | [#144](https://github.com/MichaelFraser99/go-openid-federation/issues/144) |
-| Policy merge against trust chain length | Cost grows faster than the chain, which `MaxTrustChainDepth` leaves unbounded by default | [#153](https://github.com/MichaelFraser99/go-openid-federation/issues/153) |
 
 ## License
 

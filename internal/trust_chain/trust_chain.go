@@ -21,7 +21,11 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 		return nil, nil, nil, fmt.Errorf("target leaf entity identifier must not match target trust anchor entity identifier")
 	}
 
-	signedRoute, route, _, err := ChainUpOne(ctx, cfg, targetLeafEntityIdentifier, targetTrustAnchorEntityIdentifier, []model.EntityIdentifier{}, []model.EntityStatement{}, []string{}, cache, map[DeadEnd]struct{}{})
+	if cache == nil {
+		cache = resolvecache.New()
+	}
+
+	signedRoute, route, _, err := ChainUpOne(ctx, cfg, targetLeafEntityIdentifier, targetTrustAnchorEntityIdentifier, []model.EntityIdentifier{}, []model.EntityStatement{}, []string{}, cache, cache.DeadEnds())
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -79,17 +83,10 @@ func walkNotCompleted(err error) error {
 	return fmt.Errorf("%w%s: %w", model.ErrTemporarilyUnavailable, "trust chain walk did not complete", err)
 }
 
-type DeadEnd struct {
-	Subject   model.EntityIdentifier
-	Remaining int
-}
+type DeadEnd = resolvecache.DeadEnd
 
 func deadEndKey(cfg model.Configuration, subject model.EntityIdentifier, depth int) DeadEnd {
-	key := DeadEnd{Subject: subject}
-	if cfg.MaxTrustChainDepth > 0 {
-		key.Remaining = cfg.MaxTrustChainDepth - depth
-	}
-	return key
+	return DeadEnd{Subject: subject, Remaining: cfg.TrustChainDepthLimit() - depth}
 }
 
 func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target model.EntityIdentifier, checked []model.EntityIdentifier, path []model.EntityStatement, signedPath []string, cache *resolvecache.Cache, deadEnds map[DeadEnd]struct{}) ([]string, []model.EntityStatement, bool, error) {
@@ -100,8 +97,8 @@ func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 		return signedPath, path, false, walkNotCompleted(err)
 	}
 
-	if cfg.MaxTrustChainDepth > 0 && len(path) >= cfg.MaxTrustChainDepth {
-		cfg.LogInfo(ctx, "reached configured maximum trust chain depth", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Int("max_depth", cfg.MaxTrustChainDepth))
+	if len(path) >= cfg.TrustChainDepthLimit() {
+		cfg.LogInfo(ctx, "reached the maximum trust chain depth", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Int("max_depth", cfg.TrustChainDepthLimit()))
 		return signedPath, path, true, model.NewInvalidTrustAnchorError("unable to build trust chain from specified 'sub' to specified 'trust_anchor'")
 	}
 
@@ -109,6 +106,11 @@ func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 	if _, dead := deadEnds[subjectKey]; dead {
 		cfg.LogInfo(ctx, "skipping entity already proven not to reach the trust anchor", slog.String("subject", string(subject)), slog.String("target", string(target)))
 		return signedPath, path, false, model.NewInvalidTrustAnchorError("unable to build trust chain from specified 'sub' to specified 'trust_anchor'")
+	}
+
+	if traversed := cache.RecordTraversal(); traversed > cfg.EntitiesTraversedLimit() {
+		cfg.LogInfo(ctx, "reached the maximum number of entities one request may traverse", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Int("traversed", traversed), slog.Int("max_entities", cfg.EntitiesTraversedLimit()))
+		return signedPath, path, true, model.NewInvalidTrustAnchorError("unable to build trust chain from specified 'sub' to specified 'trust_anchor'")
 	}
 
 	signedSubjectEntityStatement, subjectEntityStatement, err := entity_configuration.Retrieve(ctx, cfg, subject, cache)

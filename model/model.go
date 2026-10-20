@@ -31,13 +31,15 @@ type Configuration struct {
 	// verification. When false, unrecognised Entity Types are preserved and relayed untouched.
 	DiscardUnrecognisedEntityTypes bool
 
-	// MaxTrustChainDepth bounds how many entities the resolver will traverse from the leaf
-	// while walking authority_hints to reach a Trust Anchor. Zero (the default) means
-	// unlimited. This is an operational safeguard against hostile or misconfigured
-	// authority_hints graphs and is independent of the spec's per-statement max_path_length
-	// constraint; set it according to how deep legitimate Trust Chains are in your federation
-	// (a tightly walled-garden federation can set a low value, an open one may leave it unset).
+	// MaxTrustChainDepth bounds how long one Trust Chain may be: the entities on a single
+	// path from the leaf to a Trust Anchor. MaxEntitiesTraversed bounds how many a request
+	// visits. Zero selects DefaultMaxTrustChainDepth. This is an operational safeguard
+	// against hostile or misconfigured authority_hints graphs and is independent of the
+	// spec's per-statement max_path_length constraint; set it according to how deep
+	// legitimate Trust Chains are in your federation.
 	MaxTrustChainDepth int
+
+	MaxEntitiesTraversed int
 
 	MaxPeerResponseBytes int64
 
@@ -52,6 +54,25 @@ const (
 )
 
 const DefaultMaxTrustMarkIssuers = 64
+
+const (
+	DefaultMaxTrustChainDepth   = 10
+	DefaultMaxEntitiesTraversed = 256
+)
+
+func (cfg *Configuration) TrustChainDepthLimit() int {
+	if cfg.MaxTrustChainDepth > 0 {
+		return cfg.MaxTrustChainDepth
+	}
+	return DefaultMaxTrustChainDepth
+}
+
+func (cfg *Configuration) EntitiesTraversedLimit() int {
+	if cfg.MaxEntitiesTraversed > 0 {
+		return cfg.MaxEntitiesTraversed
+	}
+	return DefaultMaxEntitiesTraversed
+}
 
 func (cfg *Configuration) TrustMarkIssuerLimit() int {
 	if cfg.MaxTrustMarkIssuers > 0 {

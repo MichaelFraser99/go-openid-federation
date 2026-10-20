@@ -280,6 +280,30 @@ func TestServer_ExtendedList_BoundsTheRequestedClaimCount(t *testing.T) {
 		}
 	})
 
+	t.Run("a duplicate after the cap is reached", func(t *testing.T) {
+		unique := make([]string, maxRequestedClaims)
+		for i := range unique {
+			unique[i] = fmt.Sprintf("claim-%06d", i)
+		}
+
+		cases := map[string]url.Values{
+			"as a repeated parameter":  {"claims": {strings.Join(unique, ","), unique[0]}},
+			"as a trailing comma item": {"claims": {strings.Join(unique, ",") + "," + unique[0]}},
+		}
+
+		for name, query := range cases {
+			t.Run(name, func(t *testing.T) {
+				filter, _, err := parseExtendedListingFilter(query, 10)
+				if err != nil {
+					t.Fatalf("the request names %d distinct claims, so repeating one is still within the cap, got: %v", maxRequestedClaims, err)
+				}
+				if len(filter.Claims) != maxRequestedClaims {
+					t.Errorf("expected %d distinct claims, got %d", maxRequestedClaims, len(filter.Claims))
+				}
+			})
+		}
+	})
+
 	t.Run("one past the cap", func(t *testing.T) {
 		if _, _, err := parseExtendedListingFilter(build(maxRequestedClaims+1), 10); err == nil {
 			t.Error("expected a request naming more claims than the cap to be refused")

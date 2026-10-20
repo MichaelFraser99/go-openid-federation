@@ -10,25 +10,13 @@ var (
 )
 
 func NewSubsetOf(operatorValue any) (*SubsetOf, error) {
-	if operatorValue == nil {
-		return nil, fmt.Errorf("operator value cannot be nil")
+	anySlice, err := operandSliceFrom(operatorValue)
+	if err != nil {
+		return nil, err
 	}
-
-	if reflect.TypeOf(operatorValue).Kind() != reflect.Slice {
-		return nil, fmt.Errorf("operator value must be a slice")
-	}
-
-	sliceValue := reflect.ValueOf(operatorValue)
-	anySlice := make([]any, sliceValue.Len())
-
-	for i := 0; i < sliceValue.Len(); i++ {
-		anySlice[i] = sliceValue.Index(i).Interface()
-	}
-
-	anySlice = DeduplicateSlice(anySlice)
 
 	return &SubsetOf{
-		operatorValue: anySlice,
+		operatorValue: DeduplicateSlice(anySlice),
 	}, nil
 }
 
@@ -97,10 +85,6 @@ func (s SubsetOf) Merge(valueToMerge any) (MetadataPolicyOperator, error) {
 		if incoming.contains(value) {
 			intersection = append(intersection, value)
 		}
-	}
-
-	if len(intersection) == 0 { // in the event of no intersection, an empty array is returned
-		return NewSubsetOf(intersection)
 	}
 
 	return NewSubsetOf(intersection)

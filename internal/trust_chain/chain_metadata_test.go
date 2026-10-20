@@ -88,7 +88,7 @@ func TestResolveMetadata_SuperiorMetadataOnlyAffectsTypesTheSubjectPublishes(t *
 	}
 }
 
-func TestResolveMetadata_PartialMetadataIsCompletedBeforeItIsJudged(t *testing.T) {
+func TestResolveMetadata_CompletenessIsJudgedOnTheResolvedMetadata(t *testing.T) {
 	tests := []struct {
 		name             string
 		subjectMetadata  map[string]any
@@ -138,6 +138,14 @@ func TestResolveMetadata_PartialMetadataIsCompletedBeforeItIsJudged(t *testing.T
 			subjectMetadata: map[string]any{"openid_relying_party": map[string]any{}},
 		},
 		{
+			name:            "an entity type declared as the empty object that the superior's metadata completes",
+			subjectMetadata: map[string]any{"openid_relying_party": map[string]any{}},
+			subordinateExtra: map[string]any{"metadata": map[string]any{"openid_relying_party": map[string]any{
+				"redirect_uris": []any{"https://leaf.example.com/cb"},
+			}}},
+			resolves: true,
+		},
+		{
 			name:            "an entity type declared as the empty object that a policy completes",
 			subjectMetadata: map[string]any{"openid_relying_party": map[string]any{}},
 			subordinateExtra: map[string]any{"metadata_policy": map[string]any{"openid_relying_party": map[string]any{
@@ -165,7 +173,10 @@ func TestResolveMetadata_PartialMetadataIsCompletedBeforeItIsJudged(t *testing.T
 				return
 			}
 			if err == nil {
-				t.Error("expected resolved metadata missing a required parameter to be rejected")
+				t.Fatal("expected resolved metadata missing a required parameter to be rejected")
+			}
+			if !strings.Contains(err.Error(), "missing required 'redirect_uris' claim") {
+				t.Errorf("expected the missing parameter to be the reason, got %q", err.Error())
 			}
 		})
 	}
@@ -287,8 +298,12 @@ func TestResolveMetadata_SuperiorCannotCreateAnInvalidCombination(t *testing.T) 
 			"jwks_uri": "https://ta.example.com/leaf/jwks",
 		}}})
 
-	if _, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chain, nil); err == nil {
-		t.Error("a superior must not be able to produce resolved metadata holding both key parameters")
+	_, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chain, nil)
+	if err == nil {
+		t.Fatal("a superior must not be able to produce resolved metadata holding both key parameters")
+	}
+	if !strings.Contains(err.Error(), "'jwks' and 'jwks_uri' must not be used together") {
+		t.Errorf("expected the key parameter rule to be the reason, got %q", err.Error())
 	}
 }
 

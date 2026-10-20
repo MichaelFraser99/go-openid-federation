@@ -24,7 +24,7 @@ type Configuration struct {
 	Logger     *slog.Logger
 
 	// EntityTypes registers Entity Types beyond those built in. Entries are merged over the
-	// built-in definitions, so registering under a built-in identifier replaces it.
+	// built-in definitions, and a registration can tighten a built-in type but not loosen it.
 	EntityTypes EntityTypeRegistry
 
 	// DiscardUnrecognisedEntityTypes removes Entity Types absent from EntityTypes during

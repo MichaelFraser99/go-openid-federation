@@ -121,27 +121,32 @@ func TestProcessAndExtractPolicy_TakesPolicyOnlyFromSubordinateStatements(t *tes
 	}
 }
 
-func TestProcessAndExtractPolicy_MergesEverySubordinateStatementWhateverItsPosition(t *testing.T) {
+func TestProcessAndExtractPolicy_MergesEverySubordinateStatementWhateverTheChainShape(t *testing.T) {
 	const (
 		leaf         = EntityIdentifier("https://leaf.example.com")
 		intermediate = EntityIdentifier("https://int.example.com")
 		anchor       = EntityIdentifier("https://ta.example.com")
 	)
 
-	withAnchorConfiguration := []EntityStatement{
-		{Iss: leaf, Sub: leaf},
-		{Iss: intermediate, Sub: leaf, MetadataPolicy: chainPolicy(t, `{"federation_entity":{"contacts":{"add":["int@example.com"]}}}`)},
-		{Iss: anchor, Sub: intermediate, MetadataPolicy: chainPolicy(t, `{"federation_entity":{"contacts":{"add":["ta@example.com"]}}}`)},
-		{Iss: anchor, Sub: anchor},
+	build := func(t *testing.T, withAnchorConfiguration bool) []EntityStatement {
+		t.Helper()
+		chain := []EntityStatement{
+			{Iss: leaf, Sub: leaf},
+			{Iss: intermediate, Sub: leaf, MetadataPolicy: chainPolicy(t, `{"federation_entity":{"contacts":{"add":["int@example.com"]}}}`)},
+			{Iss: anchor, Sub: intermediate, MetadataPolicy: chainPolicy(t, `{"federation_entity":{"contacts":{"add":["ta@example.com"]}}}`)},
+		}
+		if withAnchorConfiguration {
+			chain = append(chain, EntityStatement{Iss: anchor, Sub: anchor})
+		}
+		return chain
 	}
-	withoutAnchorConfiguration := withAnchorConfiguration[:3]
 
-	for name, chain := range map[string][]EntityStatement{
-		"the trust anchor's entity configuration present": withAnchorConfiguration,
-		"the trust anchor's entity configuration omitted": withoutAnchorConfiguration,
+	for name, withAnchorConfiguration := range map[string]bool{
+		"the trust anchor's entity configuration present": true,
+		"the trust anchor's entity configuration omitted": false,
 	} {
 		t.Run(name, func(t *testing.T) {
-			policy, err := ProcessAndExtractPolicy(chain)
+			policy, err := ProcessAndExtractPolicy(build(t, withAnchorConfiguration))
 			if err != nil {
 				t.Fatalf("no error expected extracting the policy, got: %v", err)
 			}
@@ -435,5 +440,115 @@ func TestOperandSlice_RefusesAValueThatIsNotASlice(t *testing.T) {
 				t.Errorf("expected 'superset_of' to refuse a non-slice operand, got %+v", got)
 			}
 		})
+	}
+}
+
+func TestProcessAndExtractPolicy_MergesEveryLevelOfALongChain(t *testing.T) {
+	const (
+		leaf   = EntityIdentifier("https://leaf.example.com")
+		lower  = EntityIdentifier("https://lower.example.com")
+		upper  = EntityIdentifier("https://upper.example.com")
+		anchor = EntityIdentifier("https://ta.example.com")
+	)
+
+	chain := []EntityStatement{
+		{Iss: leaf, Sub: leaf},
+		{Iss: lower, Sub: leaf, MetadataPolicy: chainPolicy(t, `{"federation_entity":{"contacts":{"add":["lower@example.com"]}}}`)},
+		{Iss: upper, Sub: lower, MetadataPolicy: chainPolicy(t, `{"federation_entity":{"contacts":{"add":["upper@example.com"]}}}`)},
+		{Iss: anchor, Sub: upper, MetadataPolicy: chainPolicy(t, `{"federation_entity":{"contacts":{"add":["anchor@example.com"]}}}`)},
+		{Iss: anchor, Sub: anchor},
+	}
+
+	policy, err := ProcessAndExtractPolicy(chain)
+	if err != nil {
+		t.Fatalf("no error expected extracting the policy, got: %v", err)
+	}
+	if policy == nil {
+		t.Fatal("expected a policy, got none")
+	}
+
+	operators, found := policy.FederationMetadata["contacts"]
+	if !found {
+		t.Fatalf("expected a contacts policy, got %+v", policy.FederationMetadata)
+	}
+	operands, ok := operators.Metadata[0].OperatorValue().([]any)
+	if !ok {
+		t.Fatalf("expected an array operand, got %T", operators.Metadata[0].OperatorValue())
+	}
+	for _, want := range []any{"lower@example.com", "upper@example.com", "anchor@example.com"} {
+		if !slices.Contains(operands, want) {
+			t.Errorf("expected every level to contribute, %v missing from %v", want, operands)
+		}
+	}
+}
+
+func TestMetadata_SetEntityType_RoutesEveryBuiltInToItsOwnField(t *testing.T) {
+	for _, entityType := range builtInEntityTypes {
+		t.Run(entityType, func(t *testing.T) {
+			var metadata Metadata
+			parameters := map[string]any{entityType + "_marker": "set"}
+			metadata.setEntityType(entityType, parameters)
+
+			if _, routedToExtensions := metadata.Extensions[entityType]; routedToExtensions {
+				t.Fatalf("%s is a built-in type and must not be routed into Extensions", entityType)
+			}
+
+			found, present := metadata.byEntityType()[entityType]
+			if !present {
+				t.Fatalf("%s was not stored anywhere", entityType)
+			}
+			if !reflect.DeepEqual(found, parameters) {
+				t.Errorf("expected %v, got %v", parameters, found)
+			}
+		})
+	}
+}
+
+func TestBuiltInEntityTypes_ResolvedChecksAreWiredDeliberately(t *testing.T) {
+	withRequiredParameters := map[string]bool{
+		"federation_entity":          false,
+		"oauth_client":               false,
+		"oauth_resource":             false,
+		"openid_relying_party":       true,
+		"openid_provider":            true,
+		"oauth_authorization_server": true,
+		"openid_wallet_provider":     true,
+		"openid_credential_issuer":   true,
+		"openid_credential_verifier": true,
+	}
+
+	if len(withRequiredParameters) != len(builtInEntityTypes) {
+		t.Fatalf("expected a case for every built-in type, got %d for %d", len(withRequiredParameters), len(builtInEntityTypes))
+	}
+
+	for entityType, expected := range withRequiredParameters {
+		t.Run(entityType, func(t *testing.T) {
+			definition, registered := builtInEntityTypeDefinitions[entityType]
+			if !registered {
+				t.Fatalf("%s is not registered", entityType)
+			}
+			builtIn, ok := definition.(builtInEntityType)
+			if !ok {
+				t.Fatalf("expected a built-in definition, got %T", definition)
+			}
+			if (builtIn.verifyResolved != nil) != expected {
+				t.Errorf("expected a resolved check present=%v for %s, got %v", expected, entityType, builtIn.verifyResolved != nil)
+			}
+		})
+	}
+}
+
+func TestOpenIDRelyingPartyMetadata_SignedJwksUriIsNotExclusive(t *testing.T) {
+	metadata := OpenIDRelyingPartyMetadata{
+		"redirect_uris":   []any{"https://rp.example.com/cb"},
+		"jwks":            map[string]any{"keys": []any{}},
+		"signed_jwks_uri": "https://rp.example.com/jwks.jose",
+	}
+
+	if err := metadata.VerifyMetadata(); err != nil {
+		t.Errorf("section 5.2.1.1 recommends one key representation rather than requiring it, got: %v", err)
+	}
+	if err := metadata.VerifyResolvedMetadata(); err != nil {
+		t.Errorf("section 5.2.1.1 recommends one key representation rather than requiring it, got: %v", err)
 	}
 }

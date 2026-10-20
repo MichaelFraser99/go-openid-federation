@@ -12,8 +12,8 @@ type EntityType interface {
 }
 
 // EntityTypeRegistry maps Entity Type Identifiers to their definitions. Entries supplied by a
-// consumer are merged over the built-in definitions, so a registration under a built-in identifier
-// replaces it.
+// consumer are merged over the built-in definitions, and the built-in validation of a built-in
+// identifier still runs, so a registration can tighten a standard type but not loosen it.
 type EntityTypeRegistry map[string]EntityType
 
 type builtInEntityType struct {

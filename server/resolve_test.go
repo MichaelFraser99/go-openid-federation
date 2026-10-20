@@ -380,7 +380,7 @@ func TestServer_Resolve(t *testing.T) {
 				},
 			},
 			validate: func(t *testing.T, response *http.Response, err error) {
-				validateErrorResponse(t, response, err, http.StatusBadRequest, "invalid_metadata", fmt.Sprintf("metadata policy for %s is unresolvable", validEntityIdentifier))
+				validateErrorResponse(t, response, err, http.StatusBadRequest, "invalid_metadata", fmt.Sprintf("metadata policy for %s cannot be applied to its metadata", validEntityIdentifier))
 			},
 		},
 		"valid trust chain with more complex metadata": {

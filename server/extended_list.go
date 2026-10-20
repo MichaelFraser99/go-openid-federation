@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -53,12 +54,13 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 		return s.RespondWithError(ctx, w, model.NewServerError(extendedListingUnavailableError))
 	}
 
-	if len(subordinates.ImmediateSubordinateEntities) == 0 {
-		return s.RespondWithJSON(w, []byte(`{"immediate_subordinate_entities":[]}`))
+	response := *subordinates
+	if response.ImmediateSubordinateEntities == nil {
+		response.ImmediateSubordinateEntities = []map[string]any{}
 	}
 
 	if subordinateStatement {
-		for i, subordinateEntity := range subordinates.ImmediateSubordinateEntities {
+		for i, subordinateEntity := range response.ImmediateSubordinateEntities {
 			identifier, ok := subordinateEntity["id"].(string)
 			if !ok {
 				s.cfg.LogError(ctx, "missing or malformed 'id' field in one or more subordinate entities, this is a result of mis-configuration")
@@ -76,22 +78,24 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 			if err != nil {
 				if !errors.Is(err, model.ErrNotFound) && !errors.Is(err, model.ErrInvalidSubject) {
 					s.cfg.LogError(ctx, "error creating subordinate statement", slog.String("error", err.Error()))
-					return s.RespondWithError(ctx, w, model.NewServerError(extendedListingUnavailableError))
+					return s.RespondWithError(ctx, w, s.retrieverError(err, extendedListingUnavailableError))
 				}
 				s.cfg.LogInfo(ctx, "omitting the subordinate statement for an entity it could not be issued for", slog.String("sub", identifier), slog.String("error", err.Error()))
 			} else {
-				subordinates.ImmediateSubordinateEntities[i]["subordinate_statement"] = *token
+				response.ImmediateSubordinateEntities[i]["subordinate_statement"] = *token
 			}
 		}
 	}
 
-	entitiesJSON, err := json.Marshal(*subordinates)
+	entitiesJSON, err := json.Marshal(response)
 	if err != nil {
 		s.cfg.LogError(ctx, "error marshalling subordinate entities", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(extendedListingUnavailableError))
 	}
 	return s.RespondWithJSON(w, entitiesJSON)
 }
+
+const maxRequestedClaims = 64
 
 func parseExtendedListingFilter(query map[string][]string, defaultLimit int) (model.ExtendedListingFilter, bool, error) {
 	filter := model.ExtendedListingFilter{
@@ -134,12 +138,22 @@ func parseExtendedListingFilter(query map[string][]string, defaultLimit int) (mo
 	}
 
 	var subordinateStatement bool
-	requestedClaims := make([]string, 0)
+	requestedClaims := make([]string, 0, maxRequestedClaims)
+	seenClaims := make(map[string]struct{}, maxRequestedClaims)
 	for _, claims := range query["claims"] {
 		for _, claim := range strings.Split(claims, ",") {
-			if trimmed := strings.TrimSpace(claim); trimmed != "" && !slices.Contains(requestedClaims, trimmed) {
-				requestedClaims = append(requestedClaims, trimmed)
+			trimmed := strings.TrimSpace(claim)
+			if trimmed == "" {
+				continue
 			}
+			if _, seen := seenClaims[trimmed]; seen {
+				continue
+			}
+			if len(seenClaims) == maxRequestedClaims {
+				return filter, false, model.NewInvalidRequestError(fmt.Sprintf("parameter 'claims' names more than %d claims", maxRequestedClaims))
+			}
+			seenClaims[trimmed] = struct{}{}
+			requestedClaims = append(requestedClaims, trimmed)
 		}
 	}
 	if len(requestedClaims) > 0 {

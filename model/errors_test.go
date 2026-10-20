@@ -262,6 +262,38 @@ func TestNewNotFoundError(t *testing.T) {
 	}
 }
 
+func TestNewPageNotFoundError(t *testing.T) {
+	tests := map[string]struct {
+		message  string
+		validate func(t *testing.T, err error)
+	}{
+		"creates error with message": {
+			message: "pagination pointer no longer known",
+			validate: func(t *testing.T, err error) {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if !errors.Is(err, ErrPageNotFound) {
+					t.Errorf("expected error to wrap ErrPageNotFound")
+				}
+				if errors.Is(err, ErrNotFound) {
+					t.Errorf("a stale page is a distinct fault from an unknown subject")
+				}
+				if err.Error() != "pagination pointer no longer known" {
+					t.Errorf("expected error message 'pagination pointer no longer known', got %q", err.Error())
+				}
+			},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := NewPageNotFoundError(tt.message)
+			tt.validate(t, err)
+		})
+	}
+}
+
 func TestNewServerError(t *testing.T) {
 	tests := map[string]struct {
 		message  string
@@ -385,6 +417,10 @@ func TestErrorConstants(t *testing.T) {
 		"NotFound constant": {
 			constant: NotFound,
 			expected: "not_found",
+		},
+		"PageNotFound constant": {
+			constant: PageNotFound,
+			expected: "page_not_found",
 		},
 		"ServerError constant": {
 			constant: ServerError,

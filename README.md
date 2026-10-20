@@ -126,6 +126,8 @@ The handlers `Configure` registers depend on the configuration.
 
 Each endpoint accepts the one method in the table. Any other method answers `405` with an `Allow` header and an `invalid_request` JSON body, rather than the `text/plain` body `http.ServeMux` writes by default, because section 8.9 wants a JSON object for an error and section 8.1.2 requires one on the fetch endpoint. `HEAD` is served wherever `GET` is.
 
+`Configure` therefore registers each path twice, once with its method and once without, so it claims the bare path as well as the method pattern. Registering a handler of your own on one of these paths before calling `Configure` makes `http.ServeMux` panic on the duplicate. Mount the federation routes on their own mux, or under a prefix, if you need those paths.
+
 ### Query parameters
 
 **`/fetch`**
@@ -162,10 +164,18 @@ Resolving metadata makes outbound HTTP requests for the caller-supplied `sub` an
 | `from` | no | Opaque pagination cursor, taken from a previous response's `next` |
 | `limit` | no | Defaults to `Extensions.ExtendedListing.SizeLimit` |
 | `claims` | no | Comma separated, repeatable, or both. The value `subordinate_statement` issues a signed subordinate statement per entity |
+| `entity_type` | no | Repeatable, as on `/list` |
+| `trust_mark_type` | no | Repeatable, as on `/list` |
+| `trust_marked` | no | `true` or `false`, as on `/list` |
+| `intermediate` | no | `true` or `false`, as on `/list` |
 
-Supplying `updated_after`, `updated_before` or `audit_timestamps` returns `unsupported_parameter`.
+The endpoint takes the `/list` filters as well as its own, which [Extended Subordinate Listing 1.0](https://openid.net/specs/openid-federation-extended-listing-1_0.html) section 3.2 requires. Supplying `updated_after`, `updated_before` or `audit_timestamps` returns `unsupported_parameter`.
 
-A `from` the retriever no longer recognises answers `404 page_not_found`, which is what the draft requires for a stale cursor. Return `model.NewPageNotFoundError(...)` for it; `model.NewNotFoundError(...)` answers `not_found` instead, which the draft reserves for an unknown subject.
+`claims` names at most 64 claims, across every form combined. More than that answers `invalid_request`, because the parameter is otherwise bounded only by the request size and every name reaches your retriever.
+
+A `from` the retriever no longer recognises answers `404 page_not_found`, which section 3.2 of that draft requires for a stale cursor. Return `model.NewPageNotFoundError(...)` for it; `model.NewNotFoundError(...)` answers `not_found` instead, which the draft reserves for an unknown subject. Return it from this retriever only: section 8.9 of the core specification does not define `page_not_found`, and permits codes outside its list only from the IANA registry, so a caller of any other endpoint would be given a code it has no reason to understand.
+
+Like every classified error, the message you give `NewPageNotFoundError` is sent to the caller. Name the fault, not the cursor value or the store that rejected it.
 
 **`/trust-mark`**
 
@@ -284,7 +294,7 @@ The text of an unclassified retriever error is never sent to the caller, on any 
 
 `ExtendedListingRetriever` is the exception, in two ways. An unknown subject there is an empty listing rather than an error, so return an empty `ImmediateSubordinateEntities`. And a nil response is **not** treated as not found: it answers `server_error`, because a listing retriever that returns nothing at all is a misconfiguration rather than a statement about any one subject.
 
-An entity your `ExtendedListingRetriever` lists must also be resolvable through `Retriever`, or a request for the `subordinate_statement` claim returns that entity without one. The draft requires the claim when it is asked for, qualified by "if available", and a listed entity the server cannot sign for is an inconsistency between two of your retrievers rather than a fault in the request, so the page is still answered rather than failed. Every other failure while signing a statement answers `temporarily_unavailable`.
+An entity your `ExtendedListingRetriever` lists must also be resolvable through `Retriever`, or a request for the `subordinate_statement` claim returns that entity without one. Table 4 of the draft makes the attribute a MUST when the claim is asked for and does not qualify it, so this is a deliberate deviation: a listed entity the server cannot sign for is an inconsistency between two of your retrievers rather than a fault in the request, and failing the whole page for one entity is worse than omitting its statement. Keep the two retrievers consistent and the question does not arise. Any other failure while signing a statement is classified as usual, so a `model.Err*` sentinel from your `Retriever` chooses the status a peer sees.
 
 Entries in `ImmediateSubordinateEntities` are `map[string]any`, and each one must carry an `id` whose value is a `string` holding an Entity Identifier. A store that round-trips through JSON yields `float64` for a numeric value, so an `id` that looks like a number arrives as the wrong type and the whole listing is refused with a `server_error`.
 
@@ -478,6 +488,8 @@ Do not pass a chain from an untrusted source to `Client.ResolveMetadata`. Build 
 
 `BuildTrustChain` verifies every link as section 10.2 requires: each statement is signed by a key published for it in the statement above. It stops short only of the last step, confirming that the anchor at the top is one you trust, which needs the trust anchor configuration that is not yet available.
 
+> **Breaking change.** `Client.ResolveMetadata` no longer returns nil metadata. Section 8.3.2 makes the claim required, so a subject that publishes no `metadata` now resolves to an empty `model.Metadata` rather than a nil pointer. A consumer treating nil as "this entity publishes nothing usable" must check the entity types instead.
+
 The statements it returns are the chain as published, not the resolved result. A subject's metadata in them may be missing a required claim its superior supplies, and no policy has been applied, so read metadata from `ResolveMetadata` rather than from a statement in the chain.
 
 ## Errors
@@ -500,6 +512,7 @@ if errors.Is(err, model.ErrInvalidTrustAnchor) {
 | `ErrInvalidTrustChain` | `invalid_trust_chain` | 400 |
 | `ErrInvalidMetadata` | `invalid_metadata` | 400 |
 | `ErrNotFound` | `not_found` | 404 |
+| `ErrPageNotFound` | `page_not_found` | 404 |
 | `ErrTemporarilyUnavailable` | `temporarily_unavailable` | 503 |
 | `ErrUnsupportedParameter` | `unsupported_parameter` | 400 |
 | `ErrServerError` | `server_error` | 500 |
@@ -563,6 +576,7 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | JWK sets whose keys omit `kty` | Accepted on read, so the fault surfaces at verification | [#146](https://github.com/MichaelFraser99/go-openid-federation/issues/146) |
 | A `jwks` member name that case-folds to `keys` | Supplies the verification keys through Go's case-insensitive decode | [#147](https://github.com/MichaelFraser99/go-openid-federation/issues/147) |
 | Error classes on the fetch path | A peer's fault is reported as a server error | [#148](https://github.com/MichaelFraser99/go-openid-federation/issues/148) |
+| `subordinate_statement` on an unlistable entity | Table 4 of the extended listing draft makes the attribute a MUST when requested, and an entity the subordinate store does not hold is returned without it | [#126](https://github.com/MichaelFraser99/go-openid-federation/issues/126) |
 | Shape rules after a policy is applied | Required claims and the relying party key pair are checked on the resolved metadata, the remaining claim shape rules are not, so a policy can set a value the parser would refuse | [#144](https://github.com/MichaelFraser99/go-openid-federation/issues/144) |
 | Policy merge against trust chain length | Cost grows faster than the chain, which `MaxTrustChainDepth` leaves unbounded by default | [#153](https://github.com/MichaelFraser99/go-openid-federation/issues/153) |
 

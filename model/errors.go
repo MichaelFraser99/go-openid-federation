@@ -35,10 +35,6 @@ const (
 	UnsupportedParameter   = "unsupported_parameter"
 )
 
-func NewPageNotFoundError(msg string) error {
-	return fmt.Errorf("%w%s", ErrPageNotFound, msg)
-}
-
 func NewInvalidRequestError(msg string) error {
 	return fmt.Errorf("%w%s", ErrInvalidRequest, msg)
 }
@@ -69,6 +65,10 @@ func NewInvalidMetadataError(msg string) error {
 
 func NewNotFoundError(msg string) error {
 	return fmt.Errorf("%w%s", ErrNotFound, msg)
+}
+
+func NewPageNotFoundError(msg string) error {
+	return fmt.Errorf("%w%s", ErrPageNotFound, msg)
 }
 
 func NewServerError(msg string) error {

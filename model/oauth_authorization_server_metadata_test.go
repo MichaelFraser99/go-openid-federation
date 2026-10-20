@@ -20,17 +20,17 @@ func TestOAuthAuthorizationServerMetadata_VerifyMetadata(t *testing.T) {
 			},
 			wantErr: false,
 		},
-		"missing issuer": {
+		"missing issuer is not a syntax fault": {
 			metadata: OAuthAuthorizationServerMetadata{
 				"response_types_supported": []any{"code"},
 			},
-			wantErr: true,
+			wantErr: false,
 		},
-		"missing response_types_supported": {
+		"missing response_types_supported is not a syntax fault": {
 			metadata: OAuthAuthorizationServerMetadata{
 				"issuer": "https://as.example.com",
 			},
-			wantErr: true,
+			wantErr: false,
 		},
 		"issuer must be https": {
 			metadata: OAuthAuthorizationServerMetadata{
@@ -98,6 +98,46 @@ func TestOAuthAuthorizationServerMetadata_VerifyMetadata(t *testing.T) {
 			err := tt.metadata.VerifyMetadata()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("VerifyMetadata() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestOAuthAuthorizationServerMetadata_VerifyResolvedMetadata(t *testing.T) {
+	tests := map[string]struct {
+		metadata OAuthAuthorizationServerMetadata
+		wantErr  bool
+	}{
+		"an empty object does not satisfy a type that requires parameters": {
+			metadata: OAuthAuthorizationServerMetadata{},
+			wantErr:  true,
+		},
+		"complete metadata": {
+			metadata: OAuthAuthorizationServerMetadata{
+				"issuer":                   "https://as.example.com",
+				"response_types_supported": []any{"code"},
+			},
+			wantErr: false,
+		},
+		"missing issuer": {
+			metadata: OAuthAuthorizationServerMetadata{
+				"response_types_supported": []any{"code"},
+			},
+			wantErr: true,
+		},
+		"missing response_types_supported": {
+			metadata: OAuthAuthorizationServerMetadata{
+				"issuer": "https://as.example.com",
+			},
+			wantErr: true,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := tt.metadata.VerifyResolvedMetadata()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("VerifyResolvedMetadata() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

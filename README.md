@@ -316,9 +316,15 @@ The following entity types are supported.
 | `openid_credential_issuer` | `OpenIDCredentialIssuerMetadata` |
 | `openid_credential_verifier` | `OpenIDCredentialVerifierMetadata` |
 
-Each is a `map[string]any` with its own validation, run when metadata is unmarshalled. An empty object is accepted, so an entity may declare a type without asserting anything about it.
+Each is a `map[string]any` with its own validation, split across two points in the chain.
 
-Validation covers claim shape rather than claim semantics: required claims are present, URL claims are HTTPS with no query or fragment component, string array claims are arrays of strings, and signing algorithm claims exclude `none` where an algorithm is required.
+When metadata is unmarshalled, every statement is checked for claim shape: URL claims are HTTPS with no query or fragment component, string array claims are arrays of strings, object claims are objects, and signing algorithm claims exclude `none` where an algorithm is required. An empty object is accepted, so an entity may declare a type without asserting anything about it.
+
+A consumer calling a built-in type's `VerifyMetadata` directly therefore gets claim shape only, not a full validation of that type.
+
+> **Breaking change.** The required-claim checks moved out of `VerifyMetadata`, so `Metadata.UnmarshalJSON` no longer rejects a statement whose entity type is incomplete, and a consumer calling a type's `VerifyMetadata` as a full validator loses that half. Judge completeness with `VerifyResolvedMetadata`, or with `Metadata.VerifyResolved` for a whole metadata object.
+
+Whether the required claims of a type are present is checked at the end of resolution, not on each statement. A subject may publish part of a type's metadata and leave its superior to supply the rest, through either a `metadata` claim or a metadata policy, so no single statement has to be complete on its own. The resolved metadata does, and `VerifyResolvedMetadata` is where that is judged. An empty object is accepted on a statement, and in the resolved metadata only for a type that has no required claims; for the rest it means none of them arrived.
 
 ## Custom entity types
 
@@ -332,12 +338,6 @@ type exampleService struct{}
 func (exampleService) Identifier() string { return "example_service" }
 
 func (exampleService) VerifyMetadata(metadata map[string]any) error {
-	if len(metadata) == 0 {
-		return nil
-	}
-	if err := model.VerifyRequiredClaims(metadata, "service_endpoint"); err != nil {
-		return err
-	}
 	return model.VerifyHTTPSURLClaim(metadata, "service_endpoint", false)
 }
 
@@ -346,7 +346,7 @@ func (exampleService) VerifyMetadataPolicy(policy map[string]model.PolicyOperato
 }
 
 func (exampleService) VerifyResolvedMetadata(metadata map[string]any) error {
-	return nil
+	return model.VerifyRequiredClaims(metadata, "service_endpoint")
 }
 ```
 
@@ -368,7 +368,13 @@ The hooks run at the following points.
 | `VerifyMetadataPolicy` | A metadata policy an authority has written for the type |
 | `VerifyResolvedMetadata` | The metadata remaining after policy has been applied, at the end of resolution |
 
-Metadata policy can produce metadata that no longer satisfies the type's own rules, such as a `value` operator that removes a required claim. `VerifyResolvedMetadata` runs after policy application and before the resolve response is signed.
+Put claim shape in `VerifyMetadata` and required claims in `VerifyResolvedMetadata`, as the example above does and as the built-in types do. A subject may publish part of a type and leave its superior to supply the rest, so a required claim checked in `VerifyMetadata` forces every statement to be complete on its own and refuses that arrangement.
+
+Metadata policy can produce metadata that no longer satisfies the type's own rules, such as a `value` operator that removes a required claim. `VerifyResolvedMetadata` runs at the end of resolution, after the immediate superior's `metadata` claim and any policy have been applied, and before the resolve response is signed. It runs on every resolution path, including a chain carrying no policy at all. The built-in types check their required claims there.
+
+An entity type with required claims that resolves to the empty object is refused for the same reason. The specification permits an entity to publish `{}` for a type its superiors will fill, but if nothing fills it the resolved metadata has none of the type's required claims, and section 6.1.4.2 requires resolved metadata that is incorrect to be treated as broken. `federation_entity`, `oauth_client` and `oauth_resource` have no required claims, so `{}` resolves for them.
+
+> **Breaking change.** A subject that publishes `{}` for an entity type with required claims, and whose superiors supply none of them, previously resolved and now gets `invalid_metadata`. The resolution is refused as a whole rather than per type, so a caller asking for one entity type is refused because a different one is incomplete ([#158](https://github.com/MichaelFraser99/go-openid-federation/issues/158)).
 
 Registered types are handled the same way as built-in types: published in entity configurations, carried in subordinate statements, subject to metadata policy, filtered by the `entity_type` parameter on `/resolve`, and passed through the `entity_type` filter on `/list`.
 
@@ -378,7 +384,7 @@ Entity types absent from the registry are preserved and relayed unmodified. An i
 
 Set `DiscardUnrecognisedEntityTypes` to remove them instead. Discarding does not produce an error.
 
-The nine built-in types are always registered and are never discarded. A registry entry under a built-in identifier adds its validation to that built-in rather than replacing it, because `Metadata.UnmarshalJSON` always runs the built-in check. A registration can therefore tighten a standard type but not loosen it. See [#74](https://github.com/MichaelFraser99/go-openid-federation/issues/74).
+The nine built-in types are always registered and are never discarded. A registry entry under a built-in identifier adds its validation to that built-in rather than replacing it: `Metadata.UnmarshalJSON` always runs the built-in `VerifyMetadata`, and `Metadata.VerifyResolved` always runs the built-in `VerifyResolvedMetadata` alongside the registered one. A registration can therefore tighten a standard type but not loosen it. See [#74](https://github.com/MichaelFraser99/go-openid-federation/issues/74).
 
 `model.DefaultEntityTypeRegistry` returns the built-in definitions. Embedding one in a custom type delegates to its validation, which is useful when a type is close to a standardised one.
 
@@ -420,6 +426,18 @@ All seven operators from the specification are implemented: `value`, `add`, `def
 
 Policies are combined down a trust chain by `model.ProcessAndExtractPolicy` and applied to a subject's metadata by `model.ApplyPolicy`. Operators resolve in a fixed order: `value`, `add`, `default`, `one_of`, `subset_of`, `superset_of`, then `essential`. Combinations that cannot be satisfied, such as a `subset_of` and a `superset_of` with no overlap, are rejected when the policies are merged.
 
+Policy comes from the subordinate statements in the chain and from nowhere else. `ProcessAndExtractPolicy` reads every statement whose `iss` differs from its `sub`, which is what makes a statement a subordinate statement, and skips the self-issued entity configurations at either end. So neither the subject nor the trust anchor can write policy for the subject through its own entity configuration, and a chain that omits the trust anchor's entity configuration, which the specification permits, still contributes every policy it holds. A policy carried in an entity configuration is also refused outright when the statement is validated.
+
+> **Breaking change.** `ProcessAndExtractPolicy` previously read every statement, so an entity configuration carrying a policy contributed it. It now skips self-issued statements, and the former requirement of at least two statements is gone. A caller that builds statements by hand must set `iss` and `sub`, matched byte for byte: a statement with neither set is self-issued by that rule and carries no policy, and two spellings of one identifier that differ by a trailing slash are not.
+
+`ProcessAndExtractPolicy` merges the policy of the statements it is given and establishes nothing about them. It cannot: it holds no keys, so it cannot check a signature, and it does not check that each statement is issued by the subject of the one above it. Feed it a chain from `BuildTrustChain`, which verifies every link. A hand-assembled chain carrying a statement about an unrelated entity will have that statement's policy applied to the subject, and the function will not object. It also writes the merged policy back into the first statement that carried one, so do not reuse a chain you have passed to it ([#156](https://github.com/MichaelFraser99/go-openid-federation/issues/156)).
+
+Before any policy runs, the metadata parameters the subject's immediate superior supplies in its subordinate statement are applied over the subject's own, by `model.ApplySuperiorMetadata`. The superior's parameters take precedence, and only entity types the subject already publishes are affected, so a superior cannot give the subject an entity type the subject has not declared. A type declared as the empty object counts as declared, and the specification intends exactly that: an entity publishes `{}` for a type whose parameters its superiors will supply, so for such a type the superior writes all of it. Only the statement about the subject does this: a statement about an intermediate higher up has no effect on the leaf.
+
+> **Breaking change.** The `metadata` claim of the subordinate statement about the subject was previously parsed and ignored. It is now applied. Any federation whose authorities populate that claim gets different resolved metadata after upgrading, because the superior's parameters override the subject's where they share a name.
+
+Resolving by hand, rather than through `ResolveMetadata`, means four steps in this order: `model.ApplySuperiorMetadata` to apply the immediate superior's `metadata` claim over the subject's own, `model.ProcessAndExtractPolicy` to merge the chain's policy, `model.ApplyPolicy` to apply it, and `Metadata.VerifyResolved` to judge the result. Skipping the first drops a superior's pinned parameters; skipping the last accepts resolved metadata that no entity type would.
+
 `scope` is handled as a special case. It travels as a space delimited string but is operated on as a list, so operators are converted to their slice form before resolution and the result is rejoined afterwards.
 
 To implement an operator outside this set, satisfy `model.MetadataPolicyOperator`:
@@ -451,6 +469,8 @@ Trust marks in a resolve response are filtered against the trust anchor's `trust
 Do not pass a chain from an untrusted source to `Client.ResolveMetadata`. Build the chain yourself with `Client.BuildTrustChain`, naming the trust anchor, and resolve that.
 
 `BuildTrustChain` verifies every link as section 10.2 requires: each statement is signed by a key published for it in the statement above. It stops short only of the last step, confirming that the anchor at the top is one you trust, which needs the trust anchor configuration that is not yet available.
+
+The statements it returns are the chain as published, not the resolved result. A subject's metadata in them may be missing a required claim its superior supplies, and no policy has been applied, so read metadata from `ResolveMetadata` rather than from a statement in the chain.
 
 ## Errors
 
@@ -526,10 +546,8 @@ Entity statements and configurations, subordinate statements, trust chain constr
 |---|---|---|
 | `constraints` claim | Parsed and carried, never enforced | [#50](https://github.com/MichaelFraser99/go-openid-federation/issues/50) |
 | Configurable trust anchors and their keys | Not supported, so a caller-supplied chain cannot be anchored | [#48](https://github.com/MichaelFraser99/go-openid-federation/issues/48) |
-| `metadata_policy` in an entity configuration | Rejected on read, but `ProcessAndExtractPolicy` still seeds from the first chain entry | [#51](https://github.com/MichaelFraser99/go-openid-federation/issues/51) |
 | Clock skew tolerance | `model.ClockSkewLeeway` is a constant and cannot be configured | [#141](https://github.com/MichaelFraser99/go-openid-federation/issues/141) |
 | JWS `alg` against the signing key | The `alg` header is not compared to the `alg` member of the selected JWK | [#142](https://github.com/MichaelFraser99/go-openid-federation/issues/142) |
-| Resolved metadata validation | Entity type validation runs on parse, not after a metadata policy is applied | [#144](https://github.com/MichaelFraser99/go-openid-federation/issues/144) |
 | Server configuration validation | A bad `ServerConfiguration` is reported when a peer first fetches, not at startup | [#145](https://github.com/MichaelFraser99/go-openid-federation/issues/145) |
 | Extension claims | Dropped on parse and cannot be issued | [#132](https://github.com/MichaelFraser99/go-openid-federation/issues/132) |
 | `trust_chain` and `peer_trust_chain` JOSE headers | Not read or written | [#139](https://github.com/MichaelFraser99/go-openid-federation/issues/139) |
@@ -537,6 +555,7 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | JWK sets whose keys omit `kty` | Accepted on read, so the fault surfaces at verification | [#146](https://github.com/MichaelFraser99/go-openid-federation/issues/146) |
 | A `jwks` member name that case-folds to `keys` | Supplies the verification keys through Go's case-insensitive decode | [#147](https://github.com/MichaelFraser99/go-openid-federation/issues/147) |
 | Error classes on the fetch path | A peer's fault is reported as a server error | [#148](https://github.com/MichaelFraser99/go-openid-federation/issues/148) |
+| Shape rules after a policy is applied | Required claims and the relying party key pair are checked on the resolved metadata, the remaining claim shape rules are not, so a policy can set a value the parser would refuse | [#144](https://github.com/MichaelFraser99/go-openid-federation/issues/144) |
 | Policy merge against trust chain length | Cost grows faster than the chain, which `MaxTrustChainDepth` leaves unbounded by default | [#153](https://github.com/MichaelFraser99/go-openid-federation/issues/153) |
 
 ## License

@@ -10,25 +10,13 @@ var (
 )
 
 func NewSupersetOf(operatorValue any) (*SupersetOf, error) {
-	if operatorValue == nil {
-		return nil, fmt.Errorf("operator value cannot be nil")
+	anySlice, err := operandSliceFrom(operatorValue)
+	if err != nil {
+		return nil, err
 	}
-
-	if reflect.TypeOf(operatorValue).Kind() != reflect.Slice {
-		return nil, fmt.Errorf("operator value must be a slice")
-	}
-
-	sliceValue := reflect.ValueOf(operatorValue)
-	anySlice := make([]any, sliceValue.Len())
-
-	for i := 0; i < sliceValue.Len(); i++ {
-		anySlice[i] = sliceValue.Index(i).Interface()
-	}
-
-	anySlice = DeduplicateSlice(anySlice)
 
 	return &SupersetOf{
-		operatorValue: anySlice,
+		operatorValue: DeduplicateSlice(anySlice),
 	}, nil
 }
 
@@ -86,7 +74,13 @@ func (s SupersetOf) Merge(valueToMerge any) (MetadataPolicyOperator, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewSupersetOf(val)
+
+	anySlice, err := operandSliceFrom(val)
+	if err != nil {
+		return nil, err
+	}
+
+	return &SupersetOf{operatorValue: anySlice}, nil
 }
 
 func (s SupersetOf) CheckForConflict(containsFunc func(policyType reflect.Type) (MetadataPolicyOperator, bool)) error {
@@ -112,7 +106,7 @@ func (s SupersetOf) CheckForConflict(containsFunc func(policyType reflect.Type) 
 
 func (s SupersetOf) combineArray(metadataParameterValue any) (any, error) {
 	if metadataParameterValue == nil {
-		return s, nil
+		return s.operatorValue, nil
 	}
 
 	if reflect.TypeOf(metadataParameterValue).Kind() != reflect.Slice {
@@ -123,7 +117,7 @@ func (s SupersetOf) combineArray(metadataParameterValue any) (any, error) {
 	sliceB := reflect.ValueOf(s.operatorValue)
 
 	if sliceA.Len() == 0 && sliceB.Len() == 0 {
-		return s, nil
+		return s.operatorValue, nil
 	}
 
 	// Assert that the elements of both slices are of the same underlying type

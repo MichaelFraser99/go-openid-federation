@@ -311,16 +311,16 @@ func TestDefaultEntityTypeRegistry_DelegatesToTheCorrectValidator(t *testing.T) 
 			expectedError: "invalid federation_fetch_endpoint endpoint",
 		},
 		"openid_relying_party": {
-			metadata:      map[string]any{"client_name": "Example"},
-			expectedError: "missing required 'redirect_uris' claim",
+			metadata:      map[string]any{"client_registration_types": "not-an-array"},
+			expectedError: "'client_registration_types' must be an array of strings",
 		},
 		"openid_provider": {
-			metadata:      map[string]any{"issuer": "https://example.com"},
-			expectedError: "missing required 'authorization_endpoint' claim",
+			metadata:      map[string]any{"authorization_endpoint": "http://insecure.example.com"},
+			expectedError: "'authorization_endpoint' must use the 'https' scheme",
 		},
 		"oauth_authorization_server": {
-			metadata:      map[string]any{"issuer": "https://example.com"},
-			expectedError: "missing required 'response_types_supported' claim",
+			metadata:      map[string]any{"code_challenge_methods_supported": "not-an-array"},
+			expectedError: "'code_challenge_methods_supported' must be an array of strings",
 		},
 		"oauth_client": {
 			metadata:      map[string]any{"jwks_uri": "http://insecure.example.com"},
@@ -335,8 +335,8 @@ func TestDefaultEntityTypeRegistry_DelegatesToTheCorrectValidator(t *testing.T) 
 			expectedError: "'client_id_prefixes_supported' must not be empty",
 		},
 		"openid_credential_issuer": {
-			metadata:      map[string]any{"client_name": "Example"},
-			expectedError: "missing required 'credential_issuer' claim",
+			metadata:      map[string]any{"credential_issuer": "http://insecure.example.com"},
+			expectedError: "'credential_issuer' must use the 'https' scheme",
 		},
 		"openid_credential_verifier": {
 			metadata:      map[string]any{"vp_formats_supported": map[string]any{}, "request_uris": "not-an-array"},
@@ -373,7 +373,7 @@ func TestDefaultEntityTypeRegistry_DelegatesToTheCorrectValidator(t *testing.T) 
 	}
 }
 
-func TestDefaultEntityTypeRegistry_BuiltInPolicyAndResolvedHooksAcceptAnything(t *testing.T) {
+func TestDefaultEntityTypeRegistry_BuiltInPolicyHookAcceptsAnything(t *testing.T) {
 	registry := DefaultEntityTypeRegistry()
 
 	for _, entityType := range builtInEntityTypes {
@@ -381,9 +381,55 @@ func TestDefaultEntityTypeRegistry_BuiltInPolicyAndResolvedHooksAcceptAnything(t
 		if err := definition.VerifyMetadataPolicy(map[string]PolicyOperators{"anything": {}}); err != nil {
 			t.Errorf("expected %s policy validation to accept anything, got %q", entityType, err.Error())
 		}
-		if err := definition.VerifyResolvedMetadata(map[string]any{"anything": "goes"}); err != nil {
-			t.Errorf("expected %s resolved validation to accept anything, got %q", entityType, err.Error())
-		}
+	}
+}
+
+func TestDefaultEntityTypeRegistry_DelegatesResolvedValidation(t *testing.T) {
+	tests := map[string]struct {
+		metadata      map[string]any
+		expectedError string
+	}{
+		"federation_entity":          {metadata: map[string]any{"anything": "goes"}},
+		"oauth_client":               {metadata: map[string]any{"anything": "goes"}},
+		"oauth_resource":             {metadata: map[string]any{"anything": "goes"}},
+		"openid_relying_party":       {metadata: map[string]any{"client_name": "Example"}, expectedError: "missing required 'redirect_uris' claim"},
+		"openid_provider":            {metadata: map[string]any{"issuer": "https://op.example.com"}, expectedError: "missing required 'authorization_endpoint' claim"},
+		"oauth_authorization_server": {metadata: map[string]any{"issuer": "https://as.example.com"}, expectedError: "missing required 'response_types_supported' claim"},
+		"openid_wallet_provider":     {metadata: map[string]any{"client_id_prefixes_supported": []any{"redirect_uri"}}, expectedError: "missing required 'vp_formats_supported' claim"},
+		"openid_credential_issuer":   {metadata: map[string]any{"client_name": "Example"}, expectedError: "missing required 'credential_issuer' claim"},
+		"openid_credential_verifier": {metadata: map[string]any{"redirect_uris": []any{"https://verifier.example.com/cb"}}, expectedError: "missing required 'vp_formats_supported' claim"},
+	}
+
+	if len(builtInEntityTypes) != len(tests) {
+		t.Fatalf("expected a resolved-validation case for every built-in entity type, got %d cases for %d types", len(tests), len(builtInEntityTypes))
+	}
+
+	registry := DefaultEntityTypeRegistry()
+
+	for entityType, tt := range tests {
+		t.Run(entityType, func(t *testing.T) {
+			if !slices.Contains(builtInEntityTypes, entityType) {
+				t.Fatalf("test case %s is not a built-in entity type", entityType)
+			}
+			definition, ok := registry[entityType]
+			if !ok {
+				t.Fatalf("expected %s to be registered", entityType)
+			}
+
+			err := definition.VerifyResolvedMetadata(tt.metadata)
+			if tt.expectedError == "" {
+				if err != nil {
+					t.Fatalf("expected %s to have no resolved requirements, got %q", entityType, err.Error())
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("expected %s resolved validation to reject incomplete metadata, got nil", entityType)
+			}
+			if !strings.Contains(err.Error(), tt.expectedError) {
+				t.Errorf("expected %s resolved validation to produce %q, got %q", entityType, tt.expectedError, err.Error())
+			}
+		})
 	}
 }
 
@@ -466,6 +512,8 @@ func TestProcessAndExtractPolicy_MergesExtensionPoliciesDownTheChain(t *testing.
 
 	chain := []EntityStatement{
 		{
+			Iss: "https://ta.example.com",
+			Sub: "https://leaf.example.com",
 			MetadataPolicy: &MetadataPolicy{
 				Extensions: map[string]map[string]PolicyOperators{
 					"openid_verifier_provider": {
@@ -475,6 +523,8 @@ func TestProcessAndExtractPolicy_MergesExtensionPoliciesDownTheChain(t *testing.
 			},
 		},
 		{
+			Iss: "https://ta.example.com",
+			Sub: "https://leaf.example.com",
 			MetadataPolicy: &MetadataPolicy{
 				Extensions: map[string]map[string]PolicyOperators{
 					"openid_verifier_provider": {
@@ -507,11 +557,15 @@ func TestProcessAndExtractPolicy_AddsExtensionPolicyAbsentFromTheAccumulator(t *
 
 	chain := []EntityStatement{
 		{
+			Iss: "https://ta.example.com",
+			Sub: "https://leaf.example.com",
 			MetadataPolicy: &MetadataPolicy{
 				FederationMetadata: map[string]PolicyOperators{"organization_name": {}},
 			},
 		},
 		{
+			Iss: "https://ta.example.com",
+			Sub: "https://leaf.example.com",
 			MetadataPolicy: &MetadataPolicy{
 				Extensions: map[string]map[string]PolicyOperators{
 					"openid_verifier_provider": {

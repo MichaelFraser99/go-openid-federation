@@ -51,7 +51,7 @@ func TestValidate_StatementFailuresAreChainFailures(t *testing.T) {
 		{name: "a misplaced claim", kind: "placement", head: validHead, extra: map[string]any{"authority_hints": []any{"https://other.example.com"}}, expectKind: model.ErrInvalidTrustChain},
 		{name: "a self-signed statement", kind: "relationship", head: validHead, extra: map[string]any{"sub": string(trustAnchor)}, expectKind: model.ErrInvalidTrustChain},
 		{name: "a signature by another key", kind: "signature", head: validHead, signWith: true, expectKind: model.ErrInvalidTrustChain},
-		{name: "invalid metadata", kind: "metadata", head: validHead, extra: map[string]any{"metadata": map[string]any{"openid_relying_party": map[string]any{"scope": "openid"}}}, expectKind: model.ErrInvalidMetadata},
+		{name: "invalid metadata", kind: "metadata", head: validHead, extra: map[string]any{"metadata": map[string]any{"openid_relying_party": map[string]any{"redirect_uris": "not-an-array"}}}, expectKind: model.ErrInvalidMetadata},
 		{name: "a malformed policy operator", kind: "body", head: validHead, extra: map[string]any{"metadata_policy": map[string]any{"openid_relying_party": map[string]any{"scope": map[string]any{"subset_of": "not a list"}}}}, expectKind: model.ErrInvalidTrustChain},
 	}
 

@@ -10,10 +10,7 @@ func (m OAuthAuthorizationServerMetadata) VerifyMetadata() error {
 	if len(m) == 0 { //explicitly ignoring constraints on empty JSON ({})
 		return nil
 	}
-	if err := VerifyRequiredClaims(m, "issuer", "response_types_supported"); err != nil {
-		return err
-	}
-	if err := verifyHTTPSURLValue("issuer", m["issuer"], false); err != nil {
+	if err := VerifyHTTPSURLClaim(m, "issuer", false); err != nil {
 		return err
 	}
 	if err := VerifyStringArrayClaim(m, "response_types_supported"); err != nil {
@@ -43,4 +40,8 @@ func (m OAuthAuthorizationServerMetadata) VerifyMetadata() error {
 		}
 	}
 	return nil
+}
+
+func (m OAuthAuthorizationServerMetadata) VerifyResolvedMetadata() error {
+	return VerifyRequiredClaims(m, "issuer", "response_types_supported")
 }

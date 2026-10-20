@@ -25,29 +25,29 @@ func TestOpenIDCredentialIssuerMetadata_VerifyMetadata(t *testing.T) {
 			metadata: base(),
 			wantErr:  false,
 		},
-		"missing credential_issuer": {
+		"missing credential_issuer is not a syntax fault": {
 			metadata: func() OpenIDCredentialIssuerMetadata {
 				m := base()
 				delete(m, "credential_issuer")
 				return m
 			}(),
-			wantErr: true,
+			wantErr: false,
 		},
-		"missing credential_endpoint": {
+		"missing credential_endpoint is not a syntax fault": {
 			metadata: func() OpenIDCredentialIssuerMetadata {
 				m := base()
 				delete(m, "credential_endpoint")
 				return m
 			}(),
-			wantErr: true,
+			wantErr: false,
 		},
-		"missing credential_configurations_supported": {
+		"missing credential_configurations_supported is not a syntax fault": {
 			metadata: func() OpenIDCredentialIssuerMetadata {
 				m := base()
 				delete(m, "credential_configurations_supported")
 				return m
 			}(),
-			wantErr: true,
+			wantErr: false,
 		},
 		"credential_issuer must not contain query": {
 			metadata: func() OpenIDCredentialIssuerMetadata {
@@ -80,6 +80,63 @@ func TestOpenIDCredentialIssuerMetadata_VerifyMetadata(t *testing.T) {
 			err := tt.metadata.VerifyMetadata()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("VerifyMetadata() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestOpenIDCredentialIssuerMetadata_VerifyResolvedMetadata(t *testing.T) {
+	base := func() OpenIDCredentialIssuerMetadata {
+		return OpenIDCredentialIssuerMetadata{
+			"credential_issuer":                   "https://issuer.example.com",
+			"credential_endpoint":                 "https://issuer.example.com/credential",
+			"credential_configurations_supported": map[string]any{"cfg": map[string]any{}},
+		}
+	}
+
+	tests := map[string]struct {
+		metadata OpenIDCredentialIssuerMetadata
+		wantErr  bool
+	}{
+		"an empty object does not satisfy a type that requires parameters": {
+			metadata: OpenIDCredentialIssuerMetadata{},
+			wantErr:  true,
+		},
+		"complete metadata": {
+			metadata: base(),
+			wantErr:  false,
+		},
+		"missing credential_issuer": {
+			metadata: func() OpenIDCredentialIssuerMetadata {
+				m := base()
+				delete(m, "credential_issuer")
+				return m
+			}(),
+			wantErr: true,
+		},
+		"missing credential_endpoint": {
+			metadata: func() OpenIDCredentialIssuerMetadata {
+				m := base()
+				delete(m, "credential_endpoint")
+				return m
+			}(),
+			wantErr: true,
+		},
+		"missing credential_configurations_supported": {
+			metadata: func() OpenIDCredentialIssuerMetadata {
+				m := base()
+				delete(m, "credential_configurations_supported")
+				return m
+			}(),
+			wantErr: true,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := tt.metadata.VerifyResolvedMetadata()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("VerifyResolvedMetadata() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

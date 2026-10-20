@@ -10,9 +10,6 @@ func (m OpenIDCredentialVerifierMetadata) VerifyMetadata() error {
 	if len(m) == 0 { //explicitly ignoring constraints on empty JSON ({})
 		return nil
 	}
-	if err := VerifyRequiredClaims(m, "vp_formats_supported"); err != nil {
-		return err
-	}
 	if err := VerifyObjectClaim(m, "vp_formats_supported"); err != nil {
 		return err
 	}
@@ -29,4 +26,8 @@ func (m OpenIDCredentialVerifierMetadata) VerifyMetadata() error {
 		return err
 	}
 	return nil
+}
+
+func (m OpenIDCredentialVerifierMetadata) VerifyResolvedMetadata() error {
+	return VerifyRequiredClaims(m, "vp_formats_supported")
 }

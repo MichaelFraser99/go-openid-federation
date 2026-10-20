@@ -20,7 +20,7 @@ func TestPolicyOperators_UnmarshalJSON_DefersValidationToResolution(t *testing.T
 			}
 
 			policy := MetadataPolicy{OpenIDRelyingPartyMetadata: map[string]PolicyOperators{"grant_types": operators}}
-			chain := []EntityStatement{{}, {MetadataPolicy: &policy}}
+			chain := []EntityStatement{subordinateWith(&policy)}
 			if _, err := ProcessAndExtractPolicy(chain); err == nil {
 				t.Fatal("expected resolution to reject the policy, got no error")
 			}
@@ -38,13 +38,13 @@ func TestProcessAndExtractPolicy_UnmergedPolicyIsOrdered(t *testing.T) {
 	for name, policies := range tests {
 		t.Run(name, func(t *testing.T) {
 			for i := 0; i < 100; i++ {
-				chain := []EntityStatement{{}}
+				var chain []EntityStatement
 				for _, raw := range policies {
 					var mp MetadataPolicy
 					if err := json.Unmarshal([]byte(raw), &mp); err != nil {
 						t.Fatal(err)
 					}
-					chain = append(chain, EntityStatement{MetadataPolicy: &mp})
+					chain = append(chain, subordinateWith(&mp))
 				}
 				mp, err := ProcessAndExtractPolicy(chain)
 				if err != nil {

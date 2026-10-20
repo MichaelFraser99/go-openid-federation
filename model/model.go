@@ -24,7 +24,7 @@ type Configuration struct {
 	Logger     *slog.Logger
 
 	// EntityTypes registers Entity Types beyond those built in. Entries are merged over the
-	// built-in definitions, so registering under a built-in identifier replaces it.
+	// built-in definitions, and a registration can tighten a built-in type but not loosen it.
 	EntityTypes EntityTypeRegistry
 
 	// DiscardUnrecognisedEntityTypes removes Entity Types absent from EntityTypes during
@@ -1146,6 +1146,34 @@ func (m *MetadataPolicy) HasParameterPolicies() bool {
 		}
 	}
 	return false
+}
+
+func (m *Metadata) setEntityType(entityType string, parameters map[string]any) {
+	switch entityType {
+	case "federation_entity":
+		m.FederationMetadata = (*FederationMetadata)(&parameters)
+	case "openid_relying_party":
+		m.OpenIDRelyingPartyMetadata = (*OpenIDRelyingPartyMetadata)(&parameters)
+	case "openid_provider":
+		m.OpenIDConnectOpenIDProviderMetadata = (*OpenIDConnectOpenIDProviderMetadata)(&parameters)
+	case "oauth_authorization_server":
+		m.OAuthAuthorizationServerMetadata = (*OAuthAuthorizationServerMetadata)(&parameters)
+	case "oauth_client":
+		m.OAuthClientMetadata = (*OAuthClientMetadata)(&parameters)
+	case "oauth_resource":
+		m.OAuthResourceMetadata = (*OAuthResourceMetadata)(&parameters)
+	case "openid_wallet_provider":
+		m.OpenIDWalletProviderMetadata = (*OpenIDWalletProviderMetadata)(&parameters)
+	case "openid_credential_issuer":
+		m.OpenIDCredentialIssuerMetadata = (*OpenIDCredentialIssuerMetadata)(&parameters)
+	case "openid_credential_verifier":
+		m.OpenIDCredentialVerifierMetadata = (*OpenIDCredentialVerifierMetadata)(&parameters)
+	default:
+		if m.Extensions == nil {
+			m.Extensions = map[string]map[string]any{}
+		}
+		m.Extensions[entityType] = parameters
+	}
 }
 
 func (m *MetadataPolicy) setEntityType(entityType string, operators map[string]PolicyOperators) {

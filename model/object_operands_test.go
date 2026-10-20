@@ -116,7 +116,7 @@ func TestProcessAndExtractPolicy_ObjectValuedOperands(t *testing.T) {
 						t.Fatalf("[%s] an object valued operand panicked, which the specification permits neither: %v", tc.reference, r)
 					}
 				}()
-				_, err = ProcessAndExtractPolicy([]EntityStatement{{}, subordinate, {}})
+				_, err = ProcessAndExtractPolicy([]EntityStatement{subordinate})
 			}()
 
 			if tc.expectErr == "" {
@@ -275,7 +275,7 @@ func TestProcessAndExtractPolicy_NullOperandValueDoesNotPanic(t *testing.T) {
 		}
 	}()
 
-	if _, err := ProcessAndExtractPolicy([]EntityStatement{{}, subordinate, {}}); err != nil {
+	if _, err := ProcessAndExtractPolicy([]EntityStatement{subordinate}); err != nil {
 		t.Logf("policy error, which is acceptable: %v", err)
 	}
 }

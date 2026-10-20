@@ -55,18 +55,16 @@ func TestMetadataProcessingE2E(t *testing.T) {
 			}
 
 			trustChain := []EntityStatement{
-				{},
 				{
-					MetadataPolicy: &MetadataPolicy{
-						FederationMetadata: parsedInt,
-					},
+					Iss:            "https://intermediate.example.com",
+					Sub:            "https://leaf.example.com",
+					MetadataPolicy: &MetadataPolicy{FederationMetadata: parsedInt},
 				},
 				{
-					MetadataPolicy: &MetadataPolicy{
-						FederationMetadata: parsedTa,
-					},
+					Iss:            "https://ta.example.com",
+					Sub:            "https://intermediate.example.com",
+					MetadataPolicy: &MetadataPolicy{FederationMetadata: parsedTa},
 				},
-				{},
 			}
 
 			mergedPolicy, err := ProcessAndExtractPolicy(trustChain)

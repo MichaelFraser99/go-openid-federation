@@ -152,7 +152,7 @@ func Test_applyPolicy(t *testing.T) {
 				if err != nil {
 					t.Fatalf("expected no error, got %q", err.Error())
 				}
-				es, err := ProcessAndExtractPolicy([]EntityStatement{{}, {MetadataPolicy: &policyC}, {MetadataPolicy: &policyB}, {MetadataPolicy: &policyA}, {}})
+				es, err := ProcessAndExtractPolicy([]EntityStatement{subordinateWith(&policyC), subordinateWith(&policyB), subordinateWith(&policyA)})
 				if err != nil {
 					t.Fatalf("expected no error, got %q", err.Error())
 				}
@@ -327,7 +327,7 @@ func Test_applyPolicy(t *testing.T) {
 				if err != nil {
 					t.Fatalf("expected no error, got %q", err.Error())
 				}
-				es, err := ProcessAndExtractPolicy([]EntityStatement{{}, {MetadataPolicy: &policyC}, {MetadataPolicy: &policyB}, {MetadataPolicy: &policyA}, {}})
+				es, err := ProcessAndExtractPolicy([]EntityStatement{subordinateWith(&policyC), subordinateWith(&policyB), subordinateWith(&policyA)})
 				if err != nil {
 					t.Fatalf("expected no error, got %q", err.Error())
 				}
@@ -433,7 +433,7 @@ func Test_applyPolicy(t *testing.T) {
 					t.Fatalf("expected no error creating add operator, got %q", err.Error())
 				}
 				policyA := MetadataPolicy{OpenIDRelyingPartyMetadata: map[string]PolicyOperators{"scope": {[]MetadataPolicyOperator{addOperator}}}}
-				es, err := ProcessAndExtractPolicy([]EntityStatement{{}, {MetadataPolicy: &policyA}, {}})
+				es, err := ProcessAndExtractPolicy([]EntityStatement{subordinateWith(&policyA)})
 				if err != nil {
 					t.Fatalf("expected no error, got %q", err.Error())
 				}
@@ -477,7 +477,7 @@ func Test_applyPolicy(t *testing.T) {
 					t.Fatalf("expected no error creating add operator, got %q", err.Error())
 				}
 				policyA := MetadataPolicy{OpenIDRelyingPartyMetadata: map[string]PolicyOperators{"scope": {[]MetadataPolicyOperator{addOperator}}}}
-				es, err := ProcessAndExtractPolicy([]EntityStatement{{}, {MetadataPolicy: &policyA}, {}})
+				es, err := ProcessAndExtractPolicy([]EntityStatement{subordinateWith(&policyA)})
 				if err != nil {
 					t.Fatalf("expected no error, got %q", err.Error())
 				}
@@ -531,7 +531,7 @@ func Test_applyPolicy(t *testing.T) {
 				policyA := MetadataPolicy{OpenIDRelyingPartyMetadata: map[string]PolicyOperators{"scope": {[]MetadataPolicyOperator{valueOperator}}}}
 				policyB := MetadataPolicy{OpenIDRelyingPartyMetadata: map[string]PolicyOperators{"scope": {[]MetadataPolicyOperator{valueOperator2}}}}
 				policyC := MetadataPolicy{OpenIDRelyingPartyMetadata: map[string]PolicyOperators{"scope": {[]MetadataPolicyOperator{addOperator}}}}
-				es, err := ProcessAndExtractPolicy([]EntityStatement{{}, {MetadataPolicy: &policyC}, {MetadataPolicy: &policyB}, {MetadataPolicy: &policyA}, {}})
+				es, err := ProcessAndExtractPolicy([]EntityStatement{subordinateWith(&policyC), subordinateWith(&policyB), subordinateWith(&policyA)})
 				if err != nil {
 					t.Fatalf("expected no error, got %q", err.Error())
 				}
@@ -575,7 +575,7 @@ func Test_applyPolicy(t *testing.T) {
 					t.Fatalf("expected no error creating value operator, got %q", err.Error())
 				}
 				policyA := MetadataPolicy{OpenIDConnectOpenIDProviderMetadata: map[string]PolicyOperators{"scope": {[]MetadataPolicyOperator{valueOperator}}}}
-				es, err := ProcessAndExtractPolicy([]EntityStatement{{}, {MetadataPolicy: &policyA}, {}})
+				es, err := ProcessAndExtractPolicy([]EntityStatement{subordinateWith(&policyA)})
 				if err != nil {
 					t.Fatalf("expected no error, got %q", err.Error())
 				}
@@ -620,7 +620,7 @@ func Test_applyPolicy(t *testing.T) {
 					t.Fatalf("expected no error creating add operator, got %q", err.Error())
 				}
 				policyA := MetadataPolicy{OpenIDRelyingPartyMetadata: map[string]PolicyOperators{"scope": {[]MetadataPolicyOperator{addOperator}}}}
-				es, err := ProcessAndExtractPolicy([]EntityStatement{{}, {MetadataPolicy: &policyA}, {}})
+				es, err := ProcessAndExtractPolicy([]EntityStatement{subordinateWith(&policyA)})
 				if err != nil {
 					t.Fatalf("expected no error, got %q", err.Error())
 				}
@@ -863,7 +863,7 @@ func Test_applyPolicy_scopeValueNullRemovesScopeWithoutError(t *testing.T) {
 				t.Fatalf("expected no error unmarshalling policy, got %q", err.Error())
 			}
 
-			processed, err := ProcessAndExtractPolicy([]EntityStatement{{}, {MetadataPolicy: &policy}, {}})
+			processed, err := ProcessAndExtractPolicy([]EntityStatement{subordinateWith(&policy)})
 			if err != nil {
 				t.Fatalf("expected no error processing policy, got %q", err.Error())
 			}
@@ -1451,10 +1451,7 @@ func TestProcessAndExtractPolicyMergesAllLevels(t *testing.T) {
 		},
 	}
 
-	trustChain := []EntityStatement{leaf, intermediate, trustAnchor, {
-		Sub: EntityIdentifier("https://trust-anchor.example.com"),
-		Iss: EntityIdentifier("https://trust-anchor.example.com"),
-	}}
+	trustChain := []EntityStatement{leaf, intermediate, trustAnchor}
 
 	result, err := ProcessAndExtractPolicy(trustChain)
 	if err != nil {

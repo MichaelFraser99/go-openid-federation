@@ -511,8 +511,9 @@ func TestProcessAndExtractPolicy_MergesExtensionPoliciesDownTheChain(t *testing.
 	}
 
 	chain := []EntityStatement{
-		{},
 		{
+			Iss: "https://ta.example.com",
+			Sub: "https://leaf.example.com",
 			MetadataPolicy: &MetadataPolicy{
 				Extensions: map[string]map[string]PolicyOperators{
 					"openid_verifier_provider": {
@@ -522,6 +523,8 @@ func TestProcessAndExtractPolicy_MergesExtensionPoliciesDownTheChain(t *testing.
 			},
 		},
 		{
+			Iss: "https://ta.example.com",
+			Sub: "https://leaf.example.com",
 			MetadataPolicy: &MetadataPolicy{
 				Extensions: map[string]map[string]PolicyOperators{
 					"openid_verifier_provider": {
@@ -530,7 +533,6 @@ func TestProcessAndExtractPolicy_MergesExtensionPoliciesDownTheChain(t *testing.
 				},
 			},
 		},
-		{},
 	}
 
 	merged, err := ProcessAndExtractPolicy(chain)
@@ -554,13 +556,16 @@ func TestProcessAndExtractPolicy_AddsExtensionPolicyAbsentFromTheAccumulator(t *
 	}
 
 	chain := []EntityStatement{
-		{},
 		{
+			Iss: "https://ta.example.com",
+			Sub: "https://leaf.example.com",
 			MetadataPolicy: &MetadataPolicy{
 				FederationMetadata: map[string]PolicyOperators{"organization_name": {}},
 			},
 		},
 		{
+			Iss: "https://ta.example.com",
+			Sub: "https://leaf.example.com",
 			MetadataPolicy: &MetadataPolicy{
 				Extensions: map[string]map[string]PolicyOperators{
 					"openid_verifier_provider": {
@@ -569,7 +574,6 @@ func TestProcessAndExtractPolicy_AddsExtensionPolicyAbsentFromTheAccumulator(t *
 				},
 			},
 		},
-		{},
 	}
 
 	merged, err := ProcessAndExtractPolicy(chain)

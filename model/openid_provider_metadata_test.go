@@ -45,37 +45,10 @@ func TestOpenIDProviderMetadata_VerifyMetadata(t *testing.T) {
 			}(),
 			wantErr: false,
 		},
-		"signed_jwks_uri satisfies key mechanism": {
-			metadata: func() OpenIDConnectOpenIDProviderMetadata {
-				m := base()
-				delete(m, "jwks_uri")
-				m["signed_jwks_uri"] = "https://op.example.com/jwks.jose"
-				return m
-			}(),
-			wantErr: false,
-		},
-		"jwks by value satisfies key mechanism": {
-			metadata: func() OpenIDConnectOpenIDProviderMetadata {
-				m := base()
-				delete(m, "jwks_uri")
-				m["jwks"] = map[string]any{"keys": []any{}}
-				return m
-			}(),
-			wantErr: false,
-		},
 		"missing token_endpoint is not a syntax fault": {
 			metadata: func() OpenIDConnectOpenIDProviderMetadata {
 				m := base()
 				delete(m, "token_endpoint")
-				return m
-			}(),
-			wantErr: false,
-		},
-		"token_endpoint not required for implicit only": {
-			metadata: func() OpenIDConnectOpenIDProviderMetadata {
-				m := base()
-				delete(m, "token_endpoint")
-				m["response_types_supported"] = []any{"id_token", "id_token token"}
 				return m
 			}(),
 			wantErr: false,
@@ -157,6 +130,57 @@ func TestOpenIDProviderMetadata_VerifyResolvedMetadata(t *testing.T) {
 			metadata: func() OpenIDConnectOpenIDProviderMetadata {
 				m := base()
 				delete(m, "jwks_uri")
+				return m
+			}(),
+			wantErr: true,
+		},
+		"signed_jwks_uri satisfies the key mechanism": {
+			metadata: func() OpenIDConnectOpenIDProviderMetadata {
+				m := base()
+				delete(m, "jwks_uri")
+				m["signed_jwks_uri"] = "https://op.example.com/jwks.jose"
+				return m
+			}(),
+			wantErr: false,
+		},
+		"jwks by value satisfies the key mechanism": {
+			metadata: func() OpenIDConnectOpenIDProviderMetadata {
+				m := base()
+				delete(m, "jwks_uri")
+				m["jwks"] = map[string]any{"keys": []any{}}
+				return m
+			}(),
+			wantErr: false,
+		},
+		"token_endpoint is not required for an implicit only flow": {
+			metadata: func() OpenIDConnectOpenIDProviderMetadata {
+				m := base()
+				delete(m, "token_endpoint")
+				m["response_types_supported"] = []any{"id_token", "id_token token"}
+				return m
+			}(),
+			wantErr: false,
+		},
+		"missing response_types_supported": {
+			metadata: func() OpenIDConnectOpenIDProviderMetadata {
+				m := base()
+				delete(m, "response_types_supported")
+				return m
+			}(),
+			wantErr: true,
+		},
+		"missing subject_types_supported": {
+			metadata: func() OpenIDConnectOpenIDProviderMetadata {
+				m := base()
+				delete(m, "subject_types_supported")
+				return m
+			}(),
+			wantErr: true,
+		},
+		"missing id_token_signing_alg_values_supported": {
+			metadata: func() OpenIDConnectOpenIDProviderMetadata {
+				m := base()
+				delete(m, "id_token_signing_alg_values_supported")
 				return m
 			}(),
 			wantErr: true,

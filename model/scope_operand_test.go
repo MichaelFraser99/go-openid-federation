@@ -219,7 +219,7 @@ func TestProcessAndExtractPolicy_ScopeOperandTypeIsCheckedWhateverTheMetadataHol
 			}
 			subordinate := EntityStatement{Iss: "https://ta.example.com", Sub: "https://leaf.example.com", MetadataPolicy: &policy}
 
-			_, err := ProcessAndExtractPolicy([]EntityStatement{{}, subordinate, {}})
+			_, err := ProcessAndExtractPolicy([]EntityStatement{subordinate})
 
 			if tc.expectErr == "" {
 				if err != nil {

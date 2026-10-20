@@ -70,8 +70,9 @@ func TestProcessAndExtractPolicy_CoversNewEntityTypes(t *testing.T) {
 	}
 
 	chain := []EntityStatement{
-		{},
 		{
+			Iss: "https://ta.example.com",
+			Sub: "https://leaf.example.com",
 			MetadataPolicy: &MetadataPolicy{
 				OAuthResourceMetadata: map[string]PolicyOperators{
 					"contacts": {Metadata: []MetadataPolicyOperator{*addA}},
@@ -79,13 +80,14 @@ func TestProcessAndExtractPolicy_CoversNewEntityTypes(t *testing.T) {
 			},
 		},
 		{
+			Iss: "https://ta.example.com",
+			Sub: "https://leaf.example.com",
 			MetadataPolicy: &MetadataPolicy{
 				OAuthResourceMetadata: map[string]PolicyOperators{
 					"contacts": {Metadata: []MetadataPolicyOperator{*addB}},
 				},
 			},
 		},
-		{},
 	}
 
 	merged, err := ProcessAndExtractPolicy(chain)

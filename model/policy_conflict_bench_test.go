@@ -20,7 +20,7 @@ func benchmarkConflictWalk(b *testing.B, n int) {
 		b.Fatalf("failed to parse the policy fixture: %v", err)
 	}
 	subordinate := EntityStatement{Iss: "https://ta.example.com", Sub: "https://leaf.example.com", MetadataPolicy: &policy}
-	chain := []EntityStatement{{}, subordinate, {}}
+	chain := []EntityStatement{subordinate}
 
 	b.ResetTimer()
 	for range b.N {

@@ -4,7 +4,9 @@ import (
 	"errors"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
@@ -320,5 +322,126 @@ func TestResolveMetadata_MetadataFaultsOnASingleEntryChainAreTypedAsInvalidMetad
 				t.Errorf("a peer's metadata fault must be typed as invalid metadata, got %T: %v", err, err)
 			}
 		})
+	}
+}
+
+type requiresAParameter struct {
+	identifier string
+}
+
+func (r requiresAParameter) Identifier() string                  { return r.identifier }
+func (r requiresAParameter) VerifyMetadata(map[string]any) error { return nil }
+func (r requiresAParameter) VerifyMetadataPolicy(map[string]model.PolicyOperators) error {
+	return nil
+}
+func (r requiresAParameter) VerifyResolvedMetadata(metadata map[string]any) error {
+	return model.VerifyRequiredClaims(metadata, "registered_requirement")
+}
+
+func TestResolveMetadata_TheRegistryIsConsultedOnEveryResolutionPath(t *testing.T) {
+	registry := model.EntityTypeRegistry{
+		"federation_entity": requiresAParameter{identifier: "federation_entity"},
+	}
+
+	tests := []struct {
+		name  string
+		chain func(*testing.T) []string
+	}{
+		{
+			name: "a chain of one",
+			chain: func(t *testing.T) []string {
+				return chainWithClaims(t, nil, nil)[:1]
+			},
+		},
+		{
+			name: "a chain carrying no policy",
+			chain: func(t *testing.T) []string {
+				return chainWithClaims(t, nil, nil)
+			},
+		},
+		{
+			name: "a chain carrying a policy",
+			chain: func(t *testing.T) []string {
+				return chainWithClaims(t, nil, map[string]any{
+					"metadata_policy": map[string]any{
+						"federation_entity": map[string]any{"contacts": map[string]any{"add": []any{"ops@ta.example.com"}}},
+					},
+				})
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := model.Configuration{EntityTypes: registry}
+			_, err := ResolveMetadata(t.Context(), cfg, chainAnchor, test.chain(t), nil)
+			if err == nil {
+				t.Fatal("expected the registered requirement to be applied")
+			}
+			if !errors.Is(err, model.ErrInvalidMetadata) {
+				t.Errorf("expected invalid metadata, got %T: %v", err, err)
+			}
+		})
+	}
+}
+
+func TestResolveMetadata_IncompleteMetadataIsInvalidMetadataOnEveryPath(t *testing.T) {
+	partial := map[string]any{"openid_relying_party": map[string]any{"client_name": "Leaf RP"}}
+
+	tests := []struct {
+		name             string
+		subordinateExtra map[string]any
+	}{
+		{
+			name: "no policy in the chain",
+		},
+		{
+			name: "a policy that does not complete the type",
+			subordinateExtra: map[string]any{"metadata_policy": map[string]any{"openid_relying_party": map[string]any{
+				"contacts": map[string]any{"add": []any{"ops@ta.example.com"}},
+			}}},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			chain := chainWithClaims(t, partial, test.subordinateExtra)
+			_, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chain, nil)
+			if err == nil {
+				t.Fatal("expected the incomplete resolved metadata to be refused")
+			}
+			if !errors.Is(err, model.ErrInvalidMetadata) {
+				t.Errorf("expected invalid metadata, got %T: %v", err, err)
+			}
+			if !strings.Contains(err.Error(), string(chainSubject)) {
+				t.Errorf("expected the error to name the subject, got %q", err.Error())
+			}
+		})
+	}
+}
+
+func TestResolveMetadata_RefusesAChainWithNoStatementAboutTheSubject(t *testing.T) {
+	anchorKey := chainSigningKey(t)
+	now := time.Now().UTC()
+
+	selfListing := map[string]any{
+		"iss":             string(chainAnchor),
+		"sub":             string(chainAnchor),
+		"iat":             now.Unix(),
+		"exp":             now.Add(time.Hour).Unix(),
+		"jwks":            chainJwks(t, anchorKey),
+		"authority_hints": []any{string(chainAnchor)},
+		"metadata": map[string]any{
+			"federation_entity": map[string]any{"federation_fetch_endpoint": string(chainAnchor) + "/fetch"},
+		},
+	}
+	signed := chainSignStatement(t, anchorKey, selfListing)
+
+	_, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, []string{signed, signed}, nil)
+	if err == nil {
+		t.Fatal("a chain holding no subordinate statement establishes no trust and must be refused")
+	}
+	if !errors.Is(err, model.ErrInvalidTrustChain) {
+		t.Errorf("expected the refusal to be a chain fault, got %T: %v", err, err)
 	}
 }

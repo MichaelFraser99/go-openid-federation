@@ -364,7 +364,7 @@ func TestServer_Resolve(t *testing.T) {
 				},
 			},
 			validate: func(t *testing.T, response *http.Response, err error) {
-				validateErrorResponse(t, response, err, http.StatusBadRequest, "invalid_metadata", "cannot merge policy of type 'subset_of' with policy of type 'superset_of' unless the contents of 'subset_of' is a superset of that in 'superset_of'")
+				validateErrorResponse(t, response, err, http.StatusBadRequest, "invalid_metadata", fmt.Sprintf("metadata policy for %s is unresolvable: cannot merge policy of type 'subset_of' with policy of type 'superset_of' unless the contents of 'subset_of' is a superset of that in 'superset_of'", validEntityIdentifier))
 			},
 		},
 		"essential policy on a missing parameter returns invalid metadata": {
@@ -380,7 +380,7 @@ func TestServer_Resolve(t *testing.T) {
 				},
 			},
 			validate: func(t *testing.T, response *http.Response, err error) {
-				validateErrorResponse(t, response, err, http.StatusBadRequest, "invalid_metadata", "unresolvable metadata policy encountered")
+				validateErrorResponse(t, response, err, http.StatusBadRequest, "invalid_metadata", fmt.Sprintf("metadata policy for %s is unresolvable", validEntityIdentifier))
 			},
 		},
 		"valid trust chain with more complex metadata": {

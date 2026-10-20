@@ -301,7 +301,7 @@ func TestServer_Resolve_ExtensionEntityTypes(t *testing.T) {
 				},
 			},
 			validate: func(t *testing.T, response *http.Response, err error) {
-				validateErrorResponse(t, response, err, http.StatusBadRequest, "invalid_metadata", "invalid resolved openid_verifier_provider metadata: policy removed the required 'vp_formats_supported' claim")
+				validateErrorResponse(t, response, err, http.StatusBadRequest, "invalid_metadata", fmt.Sprintf("resolved metadata for %s is invalid: invalid resolved openid_verifier_provider metadata: policy removed the required 'vp_formats_supported' claim", vs.URL))
 			},
 		},
 	}

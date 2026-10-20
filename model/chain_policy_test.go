@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -16,9 +17,14 @@ func chainPolicy(t *testing.T, raw string) *MetadataPolicy {
 }
 
 func TestProcessAndExtractPolicy_TakesPolicyOnlyFromSubordinateStatements(t *testing.T) {
-	subjectPolicy := `{"openid_relying_party":{"client_name":{"value":"from-subject"}}}`
-	superiorPolicy := `{"openid_relying_party":{"client_name":{"value":"from-superior"}}}`
-	anchorPolicy := `{"openid_relying_party":{"client_name":{"value":"from-anchor-configuration"}}}`
+	const (
+		leaf         = EntityIdentifier("https://leaf.example.com")
+		intermediate = EntityIdentifier("https://int.example.com")
+		anchor       = EntityIdentifier("https://ta.example.com")
+	)
+
+	configurationPolicy := `{"openid_relying_party":{"client_name":{"value":"from-a-configuration"}}}`
+	superiorPolicy := `{"openid_relying_party":{"client_name":{"value":"from-the-superior"}}}`
 
 	tests := []struct {
 		name   string
@@ -29,9 +35,9 @@ func TestProcessAndExtractPolicy_TakesPolicyOnlyFromSubordinateStatements(t *tes
 			name: "a policy in the subject's own entity configuration",
 			chain: func(t *testing.T) []EntityStatement {
 				return []EntityStatement{
-					{MetadataPolicy: chainPolicy(t, subjectPolicy)},
-					{},
-					{},
+					{Iss: leaf, Sub: leaf, MetadataPolicy: chainPolicy(t, configurationPolicy)},
+					{Iss: anchor, Sub: leaf},
+					{Iss: anchor, Sub: anchor},
 				}
 			},
 		},
@@ -39,9 +45,9 @@ func TestProcessAndExtractPolicy_TakesPolicyOnlyFromSubordinateStatements(t *tes
 			name: "a policy in the trust anchor's entity configuration",
 			chain: func(t *testing.T) []EntityStatement {
 				return []EntityStatement{
-					{},
-					{},
-					{MetadataPolicy: chainPolicy(t, anchorPolicy)},
+					{Iss: leaf, Sub: leaf},
+					{Iss: anchor, Sub: leaf},
+					{Iss: anchor, Sub: anchor, MetadataPolicy: chainPolicy(t, configurationPolicy)},
 				}
 			},
 		},
@@ -49,23 +55,43 @@ func TestProcessAndExtractPolicy_TakesPolicyOnlyFromSubordinateStatements(t *tes
 			name: "a policy in the subordinate statement between them",
 			chain: func(t *testing.T) []EntityStatement {
 				return []EntityStatement{
-					{},
-					{MetadataPolicy: chainPolicy(t, superiorPolicy)},
-					{},
+					{Iss: leaf, Sub: leaf},
+					{Iss: anchor, Sub: leaf, MetadataPolicy: chainPolicy(t, superiorPolicy)},
+					{Iss: anchor, Sub: anchor},
 				}
 			},
-			expect: "from-superior",
+			expect: "from-the-superior",
 		},
 		{
 			name: "a policy at every level keeps only the subordinate statement's",
 			chain: func(t *testing.T) []EntityStatement {
 				return []EntityStatement{
-					{MetadataPolicy: chainPolicy(t, subjectPolicy)},
-					{MetadataPolicy: chainPolicy(t, superiorPolicy)},
-					{MetadataPolicy: chainPolicy(t, anchorPolicy)},
+					{Iss: leaf, Sub: leaf, MetadataPolicy: chainPolicy(t, configurationPolicy)},
+					{Iss: anchor, Sub: leaf, MetadataPolicy: chainPolicy(t, superiorPolicy)},
+					{Iss: anchor, Sub: anchor, MetadataPolicy: chainPolicy(t, configurationPolicy)},
 				}
 			},
-			expect: "from-superior",
+			expect: "from-the-superior",
+		},
+		{
+			name: "the trust anchor's own policy when its entity configuration is omitted",
+			chain: func(t *testing.T) []EntityStatement {
+				return []EntityStatement{
+					{Iss: leaf, Sub: leaf},
+					{Iss: intermediate, Sub: leaf},
+					{Iss: anchor, Sub: intermediate, MetadataPolicy: chainPolicy(t, superiorPolicy)},
+				}
+			},
+			expect: "from-the-superior",
+		},
+		{
+			name: "a chain holding only entity configurations",
+			chain: func(t *testing.T) []EntityStatement {
+				return []EntityStatement{
+					{Iss: leaf, Sub: leaf, MetadataPolicy: chainPolicy(t, configurationPolicy)},
+					{Iss: anchor, Sub: anchor, MetadataPolicy: chainPolicy(t, configurationPolicy)},
+				}
+			},
 		},
 	}
 
@@ -95,22 +121,53 @@ func TestProcessAndExtractPolicy_TakesPolicyOnlyFromSubordinateStatements(t *tes
 	}
 }
 
-func TestProcessAndExtractPolicy_RejectsAChainWithNoSubordinateStatement(t *testing.T) {
-	policy := chainPolicy(t, `{"federation_entity":{"contacts":{"value":["x@example.com"]}}}`)
+func TestProcessAndExtractPolicy_MergesEverySubordinateStatementWhateverItsPosition(t *testing.T) {
+	const (
+		leaf         = EntityIdentifier("https://leaf.example.com")
+		intermediate = EntityIdentifier("https://int.example.com")
+		anchor       = EntityIdentifier("https://ta.example.com")
+	)
 
-	tests := map[string][]EntityStatement{
-		"an empty chain":            {},
-		"one entity configuration":  {{MetadataPolicy: policy}},
-		"two entity configurations": {{MetadataPolicy: policy}, {MetadataPolicy: policy}},
+	withAnchorConfiguration := []EntityStatement{
+		{Iss: leaf, Sub: leaf},
+		{Iss: intermediate, Sub: leaf, MetadataPolicy: chainPolicy(t, `{"federation_entity":{"contacts":{"add":["int@example.com"]}}}`)},
+		{Iss: anchor, Sub: intermediate, MetadataPolicy: chainPolicy(t, `{"federation_entity":{"contacts":{"add":["ta@example.com"]}}}`)},
+		{Iss: anchor, Sub: anchor},
 	}
+	withoutAnchorConfiguration := withAnchorConfiguration[:3]
 
-	for name, chain := range tests {
+	for name, chain := range map[string][]EntityStatement{
+		"the trust anchor's entity configuration present": withAnchorConfiguration,
+		"the trust anchor's entity configuration omitted": withoutAnchorConfiguration,
+	} {
 		t.Run(name, func(t *testing.T) {
-			got, err := ProcessAndExtractPolicy(chain)
-			if err == nil {
-				t.Errorf("expected the chain to be refused rather than silently carrying no policy, got %+v", got)
+			policy, err := ProcessAndExtractPolicy(chain)
+			if err != nil {
+				t.Fatalf("no error expected extracting the policy, got: %v", err)
+			}
+			if policy == nil {
+				t.Fatal("expected a policy, got none")
+			}
+			operators, found := policy.FederationMetadata["contacts"]
+			if !found {
+				t.Fatalf("expected a contacts policy, got %+v", policy.FederationMetadata)
+			}
+			operands, ok := operators.Metadata[0].OperatorValue().([]any)
+			if !ok {
+				t.Fatalf("expected an array operand, got %T", operators.Metadata[0].OperatorValue())
+			}
+			for _, want := range []any{"int@example.com", "ta@example.com"} {
+				if !slices.Contains(operands, want) {
+					t.Errorf("expected every subordinate statement to contribute, %v missing from %v", want, operands)
+				}
 			}
 		})
+	}
+}
+
+func TestProcessAndExtractPolicy_RejectsAnEmptyChain(t *testing.T) {
+	if got, err := ProcessAndExtractPolicy(nil); err == nil {
+		t.Errorf("expected an empty chain to be refused, got %+v", got)
 	}
 }
 
@@ -349,5 +406,34 @@ func TestOpenIDRelyingPartyMetadata_KeyParameterPairIsJudgedAtBothPoints(t *test
 	}
 	if err := both.VerifyResolvedMetadata(); err == nil {
 		t.Error("expected resolved metadata carrying both key parameters to be refused")
+	}
+}
+
+func subordinateWith(policy *MetadataPolicy) EntityStatement {
+	return EntityStatement{
+		Iss:            "https://ta.example.com",
+		Sub:            "https://leaf.example.com",
+		MetadataPolicy: policy,
+	}
+}
+
+func TestOperandSlice_RefusesAValueThatIsNotASlice(t *testing.T) {
+	tests := map[string]any{
+		"a string":        "abc",
+		"a number":        float64(1),
+		"an object":       map[string]any{"a": "b"},
+		"a boolean":       true,
+		"no value at all": nil,
+	}
+
+	for name, operand := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got, err := NewAdd(operand); err == nil {
+				t.Errorf("expected 'add' to refuse a non-slice operand, got %+v", got)
+			}
+			if got, err := NewSupersetOf(operand); err == nil {
+				t.Errorf("expected 'superset_of' to refuse a non-slice operand, got %+v", got)
+			}
+		})
 	}
 }

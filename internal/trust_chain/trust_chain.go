@@ -169,6 +169,13 @@ func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 	return signedPath[:len(signedPath)-1], path[:len(path)-1], tainted, model.NewInvalidTrustAnchorError("unable to build trust chain from specified 'sub' to specified 'trust_anchor'")
 }
 
+func resolvedMetadata(metadata *model.Metadata) *model.Metadata {
+	if metadata == nil {
+		return &model.Metadata{}
+	}
+	return metadata
+}
+
 func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityIdentifier model.EntityIdentifier, trustChain []string, cache *resolvecache.Cache) (*model.ResolveResponse, error) {
 	cfg.LogInfo(ctx, "resolving metadata from trust chain", slog.String("issuer", string(issuerEntityIdentifier)), slog.Int("chain_length", len(trustChain)))
 
@@ -202,7 +209,7 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 		response, err := entity_configuration.Validate(ctx, cfg, *parsedSub, trustChain[len(trustChain)-1])
 		if err != nil {
 			cfg.LogInfo(ctx, "failed to validate self-signed entity configuration", slog.String("entity", string(*parsedSub)), slog.String("error", err.Error()))
-			return nil, fmt.Errorf("error validating entity configuration in final chain entry: %w", err)
+			return nil, fmt.Errorf("error validating entity configuration for %s: %w", *parsedSub, err)
 		}
 		processedChain = append(processedChain, *response)
 	} else {
@@ -235,7 +242,7 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 			Iat:        time.Now().UTC().Unix(),
 			Exp:        singleExp,
 			TrustChain: trustChain,
-			Metadata:   processedChain[0].Metadata,
+			Metadata:   resolvedMetadata(processedChain[0].Metadata),
 			TrustMarks: processedChain[0].TrustMarks,
 		}, nil
 	}
@@ -323,7 +330,7 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 				return nil, model.NewInvalidMetadataError(fmt.Sprintf("resolved metadata for %s: %s", subject.Sub, err.Error()))
 			}
 		}
-		result.Metadata = subject.Metadata
+		result.Metadata = resolvedMetadata(subject.Metadata)
 		result.TrustMarks = subject.TrustMarks
 		return result, nil
 	}
@@ -342,7 +349,7 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 		}
 	}
 
-	result.Metadata = applied.Metadata
+	result.Metadata = resolvedMetadata(applied.Metadata)
 	result.TrustMarks = subject.TrustMarks
 
 	cfg.LogInfo(ctx, "metadata resolution completed successfully", slog.String("subject", string(result.Sub)), slog.Int("trust_marks_count", len(result.TrustMarks)), slog.Int64("exp", result.Exp))

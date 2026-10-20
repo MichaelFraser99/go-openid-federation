@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+	"slices"
+	"strings"
 	"sync"
 
 	"github.com/MichaelFraser99/go-openid-federation/model"
@@ -75,23 +77,60 @@ func (s *Server) Configure(h *http.ServeMux) {
 	if s.cfg.HttpClient == nil {
 		s.cfg.HttpClient = http.DefaultClient
 	}
-	h.HandleFunc("GET /.well-known/openid-federation", s.handle(s.HandleWellKnown))
+	s.route(h, "/.well-known/openid-federation", s.HandleWellKnown, http.MethodGet)
 	if s.cfg.IntermediateConfiguration != nil {
-		h.HandleFunc("GET /list", s.handle(s.List))
-		h.HandleFunc("GET /fetch", s.handle(s.Fetch))
-		h.HandleFunc("GET /resolve", s.handle(s.Resolve))
+		s.route(h, "/list", s.List, http.MethodGet)
+		s.route(h, "/fetch", s.Fetch, http.MethodGet)
+		s.route(h, "/resolve", s.Resolve, http.MethodGet)
 
 		if s.cfg.Extensions.ExtendedListing.Enabled {
-			h.HandleFunc("GET /extended-list", s.handle(s.ExtendedList))
+			s.route(h, "/extended-list", s.ExtendedList, http.MethodGet)
 		}
 		if s.cfg.Extensions.SubordinateStatus.Enabled {
-			h.HandleFunc("GET /subordinate-status", s.handle(s.SubordinateStatus))
+			s.route(h, "/subordinate-status", s.SubordinateStatus, http.MethodGet)
 		}
 	}
 	if s.cfg.TrustMarkRetriever != nil {
-		h.HandleFunc("POST /trust-mark-status", s.handle(s.TrustMarkStatus))
-		h.HandleFunc("GET /trust-mark-list", s.handle(s.TrustMarkList))
-		h.HandleFunc("GET /trust-mark", s.handle(s.TrustMark))
+		s.route(h, "/trust-mark-status", s.TrustMarkStatus, http.MethodPost)
+		s.route(h, "/trust-mark-list", s.TrustMarkList, http.MethodGet)
+		s.route(h, "/trust-mark", s.TrustMark, http.MethodGet)
+	}
+}
+
+var everyMethod = []string{
+	http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch,
+	http.MethodDelete, http.MethodConnect, http.MethodOptions, http.MethodTrace,
+}
+
+func (s *Server) route(h *http.ServeMux, path string, handler func(http.ResponseWriter, *http.Request) ResponseFunc, methods ...string) {
+	allowed := make([]string, 0, len(methods)+1)
+	for _, method := range methods {
+		h.HandleFunc(method+" "+path, s.handle(handler))
+		allowed = append(allowed, method)
+		if method == http.MethodGet {
+			allowed = append(allowed, http.MethodHead)
+		}
+	}
+
+	refuse := s.handle(s.methodNotAllowed(strings.Join(allowed, ", ")))
+	for _, method := range everyMethod {
+		if !slices.Contains(allowed, method) {
+			h.HandleFunc(method+" "+path, refuse)
+		}
+	}
+}
+
+func (s *Server) methodNotAllowed(allowed string) func(http.ResponseWriter, *http.Request) ResponseFunc {
+	return func(w http.ResponseWriter, r *http.Request) ResponseFunc {
+		return func() {
+			s.cfg.LogInfo(r.Context(), "rejecting a request made with an unsupported method",
+				slog.String("path", r.URL.Path), slog.String("method", model.TruncateForResponse(r.Method)), slog.String("allowed", allowed))
+			_, body := s.parseError(model.NewInvalidRequestError(fmt.Sprintf("this endpoint accepts %s", allowed)))
+			w.Header().Set("Allow", allowed)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_, _ = w.Write([]byte(body))
+		}
 	}
 }
 
@@ -230,6 +269,8 @@ func errorStatusAndCode(err error) (int, string) {
 		return http.StatusBadRequest, model.InvalidTrustChain
 	case errors.Is(err, model.ErrInvalidMetadata):
 		return http.StatusBadRequest, model.InvalidMetadata
+	case errors.Is(err, model.ErrPageNotFound):
+		return http.StatusNotFound, model.PageNotFound
 	case errors.Is(err, model.ErrNotFound):
 		return http.StatusNotFound, model.NotFound
 	case errors.Is(err, model.ErrTemporarilyUnavailable):

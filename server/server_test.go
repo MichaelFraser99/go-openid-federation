@@ -78,7 +78,7 @@ func (r TestExtendedRetriever) GetExtendedSubordinates(ctx context.Context, filt
 
 	if filter.From != nil {
 		if !slices.Contains(identifiers, string(*filter.From)) {
-			return nil, fmt.Errorf("unknown entity identifier: %s", *filter.From)
+			return nil, model.NewPageNotFoundError("the pagination pointer is no longer known")
 		}
 		identifiers = identifiers[slices.Index(identifiers, string(*filter.From)):]
 	}

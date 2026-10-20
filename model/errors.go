@@ -14,6 +14,7 @@ var (
 	ErrInvalidTrustChain      = errors.New("")
 	ErrInvalidMetadata        = errors.New("")
 	ErrNotFound               = errors.New("")
+	ErrPageNotFound           = errors.New("")
 	ErrServerError            = errors.New("")
 	ErrTemporarilyUnavailable = errors.New("")
 	ErrUnsupportedParameter   = errors.New("")
@@ -28,6 +29,7 @@ const (
 	InvalidTrustChain      = "invalid_trust_chain"
 	InvalidMetadata        = "invalid_metadata"
 	NotFound               = "not_found"
+	PageNotFound           = "page_not_found"
 	ServerError            = "server_error"
 	TemporarilyUnavailable = "temporarily_unavailable"
 	UnsupportedParameter   = "unsupported_parameter"
@@ -63,6 +65,10 @@ func NewInvalidMetadataError(msg string) error {
 
 func NewNotFoundError(msg string) error {
 	return fmt.Errorf("%w%s", ErrNotFound, msg)
+}
+
+func NewPageNotFoundError(msg string) error {
+	return fmt.Errorf("%w%s", ErrPageNotFound, msg)
 }
 
 func NewServerError(msg string) error {

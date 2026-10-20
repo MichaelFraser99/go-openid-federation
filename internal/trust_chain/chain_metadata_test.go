@@ -1,6 +1,7 @@
 package trust_chain
 
 import (
+	"encoding/json"
 	"errors"
 	"reflect"
 	"slices"
@@ -336,6 +337,9 @@ func TestResolveMetadata_MetadataFaultsOnASingleEntryChainAreTypedAsInvalidMetad
 			if !errors.Is(err, model.ErrInvalidMetadata) {
 				t.Errorf("a peer's metadata fault must be typed as invalid metadata, got %T: %v", err, err)
 			}
+			if !strings.Contains(err.Error(), string(chainSubject)) {
+				t.Errorf("expected the error to name the subject, got %q", err.Error())
+			}
 		})
 	}
 }
@@ -458,5 +462,69 @@ func TestResolveMetadata_RefusesAChainWithNoStatementAboutTheSubject(t *testing.
 	}
 	if !errors.Is(err, model.ErrInvalidTrustChain) {
 		t.Errorf("expected the refusal to be a chain fault, got %T: %v", err, err)
+	}
+}
+
+func TestResolveMetadata_AlwaysCarriesAMetadataObject(t *testing.T) {
+	tests := []struct {
+		name  string
+		chain func(*testing.T) []string
+	}{
+		{
+			name: "a chain of one whose subject carries no metadata claim",
+			chain: func(t *testing.T) []string {
+				return chainWithoutSubjectMetadata(t, nil)[:1]
+			},
+		},
+		{
+			name: "a chain carrying no policy whose subject carries no metadata claim",
+			chain: func(t *testing.T) []string {
+				return chainWithoutSubjectMetadata(t, nil)
+			},
+		},
+		{
+			name: "a chain carrying a policy whose subject carries no metadata claim",
+			chain: func(t *testing.T) []string {
+				return chainWithoutSubjectMetadata(t, map[string]any{
+					"metadata_policy": map[string]any{
+						"federation_entity": map[string]any{"contacts": map[string]any{"add": []any{"ops@ta.example.com"}}},
+					},
+				})
+			},
+		},
+		{
+			name: "a chain whose subject declares an empty metadata claim",
+			chain: func(t *testing.T) []string {
+				return chainWithClaims(t, map[string]any{}, nil)
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, test.chain(t), nil)
+			if err != nil {
+				t.Fatalf("no error expected resolving, got: %v", err)
+			}
+			if result.Metadata == nil {
+				t.Fatal("section 8.3.2 makes the metadata claim required, got none")
+			}
+
+			encoded, err := json.Marshal(result)
+			if err != nil {
+				t.Fatalf("no error expected encoding the response, got: %v", err)
+			}
+			var decoded map[string]any
+			if err := json.Unmarshal(encoded, &decoded); err != nil {
+				t.Fatalf("no error expected decoding the response, got: %v", err)
+			}
+			metadata, present := decoded["metadata"]
+			if !present {
+				t.Fatalf("the response carries no metadata claim: %s", encoded)
+			}
+			if _, isObject := metadata.(map[string]any); !isObject {
+				t.Errorf("the metadata claim must be a JSON object, got %T in %s", metadata, encoded)
+			}
+		})
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 
@@ -96,6 +97,11 @@ func (s *Server) Configure(h *http.ServeMux) {
 	}
 }
 
+var everyMethod = []string{
+	http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch,
+	http.MethodDelete, http.MethodConnect, http.MethodOptions, http.MethodTrace,
+}
+
 func (s *Server) route(h *http.ServeMux, path string, handler func(http.ResponseWriter, *http.Request) ResponseFunc, methods ...string) {
 	allowed := make([]string, 0, len(methods)+1)
 	for _, method := range methods {
@@ -105,7 +111,13 @@ func (s *Server) route(h *http.ServeMux, path string, handler func(http.Response
 			allowed = append(allowed, http.MethodHead)
 		}
 	}
-	h.HandleFunc(path, s.handle(s.methodNotAllowed(strings.Join(allowed, ", "))))
+
+	refuse := s.handle(s.methodNotAllowed(strings.Join(allowed, ", ")))
+	for _, method := range everyMethod {
+		if !slices.Contains(allowed, method) {
+			h.HandleFunc(method+" "+path, refuse)
+		}
+	}
 }
 
 func (s *Server) methodNotAllowed(allowed string) func(http.ResponseWriter, *http.Request) ResponseFunc {
@@ -113,7 +125,7 @@ func (s *Server) methodNotAllowed(allowed string) func(http.ResponseWriter, *htt
 		return func() {
 			s.cfg.LogInfo(r.Context(), "rejecting a request made with an unsupported method",
 				slog.String("path", r.URL.Path), slog.String("method", model.TruncateForResponse(r.Method)), slog.String("allowed", allowed))
-			_, body := s.parseError(model.NewInvalidRequestError(fmt.Sprintf("this endpoint accepts the %s method", allowed)))
+			_, body := s.parseError(model.NewInvalidRequestError(fmt.Sprintf("this endpoint accepts %s", allowed)))
 			w.Header().Set("Allow", allowed)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -125,7 +137,7 @@ func (s *Server) methodNotAllowed(allowed string) func(http.ResponseWriter, *htt
 var classifiedErrors = []error{
 	model.ErrInvalidRequest, model.ErrInvalidClient, model.ErrInvalidIssuer,
 	model.ErrInvalidSubject, model.ErrInvalidTrustAnchor, model.ErrInvalidTrustChain,
-	model.ErrInvalidMetadata, model.ErrNotFound, model.ErrPageNotFound, model.ErrServerError,
+	model.ErrInvalidMetadata, model.ErrNotFound, model.ErrServerError,
 	model.ErrTemporarilyUnavailable, model.ErrUnsupportedParameter,
 }
 

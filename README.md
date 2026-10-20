@@ -126,7 +126,7 @@ The handlers `Configure` registers depend on the configuration.
 
 Each endpoint accepts the one method in the table. Any other method answers `405` with an `Allow` header and an `invalid_request` JSON body, rather than the `text/plain` body `http.ServeMux` writes by default, because section 8.9 wants a JSON object for an error and section 8.1.2 requires one on the fetch endpoint. `HEAD` is served wherever `GET` is.
 
-`Configure` therefore registers each path twice, once with its method and once without, so it claims the bare path as well as the method pattern. Registering a handler of your own on one of these paths before calling `Configure` makes `http.ServeMux` panic on the duplicate. Mount the federation routes on their own mux, or under a prefix, if you need those paths.
+`Configure` therefore registers each of the nine standard HTTP methods on each of these paths: the method in the table reaches the handler, and the other eight answer 405. A request carrying a method outside that set gets `http.ServeMux`'s own plain-text 405 instead, which is the one case the JSON guarantee does not cover. So the library owns those paths outright, and registering any handler of your own on one of them, with or without a method, makes `http.ServeMux` panic on the duplicate whichever order you register in. Broader patterns are unaffected: a catch-all such as `GET /`, `/{path...}` or a prefix like `/api/fetch` coexists, and keeps receiving everything the federation paths do not match.
 
 ### Query parameters
 
@@ -171,9 +171,9 @@ Resolving metadata makes outbound HTTP requests for the caller-supplied `sub` an
 
 The endpoint takes the `/list` filters as well as its own, which [Extended Subordinate Listing 1.0](https://openid.net/specs/openid-federation-extended-listing-1_0.html) section 3.2 requires. Supplying `updated_after`, `updated_before` or `audit_timestamps` returns `unsupported_parameter`.
 
-`claims` names at most 64 claims, across every form combined. More than that answers `invalid_request`, because the parameter is otherwise bounded only by the request size and every name reaches your retriever.
+`claims` names at most 64 distinct claims, across every form combined; duplicates and empty items do not count towards it. `entity_type` and `trust_mark_type` are each accepted at most 64 times. More than that answers `invalid_request`, because these parameters are otherwise bounded only by the request size and every value reaches your retriever.
 
-A `from` the retriever no longer recognises answers `404 page_not_found`, which section 3.2 of that draft requires for a stale cursor. Return `model.NewPageNotFoundError(...)` for it; `model.NewNotFoundError(...)` answers `not_found` instead, which the draft reserves for an unknown subject. Return it from this retriever only: section 8.9 of the core specification does not define `page_not_found`, and permits codes outside its list only from the IANA registry, so a caller of any other endpoint would be given a code it has no reason to understand.
+A `from` the retriever no longer recognises answers `404 page_not_found`, which section 3.2 of that draft requires for a stale cursor. Return `model.NewPageNotFoundError(...)` for it; `model.NewNotFoundError(...)` answers `not_found` instead, which the draft reserves for an unknown subject. It is honoured for this retriever only: section 8.9 of the core specification does not define `page_not_found`, and says codes from the IANA registry MAY be used, so a caller of any other endpoint has no reason to understand it. Returned from any other retriever it is treated as an unclassified fault.
 
 Like every classified error, the message you give `NewPageNotFoundError` is sent to the caller. Name the fault, not the cursor value or the store that rejected it.
 

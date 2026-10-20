@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"slices"
 	"time"
 
@@ -21,11 +22,7 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 		return nil, nil, nil, fmt.Errorf("target leaf entity identifier must not match target trust anchor entity identifier")
 	}
 
-	if cache == nil {
-		cache = resolvecache.New()
-	}
-
-	signedRoute, route, _, err := ChainUpOne(ctx, cfg, targetLeafEntityIdentifier, targetTrustAnchorEntityIdentifier, []model.EntityIdentifier{}, []model.EntityStatement{}, []string{}, cache, cache.DeadEnds())
+	signedRoute, route, _, err := ChainUpOne(ctx, cfg, targetLeafEntityIdentifier, targetTrustAnchorEntityIdentifier, []model.EntityIdentifier{}, []model.EntityStatement{}, []string{}, cache)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -83,14 +80,37 @@ func walkNotCompleted(err error) error {
 	return fmt.Errorf("%w%s: %w", model.ErrTemporarilyUnavailable, "trust chain walk did not complete", err)
 }
 
-type DeadEnd = resolvecache.DeadEnd
+var errBudgetExhausted = errors.New("")
 
-func deadEndKey(cfg model.Configuration, subject model.EntityIdentifier, depth int) DeadEnd {
-	return DeadEnd{Subject: subject, Remaining: cfg.TrustChainDepthLimit() - depth}
+func budgetExhausted(err error) error {
+	return fmt.Errorf("%w%w", errBudgetExhausted, err)
 }
 
-func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target model.EntityIdentifier, checked []model.EntityIdentifier, path []model.EntityStatement, signedPath []string, cache *resolvecache.Cache, deadEnds map[DeadEnd]struct{}) ([]string, []model.EntityStatement, bool, error) {
+func depthReached() error {
+	return model.NewLimitReachedError("the resolver reached the maximum trust chain depth before a trust anchor")
+}
+
+type DeadEnd = resolvecache.DeadEnd
+
+func deadEndKey(subject, target model.EntityIdentifier) DeadEnd {
+	return DeadEnd{Subject: subject, Target: target}
+}
+
+func visitLimit(cfg model.Configuration) int {
+	depth := cfg.TrustChainDepthLimit()
+	entities := cfg.EntitiesTraversedLimit()
+	if entities > math.MaxInt/depth {
+		return math.MaxInt
+	}
+	return depth * entities
+}
+
+func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target model.EntityIdentifier, checked []model.EntityIdentifier, path []model.EntityStatement, signedPath []string, cache *resolvecache.Cache) ([]string, []model.EntityStatement, bool, error) {
 	cfg.LogInfo(ctx, "walking trust chain", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Any("checked", checked), slog.Any("path", path), slog.Any("signed_path", signedPath))
+
+	if cache == nil {
+		cache = resolvecache.New()
+	}
 
 	if err := ctx.Err(); err != nil {
 		cfg.LogInfo(ctx, "abandoning trust chain walk", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.String("error", err.Error()))
@@ -99,18 +119,18 @@ func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 
 	if len(path) >= cfg.TrustChainDepthLimit() {
 		cfg.LogInfo(ctx, "reached the maximum trust chain depth", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Int("max_depth", cfg.TrustChainDepthLimit()))
-		return signedPath, path, true, model.NewInvalidTrustAnchorError("unable to build trust chain from specified 'sub' to specified 'trust_anchor'")
+		return signedPath, path, true, depthReached()
 	}
 
-	subjectKey := deadEndKey(cfg, subject, len(path))
-	if _, dead := deadEnds[subjectKey]; dead {
+	subjectKey := deadEndKey(subject, target)
+	if cache.IsDeadEnd(subjectKey) {
 		cfg.LogInfo(ctx, "skipping entity already proven not to reach the trust anchor", slog.String("subject", string(subject)), slog.String("target", string(target)))
 		return signedPath, path, false, model.NewInvalidTrustAnchorError("unable to build trust chain from specified 'sub' to specified 'trust_anchor'")
 	}
 
-	if traversed := cache.RecordTraversal(); traversed > cfg.EntitiesTraversedLimit() {
-		cfg.LogInfo(ctx, "reached the maximum number of entities one request may traverse", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Int("traversed", traversed), slog.Int("max_entities", cfg.EntitiesTraversedLimit()))
-		return signedPath, path, true, model.NewInvalidTrustAnchorError("unable to build trust chain from specified 'sub' to specified 'trust_anchor'")
+	if visited := cache.RecordTraversal(); visited > visitLimit(cfg) {
+		cfg.LogError(ctx, "reached the maximum number of entities one request may step into", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Int("visited", visited), slog.Int("max_visits", visitLimit(cfg)))
+		return signedPath, path, true, budgetExhausted(model.NewLimitReachedError("the resolver reached the maximum number of entities it may step into for one request"))
 	}
 
 	signedSubjectEntityStatement, subjectEntityStatement, err := entity_configuration.Retrieve(ctx, cfg, subject, cache)
@@ -119,7 +139,10 @@ func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return signedPath, path, false, walkNotCompleted(ctxErr)
 		}
-		deadEnds[subjectKey] = struct{}{}
+		if errors.Is(err, model.ErrLimitReached) {
+			return signedPath, path, true, budgetExhausted(err)
+		}
+		cache.RecordDeadEnd(subjectKey)
 		if errors.Is(err, model.ErrInvalidMetadata) {
 			return signedPath, path, false, model.NewInvalidMetadataError(fmt.Sprintf("entity configuration for %s failed validation", subject))
 		}
@@ -140,15 +163,18 @@ func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 
 	cfg.LogInfo(ctx, "evaluating chain options", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Any("checked", checked), slog.Any("path", path))
 	tainted := false
+	depthRefused := false
 	var toCheck []model.EntityIdentifier
 	for _, trustIssuer := range subjectEntityStatement.AuthorityHints {
 		if trustIssuer == target {
 			cfg.LogInfo(ctx, "found target entity in authority hints", slog.String("subject", string(subject)), slog.String("target", string(target)))
 			toCheck = []model.EntityIdentifier{trustIssuer}
 			break
+		} else if trustIssuer == subject {
+			continue
 		} else if slices.Contains(checked, trustIssuer) {
 			tainted = true
-		} else if _, dead := deadEnds[deadEndKey(cfg, trustIssuer, len(path))]; !dead {
+		} else if !cache.IsDeadEnd(deadEndKey(trustIssuer, target)) {
 			toCheck = append(toCheck, trustIssuer)
 		}
 	}
@@ -157,17 +183,26 @@ func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 	for _, trustIssuer := range toCheck {
 		cfg.LogInfo(ctx, "checking authority hint", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.String("authority_hint", string(trustIssuer)))
 		var childTainted bool
-		signedPath, path, childTainted, err = ChainUpOne(ctx, cfg, trustIssuer, target, checked, path, signedPath, cache, deadEnds)
+		signedPath, path, childTainted, err = ChainUpOne(ctx, cfg, trustIssuer, target, checked, path, signedPath, cache)
 		if err == nil {
 			return signedPath, path, false, nil
 		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return signedPath, path, false, walkNotCompleted(ctxErr)
 		}
+		if errors.Is(err, errBudgetExhausted) {
+			return signedPath[:len(signedPath)-1], path[:len(path)-1], true, err
+		}
+		depthRefused = depthRefused || errors.Is(err, model.ErrLimitReached)
 		tainted = tainted || childTainted
 	}
 	cfg.LogInfo(ctx, "dead end in path traversal", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Any("checked", checked), slog.Any("path", path), slog.Any("signed_path", signedPath))
-	deadEnds[subjectKey] = struct{}{}
+	if !tainted {
+		cache.RecordDeadEnd(subjectKey)
+	}
+	if depthRefused {
+		return signedPath[:len(signedPath)-1], path[:len(path)-1], true, depthReached()
+	}
 	return signedPath[:len(signedPath)-1], path[:len(path)-1], tainted, model.NewInvalidTrustAnchorError("unable to build trust chain from specified 'sub' to specified 'trust_anchor'")
 }
 

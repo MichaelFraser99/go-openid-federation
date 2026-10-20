@@ -8,14 +8,15 @@ type entry struct {
 }
 
 type DeadEnd struct {
-	Subject   model.EntityIdentifier
-	Remaining int
+	Subject model.EntityIdentifier
+	Target  model.EntityIdentifier
 }
 
 type Cache struct {
 	entries   map[model.EntityIdentifier]entry
 	deadEnds  map[DeadEnd]struct{}
 	traversed int
+	fetched   int
 }
 
 func New() *Cache {
@@ -40,14 +41,29 @@ func (c *Cache) Store(identifier model.EntityIdentifier, signed *string, stateme
 	c.entries[identifier] = entry{signed: signed, statement: statement}
 }
 
-func (c *Cache) DeadEnds() map[DeadEnd]struct{} {
+func (c *Cache) IsDeadEnd(key DeadEnd) bool {
 	if c == nil {
-		return map[DeadEnd]struct{}{}
+		return false
+	}
+	_, known := c.deadEnds[key]
+	return known
+}
+
+func (c *Cache) RecordDeadEnd(key DeadEnd) {
+	if c == nil {
+		return
 	}
 	if c.deadEnds == nil {
 		c.deadEnds = map[DeadEnd]struct{}{}
 	}
-	return c.deadEnds
+	c.deadEnds[key] = struct{}{}
+}
+
+func (c *Cache) DeadEnds() int {
+	if c == nil {
+		return 0
+	}
+	return len(c.deadEnds)
 }
 
 func (c *Cache) Traversed() int {
@@ -63,4 +79,19 @@ func (c *Cache) RecordTraversal() int {
 	}
 	c.traversed++
 	return c.traversed
+}
+
+func (c *Cache) Fetched() int {
+	if c == nil {
+		return 0
+	}
+	return c.fetched
+}
+
+func (c *Cache) RecordFetch() int {
+	if c == nil {
+		return 0
+	}
+	c.fetched++
+	return c.fetched
 }

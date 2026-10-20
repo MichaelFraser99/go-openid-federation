@@ -712,3 +712,40 @@ func TestServer_ExtendedList_BoundsTheRepeatedFilters(t *testing.T) {
 		})
 	}
 }
+
+func TestErrorStatusAndCode_AResolverLimitIsNotAServerFault(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantCode   string
+	}{
+		{
+			name:       "a limit the resolver reached while walking",
+			err:        model.NewLimitReachedError("the resolver reached the maximum trust chain depth before a trust anchor"),
+			wantStatus: http.StatusServiceUnavailable,
+			wantCode:   model.TemporarilyUnavailable,
+		},
+		{
+			name:       "an unreachable trust anchor",
+			err:        model.NewInvalidTrustAnchorError("unable to build trust chain from specified 'sub' to specified 'trust_anchor'"),
+			wantStatus: http.StatusNotFound,
+			wantCode:   model.InvalidTrustAnchor,
+		},
+		{
+			name:       "a fault of this server",
+			err:        model.NewServerError("the signer is unavailable"),
+			wantStatus: http.StatusInternalServerError,
+			wantCode:   model.ServerError,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			status, code := errorStatusAndCode(tc.err)
+			if status != tc.wantStatus || code != tc.wantCode {
+				t.Errorf("expected %d %s, got %d %s", tc.wantStatus, tc.wantCode, status, code)
+			}
+		})
+	}
+}

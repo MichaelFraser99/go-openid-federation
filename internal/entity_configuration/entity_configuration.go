@@ -27,6 +27,11 @@ func Retrieve(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 		return signed, statement, nil
 	}
 
+	if fetched := cache.RecordFetch(); fetched > cfg.EntitiesTraversedLimit() {
+		cfg.LogError(ctx, "reached the maximum number of entity configurations one request may fetch", slog.String("subject", string(entityIdentifier)), slog.Int("fetched", fetched), slog.Int("max_entities", cfg.EntitiesTraversedLimit()))
+		return nil, nil, model.NewLimitReachedError("the resolver reached the maximum number of entity configurations it may fetch for one request")
+	}
+
 	signed, statement, err := fetch(ctx, cfg, entityIdentifier)
 	if err != nil {
 		return nil, nil, err

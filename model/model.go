@@ -32,11 +32,10 @@ type Configuration struct {
 	DiscardUnrecognisedEntityTypes bool
 
 	// MaxTrustChainDepth bounds how long one Trust Chain may be: the entities on a single
-	// path from the leaf to a Trust Anchor. MaxEntitiesTraversed bounds how many a request
-	// visits. Zero selects DefaultMaxTrustChainDepth. This is an operational safeguard
-	// against hostile or misconfigured authority_hints graphs and is independent of the
-	// spec's per-statement max_path_length constraint; set it according to how deep
-	// legitimate Trust Chains are in your federation.
+	// path from the leaf to a Trust Anchor. Zero selects DefaultMaxTrustChainDepth. This is
+	// an operational safeguard against hostile or misconfigured authority_hints graphs and
+	// is independent of the spec's per-statement max_path_length constraint; set it
+	// according to how deep legitimate Trust Chains are in your federation.
 	MaxTrustChainDepth int
 
 	MaxEntitiesTraversed int

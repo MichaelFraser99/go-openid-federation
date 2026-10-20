@@ -244,12 +244,18 @@ When the library resolves a trust chain, it follows federation endpoints derived
 |---|---|---|
 | `Configuration.MaxPeerResponseBytes` | `model.DefaultMaxPeerResponseBytes`, 1 MiB | The body of any response fetched from a peer |
 | `Configuration.MaxTrustChainDepth` | `model.DefaultMaxTrustChainDepth` | Entities on one path from the leaf to a trust anchor |
-| `Configuration.MaxEntitiesTraversed` | `model.DefaultMaxEntitiesTraversed` | Entity configurations one request may fetch while walking `authority_hints`, across every chain it builds |
+| `Configuration.MaxEntitiesTraversed` | `model.DefaultMaxEntitiesTraversed`, 256 | Entity configurations one request may fetch while walking `authority_hints`, across every chain it builds |
 | `Configuration.MaxTrustMarkIssuers` | `model.DefaultMaxTrustMarkIssuers` | Distinct trust mark issuers resolved for one subject |
 
-> **Breaking change.** `MaxTrustChainDepth` was unlimited by default and described as bounding the entities traversed. It bounds the length of one chain, which is a different thing, and it now defaults to 10. A federation whose legitimate chains are longer than that must raise it. `MaxEntitiesTraversed` is the bound on entities traversed, and it defaults to 256.
+> **Breaking change.** `MaxTrustChainDepth` was unlimited by default and described as bounding the entities traversed. It bounds the length of one chain, which is a different thing, and it now defaults to 10. A federation whose legitimate chains are longer than that must raise it, or `/resolve` will refuse every subject whose chain is longer.
 
-Both bounds apply to a whole request. One `/resolve` call builds a chain for the subject and another for each distinct trust mark issuer, and the entities already proven not to reach the trust anchor are remembered across all of them, so a shared graph of dead ends is walked once rather than once per issuer.
+A request may also step into at most `MaxTrustChainDepth` × `MaxEntitiesTraversed` entities. One entity is stepped into many times when several paths lead to it, and the step bound is what stops a graph of entities that all hint at each other, where no single verdict can be reused.
+
+Reaching any of the three answers 503 `temporarily_unavailable`, with a description naming the limit. That is deliberately not the 404 `invalid_trust_anchor` a genuinely unreachable anchor produces, so an operator can tell their own bound from a federation that does not hold the subject. It is also not a `server_error`: the graph is the caller's choice and walking less of it than asked is not a fault of the server. Consumers can test for it with `errors.Is(err, model.ErrLimitReached)`.
+
+The bounds and the memory of dead ends span one resolve. `Server` builds a chain for the subject and another for each distinct trust mark issuer against a single budget, so a shared graph of dead ends is walked once rather than once per issuer. `Client.BuildTrustChain` and `Client.ResolveMetadata` each start their own, so a consumer calling both gets two budgets.
+
+A dead end is only remembered when the verdict holds for any path. Where an entity was refused because a superior it hints at was already on the path being walked, or because a bound cut the walk short, the verdict is discarded rather than reused, since another walk may reach the same entity by a path where neither applies.
 
 ### Retriever interfaces
 
@@ -479,7 +485,7 @@ type MetadataPolicyOperator interface {
 
 ## Trust chains
 
-`/resolve` builds a chain from the subject up to the requested trust anchor by walking `authority_hints` depth first, backtracking on dead ends and skipping entities already checked. Each step is verified: signatures against the issuer's published keys, `iss` and `sub` against the expected entities, and the subject's signing key against the JWKS in the subordinate statement above it.
+`/resolve` builds a chain from the subject up to the requested trust anchor by walking `authority_hints` depth first, backtracking on dead ends and skipping entities already checked. The walk is bounded (see [Limits](#limits)) and is refused with a `temporarily_unavailable` naming the bound when one is reached. Each step is verified: signatures against the issuer's published keys, `iss` and `sub` against the expected entities, and the subject's signing key against the JWKS in the subordinate statement above it.
 
 A resolved response expires at the earliest expiry in the chain rather than the subject's own. Where a trust mark expires sooner, the response expiry is reduced to match.
 
@@ -583,6 +589,7 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | Error classes on the fetch path | A peer's fault is reported as a server error | [#148](https://github.com/MichaelFraser99/go-openid-federation/issues/148) |
 | `subordinate_statement` on an unlistable entity | Table 4 of the extended listing draft makes the attribute a MUST when requested, and an entity the subordinate store does not hold is returned without it | [#126](https://github.com/MichaelFraser99/go-openid-federation/issues/126) |
 | Shape rules after a policy is applied | Required claims and the relying party key pair are checked on the resolved metadata, the remaining claim shape rules are not, so a policy can set a value the parser would refuse | [#144](https://github.com/MichaelFraser99/go-openid-federation/issues/144) |
+| Policy merge against trust chain length | Cost grows faster than the chain. `MaxTrustChainDepth` now bounds the chain, which bounds the cost, but the merge still re-keys the whole accumulated array on every level | [#153](https://github.com/MichaelFraser99/go-openid-federation/issues/153) |
 
 ## License
 

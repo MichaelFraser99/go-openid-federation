@@ -1,8 +1,10 @@
 package trust_chain
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -41,106 +43,235 @@ func countingHintGraph(t *testing.T, hints map[string][]string, fetches *atomic.
 	return srv
 }
 
-func deadEndGraph(leaves int) map[string][]string {
-	hints := map[string][]string{}
+func sharedDeadEndGraph(leaves int, selfHinting bool) map[string][]string {
+	hints := map[string][]string{"ta": nil}
 	dead := make([]string, leaves)
 	for i := range dead {
 		dead[i] = fmt.Sprintf("d%d", i)
 	}
-	for i := range dead {
-		hints[dead[i]] = dead
+	for _, node := range dead {
+		if selfHinting {
+			hints[node] = []string{node}
+			continue
+		}
+		hints[node] = nil
 	}
-	hints["leaf"] = dead
-	hints["ta"] = nil
+	hints["subject"] = dead
+	hints["issuer"] = dead
 	return hints
 }
 
-func TestBuildTrustChain_SharesTheDeadEndMemoAcrossOneRequest(t *testing.T) {
-	var fetches atomic.Int64
-	srv := countingHintGraph(t, deadEndGraph(12), &fetches)
+func TestBuildTrustChain_RemembersDeadEndsAcrossTheWalksOfOneRequest(t *testing.T) {
+	tests := []struct {
+		name        string
+		selfHinting bool
+	}{
+		{name: "dead ends with no authority hints"},
+		{name: "dead ends whose only authority hint is themselves", selfHinting: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var fetches atomic.Int64
+			srv := countingHintGraph(t, sharedDeadEndGraph(12, tc.selfHinting), &fetches)
+			cfg := model.Configuration{HttpClient: srv.Client()}
+			cache := resolvecache.New()
+
+			anchor := model.EntityIdentifier(srv.URL + "/ta")
+			subject := model.EntityIdentifier(srv.URL + "/subject")
+			issuer := model.EntityIdentifier(srv.URL + "/issuer")
+
+			if _, _, _, err := BuildTrustChain(t.Context(), cfg, subject, anchor, cache); err == nil {
+				t.Fatal("this graph reaches no trust anchor, so the walk must fail")
+			}
+			first := cache.Traversed()
+			if first < 13 {
+				t.Fatalf("the first walk must explore the whole graph for this test to mean anything, it stepped into %d entities", first)
+			}
+
+			if _, _, _, err := BuildTrustChain(t.Context(), cfg, issuer, anchor, cache); err == nil {
+				t.Fatal("this graph reaches no trust anchor, so the walk must fail")
+			}
+
+			if second := cache.Traversed() - first; second != 1 {
+				t.Errorf("the second walk of one request stepped into %d entities, expected only the issuer itself (first walk: %d)", second, first)
+			}
+			if got := fetches.Load(); got != 14 {
+				t.Errorf("expected the 12 dead ends and the two leaves to be fetched once each, got %d fetches", got)
+			}
+		})
+	}
+}
+
+func TestChainUpOne_ADeadEndThatDependedOnThePathIsNotRememberedForAnother(t *testing.T) {
+	srv := hintGraphServer(t, map[string][]string{
+		"subject": {"a"},
+		"a":       {"c", "e"},
+		"c":       {"a"},
+		"e":       {"ta"},
+		"issuer":  {"z"},
+		"z":       {"c"},
+		"ta":      nil,
+	})
+	cfg := model.Configuration{HttpClient: srv.Client()}
+	cache := resolvecache.New()
+
+	anchor := model.EntityIdentifier(srv.URL + "/ta")
+
+	_, route, _, err := ChainUpOne(context.Background(), cfg, model.EntityIdentifier(srv.URL+"/subject"), anchor, nil, nil, nil, cache)
+	if err != nil || len(route) != 4 {
+		t.Fatalf("expected the chain subject -> a -> e -> ta, got %d entries, err %v", len(route), err)
+	}
+
+	_, route, _, err = ChainUpOne(context.Background(), cfg, model.EntityIdentifier(srv.URL+"/issuer"), anchor, nil, nil, nil, cache)
+	if err != nil || len(route) != 6 {
+		t.Fatalf("expected the chain issuer -> z -> c -> a -> e -> ta, got %d entries, err %v", len(route), err)
+	}
+}
+
+func TestChainUpOne_ADeadEndForOneTrustAnchorIsNotADeadEndForAnother(t *testing.T) {
+	srv := hintGraphServer(t, map[string][]string{
+		"leaf": {"a"},
+		"a":    {"ta2"},
+		"ta1":  nil,
+		"ta2":  nil,
+	})
 	cfg := model.Configuration{HttpClient: srv.Client()}
 	cache := resolvecache.New()
 
 	leaf := model.EntityIdentifier(srv.URL + "/leaf")
-	anchor := model.EntityIdentifier(srv.URL + "/ta")
 
-	if _, _, _, err := BuildTrustChain(t.Context(), cfg, leaf, anchor, cache); err == nil {
-		t.Fatal("this graph reaches no trust anchor, so the walk must fail")
-	}
-	first := cache.Traversed()
-	if first < 10 {
-		t.Fatalf("this test only means something when the first walk explores the graph, it traversed %d entities", first)
+	if _, _, _, err := ChainUpOne(context.Background(), cfg, leaf, model.EntityIdentifier(srv.URL+"/ta1"), nil, nil, nil, cache); err == nil {
+		t.Fatal("no path reaches ta1, so the walk must fail")
 	}
 
-	if _, _, _, err := BuildTrustChain(t.Context(), cfg, leaf, anchor, cache); err == nil {
-		t.Fatal("this graph reaches no trust anchor, so the walk must fail")
-	}
-	second := cache.Traversed() - first
-
-	if second != 0 {
-		t.Errorf("the second walk of one request re-explored %d entities, so the dead ends are not remembered across the request (first walk: %d)", second, first)
-	}
-	if int64(first) <= fetches.Load() {
-		t.Errorf("this graph is only re-explored when a node is visited by more than one path, got %d traversals for %d fetches", first, fetches.Load())
+	_, route, _, err := ChainUpOne(context.Background(), cfg, leaf, model.EntityIdentifier(srv.URL+"/ta2"), nil, nil, nil, cache)
+	if err != nil || len(route) != 3 {
+		t.Fatalf("expected the chain leaf -> a -> ta2, got %d entries, err %v", len(route), err)
 	}
 }
 
-func TestBuildTrustChain_BoundsTheEntitiesOneRequestTraverses(t *testing.T) {
-	var fetches atomic.Int64
-	srv := countingHintGraph(t, deadEndGraph(40), &fetches)
-	cfg := model.Configuration{HttpClient: srv.Client(), MaxEntitiesTraversed: 8}
-
-	leaf := model.EntityIdentifier(srv.URL + "/leaf")
-	anchor := model.EntityIdentifier(srv.URL + "/ta")
-
-	if _, _, _, err := BuildTrustChain(t.Context(), cfg, leaf, anchor, resolvecache.New()); err == nil {
-		t.Fatal("this graph reaches no trust anchor, so the walk must fail")
+func TestBuildTrustChain_BoundsTheEntityConfigurationsOneRequestFetches(t *testing.T) {
+	hints := sharedDeadEndGraph(40, false)
+	for i := range 40 {
+		hints[fmt.Sprintf("leaf%d", i)] = []string{fmt.Sprintf("d%d", i)}
 	}
 
-	if got := fetches.Load(); got > int64(cfg.EntitiesTraversedLimit()) {
-		t.Errorf("the request fetched %d entity configurations against a budget of %d", got, cfg.EntitiesTraversedLimit())
-	}
-}
-
-func TestBuildTrustChain_TheBudgetSpansEveryWalkOfOneRequest(t *testing.T) {
 	var fetches atomic.Int64
-	srv := countingHintGraph(t, deadEndGraph(40), &fetches)
+	srv := countingHintGraph(t, hints, &fetches)
 	cfg := model.Configuration{HttpClient: srv.Client(), MaxEntitiesTraversed: 8}
 	cache := resolvecache.New()
 
-	leaf := model.EntityIdentifier(srv.URL + "/leaf")
 	anchor := model.EntityIdentifier(srv.URL + "/ta")
-
-	for range 5 {
-		if _, _, _, err := BuildTrustChain(t.Context(), cfg, leaf, anchor, cache); err == nil {
+	for i := range 40 {
+		if _, _, _, err := BuildTrustChain(t.Context(), cfg, model.EntityIdentifier(fmt.Sprintf("%s/leaf%d", srv.URL, i)), anchor, cache); err == nil {
 			t.Fatal("this graph reaches no trust anchor, so the walk must fail")
 		}
 	}
 
 	if got := fetches.Load(); got > int64(cfg.EntitiesTraversedLimit()) {
-		t.Errorf("five walks sharing one request fetched %d entity configurations against a budget of %d", got, cfg.EntitiesTraversedLimit())
+		t.Errorf("forty walks sharing one request fetched %d entity configurations against a budget of %d", got, cfg.EntitiesTraversedLimit())
+	}
+	if got := cache.Fetched(); got <= cfg.EntitiesTraversedLimit() {
+		t.Errorf("the budget is only tested when the walks ask for more than it allows, they asked for %d", got)
+	}
+}
+
+func TestBuildTrustChain_BoundsTheEntitiesOneRequestStepsInto(t *testing.T) {
+	var fetches atomic.Int64
+	srv := countingHintGraph(t, mutuallyHintingGraph(12), &fetches)
+	cfg := model.Configuration{HttpClient: srv.Client()}
+	cache := resolvecache.New()
+
+	_, _, _, err := BuildTrustChain(t.Context(), cfg, model.EntityIdentifier(srv.URL+"/n0"), model.EntityIdentifier(srv.URL+"/ta"), cache)
+	if err == nil {
+		t.Fatal("this graph reaches no trust anchor, so the walk must fail")
+	}
+	if !errors.Is(err, model.ErrLimitReached) {
+		t.Errorf("expected a graph that outruns the step bound to be refused as a limit, got %v", err)
+	}
+	if got := cache.Traversed(); got > visitLimit(cfg)+1 {
+		t.Errorf("the walk stepped into %d entities against a bound of %d", got, visitLimit(cfg))
+	}
+}
+
+func TestBuildTrustChain_ALimitRefusalIsNotReportedAsAnUnreachableTrustAnchor(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  func(client *http.Client) model.Configuration
+	}{
+		{
+			name: "the entity configurations one request may fetch",
+			cfg: func(client *http.Client) model.Configuration {
+				return model.Configuration{HttpClient: client, MaxEntitiesTraversed: 4}
+			},
+		},
+		{
+			name: "the entities one request may step into",
+			cfg: func(client *http.Client) model.Configuration {
+				return model.Configuration{HttpClient: client, MaxTrustChainDepth: 4, MaxEntitiesTraversed: 20}
+			},
+		},
+		{
+			name: "the entities on one path",
+			cfg: func(client *http.Client) model.Configuration {
+				return model.Configuration{HttpClient: client, MaxTrustChainDepth: 2}
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var fetches atomic.Int64
+			srv := countingHintGraph(t, mutuallyHintingGraph(12), &fetches)
+			cfg := tc.cfg(srv.Client())
+
+			_, _, _, err := BuildTrustChain(t.Context(), cfg, model.EntityIdentifier(srv.URL+"/n0"), model.EntityIdentifier(srv.URL+"/ta"), resolvecache.New())
+			if err == nil {
+				t.Fatal("this graph reaches no trust anchor, so the walk must fail")
+			}
+			if !errors.Is(err, model.ErrLimitReached) {
+				t.Errorf("expected the refusal to say a resolver limit was reached, got %v", err)
+			}
+			if !errors.Is(err, model.ErrTemporarilyUnavailable) {
+				t.Errorf("expected a resolver limit to be reported as a walk that did not complete, got %v", err)
+			}
+			if errors.Is(err, model.ErrServerError) {
+				t.Error("a bound refusing a graph the caller named is not a fault of this server")
+			}
+			if errors.Is(err, model.ErrInvalidTrustAnchor) {
+				t.Error("a resolver limit must not be reported as an unrecognised trust anchor")
+			}
+		})
 	}
 }
 
 func TestConfiguration_BoundsAreOnByDefault(t *testing.T) {
 	var cfg model.Configuration
-	if cfg.TrustChainDepthLimit() != 10 {
-		t.Errorf("expected a chain to be bounded at 10 entities by default, got %d", cfg.TrustChainDepthLimit())
+	if cfg.TrustChainDepthLimit() != model.DefaultMaxTrustChainDepth {
+		t.Errorf("expected a chain to be bounded by default, got %d", cfg.TrustChainDepthLimit())
 	}
-	if cfg.EntitiesTraversedLimit() != 256 {
-		t.Errorf("expected a request to be bounded at 256 entities by default, got %d", cfg.EntitiesTraversedLimit())
+	if cfg.EntitiesTraversedLimit() != model.DefaultMaxEntitiesTraversed {
+		t.Errorf("expected a request to be bounded by default, got %d", cfg.EntitiesTraversedLimit())
+	}
+	if visitLimit(cfg) != model.DefaultMaxTrustChainDepth*model.DefaultMaxEntitiesTraversed {
+		t.Errorf("expected the step bound to be the product of the two, got %d", visitLimit(cfg))
+	}
+}
+
+func TestVisitLimit_DoesNotOverflow(t *testing.T) {
+	cfg := model.Configuration{MaxTrustChainDepth: 1 << 40, MaxEntitiesTraversed: 1 << 40}
+	if got := visitLimit(cfg); got <= 0 {
+		t.Errorf("expected a configuration whose product overflows to clamp, got %d", got)
 	}
 }
 
 func TestBuildTrustChain_BoundsAWalkGivenNoCache(t *testing.T) {
 	var fetches atomic.Int64
-	srv := countingHintGraph(t, deadEndGraph(40), &fetches)
+	srv := countingHintGraph(t, sharedDeadEndGraph(40, false), &fetches)
 	cfg := model.Configuration{HttpClient: srv.Client(), MaxEntitiesTraversed: 8}
 
-	leaf := model.EntityIdentifier(srv.URL + "/leaf")
-	anchor := model.EntityIdentifier(srv.URL + "/ta")
-
-	if _, _, _, err := BuildTrustChain(t.Context(), cfg, leaf, anchor, nil); err == nil {
+	if _, _, _, err := BuildTrustChain(t.Context(), cfg, model.EntityIdentifier(srv.URL+"/subject"), model.EntityIdentifier(srv.URL+"/ta"), nil); err == nil {
 		t.Fatal("this graph reaches no trust anchor, so the walk must fail")
 	}
 
@@ -153,8 +284,7 @@ func TestBuildTrustChain_TheDepthBoundAppliesWithoutConfiguration(t *testing.T) 
 	hints := map[string][]string{"ta": nil}
 	chain := []string{}
 	for i := range 30 {
-		node := fmt.Sprintf("n%d", i)
-		chain = append(chain, node)
+		chain = append(chain, fmt.Sprintf("n%d", i))
 	}
 	for i, node := range chain {
 		if i+1 < len(chain) {
@@ -176,5 +306,22 @@ func TestBuildTrustChain_TheDepthBoundAppliesWithoutConfiguration(t *testing.T) 
 	}
 	if got := fetches.Load(); got > 12 {
 		t.Errorf("the default depth bound should stop the walk after about 10 entities, it fetched %d", got)
+	}
+}
+
+func TestBuildTrustChain_TheFetchBoundAppliesWithoutConfiguration(t *testing.T) {
+	var fetches atomic.Int64
+	srv := countingHintGraph(t, sharedDeadEndGraph(300, false), &fetches)
+	cfg := model.Configuration{HttpClient: srv.Client()}
+
+	_, _, _, err := BuildTrustChain(t.Context(), cfg, model.EntityIdentifier(srv.URL+"/subject"), model.EntityIdentifier(srv.URL+"/ta"), resolvecache.New())
+	if err == nil {
+		t.Fatal("this graph reaches no trust anchor, so the walk must fail")
+	}
+	if !errors.Is(err, model.ErrLimitReached) {
+		t.Errorf("expected a graph wider than the default fetch bound to be refused as a limit, got %v", err)
+	}
+	if got := fetches.Load(); got != int64(model.DefaultMaxEntitiesTraversed) {
+		t.Errorf("expected the default bound to stop the walk after %d fetches, it made %d", model.DefaultMaxEntitiesTraversed, got)
 	}
 }

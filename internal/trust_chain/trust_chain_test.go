@@ -15,6 +15,7 @@ import (
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
+	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -206,7 +207,7 @@ func TestChainUpOne(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			cfg := model.Configuration{}
-			signed, path, _, err := ChainUpOne(t.Context(), cfg, tt.subject, tt.target, tt.checked, tt.path, tt.signed, nil, map[DeadEnd]struct{}{})
+			signed, path, _, err := ChainUpOne(t.Context(), cfg, tt.subject, tt.target, tt.checked, tt.path, tt.signed, resolvecache.New())
 			tt.validate(t, signed, path, err)
 		})
 	}

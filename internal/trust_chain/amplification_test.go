@@ -327,7 +327,7 @@ func TestBuildTrustChain_MaxDepth(t *testing.T) {
 		maxDepth  int
 		wantChain bool
 	}{
-		"unlimited by default reaches deep anchor": {
+		"an unset depth applies the default, which this chain is inside": {
 			maxDepth:  0,
 			wantChain: true,
 		},

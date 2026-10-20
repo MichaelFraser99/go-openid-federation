@@ -29,6 +29,14 @@ func TestOpenIDProviderMetadata_VerifyMetadata(t *testing.T) {
 			metadata: base(),
 			wantErr:  false,
 		},
+		"response_types_supported must be an array of strings": {
+			metadata: func() OpenIDConnectOpenIDProviderMetadata {
+				m := base()
+				m["response_types_supported"] = "code"
+				return m
+			}(),
+			wantErr: true,
+		},
 		"missing issuer is not a syntax fault": {
 			metadata: func() OpenIDConnectOpenIDProviderMetadata {
 				m := base()

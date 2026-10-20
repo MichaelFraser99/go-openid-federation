@@ -161,3 +161,45 @@ func chainThroughIntermediate(t *testing.T, immediateExtra, grandparentExtra map
 		chainSignStatement(t, anchorKey, anchor),
 	}
 }
+
+func chainWithoutSubjectMetadata(t *testing.T, subordinateExtra map[string]any) []string {
+	t.Helper()
+	subjectKey := chainSigningKey(t)
+	anchorKey := chainSigningKey(t)
+	now := time.Now().UTC()
+
+	subject := map[string]any{
+		"iss":             string(chainSubject),
+		"sub":             string(chainSubject),
+		"iat":             now.Unix(),
+		"exp":             now.Add(time.Hour).Unix(),
+		"jwks":            chainJwks(t, subjectKey),
+		"authority_hints": []any{string(chainAnchor)},
+	}
+	subordinate := map[string]any{
+		"iss":  string(chainAnchor),
+		"sub":  string(chainSubject),
+		"iat":  now.Unix(),
+		"exp":  now.Add(time.Hour).Unix(),
+		"jwks": chainJwks(t, subjectKey),
+	}
+	anchor := map[string]any{
+		"iss":  string(chainAnchor),
+		"sub":  string(chainAnchor),
+		"iat":  now.Unix(),
+		"exp":  now.Add(time.Hour).Unix(),
+		"jwks": chainJwks(t, anchorKey),
+		"metadata": map[string]any{
+			"federation_entity": map[string]any{"federation_fetch_endpoint": string(chainAnchor) + "/fetch"},
+		},
+	}
+	for k, v := range subordinateExtra {
+		subordinate[k] = v
+	}
+
+	return []string{
+		chainSignStatement(t, subjectKey, subject),
+		chainSignStatement(t, anchorKey, subordinate),
+		chainSignStatement(t, anchorKey, anchor),
+	}
+}

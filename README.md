@@ -124,6 +124,8 @@ The handlers `Configure` registers depend on the configuration.
 | `GET /trust-mark-list` | `TrustMarkRetriever` is set | `application/json` |
 | `POST /trust-mark-status` | `TrustMarkRetriever` is set | `application/trust-mark-status-response+jwt` |
 
+Each endpoint accepts the one method in the table. Any other method answers `405` with an `Allow` header and an `invalid_request` JSON body, rather than the `text/plain` body `http.ServeMux` writes by default, because section 8.9 wants a JSON object for an error and section 8.1.2 requires one on the fetch endpoint. `HEAD` is served wherever `GET` is.
+
 ### Query parameters
 
 **`/fetch`**
@@ -148,7 +150,7 @@ Filters are honoured only when the configured `MetadataRetriever` also implement
 | Parameter | Required | Notes |
 | --- | --- | --- |
 | `sub` | yes | The entity to resolve |
-| `trust_anchor` | yes | The trust anchor to resolve against |
+| `trust_anchor` | yes | The trust anchor to resolve against. Section 8.3.1 permits the parameter more than once and leaves a resolver free to answer from any of them; this implementation uses the first and ignores the rest |
 | `entity_type` | no | Repeatable; restricts the metadata returned |
 
 Resolving metadata makes outbound HTTP requests for the caller-supplied `sub` and `trust_anchor` and for the federated authorities discovered while building the trust chain.
@@ -157,11 +159,13 @@ Resolving metadata makes outbound HTTP requests for the caller-supplied `sub` an
 
 | Parameter | Required | Notes |
 | --- | --- | --- |
-| `from_entity_id` | no | Pagination cursor |
+| `from` | no | Opaque pagination cursor, taken from a previous response's `next` |
 | `limit` | no | Defaults to `Extensions.ExtendedListing.SizeLimit` |
-| `claims` | no | Comma separated. The value `subordinate_statement` issues a signed subordinate statement per entity |
+| `claims` | no | Comma separated, repeatable, or both. The value `subordinate_statement` issues a signed subordinate statement per entity |
 
 Supplying `updated_after`, `updated_before` or `audit_timestamps` returns `unsupported_parameter`.
+
+A `from` the retriever no longer recognises answers `404 page_not_found`, which is what the draft requires for a stale cursor. Return `model.NewPageNotFoundError(...)` for it; `model.NewNotFoundError(...)` answers `not_found` instead, which the draft reserves for an unknown subject.
 
 **`/trust-mark`**
 
@@ -279,6 +283,8 @@ A retriever that returns `(nil, nil)` is treated the same way, so a store that s
 The text of an unclassified retriever error is never sent to the caller, on any endpoint. It is logged, and the response carries a fixed description, because a driver error commonly contains a host name and a user name. An error carrying one of the `model.Err*` sentinels passes through unchanged, so returning `model.NewUnsupportedParameterError(...)` or `model.NewTemporarilyUnavailableError(...)` still chooses the status and description a peer sees.
 
 `ExtendedListingRetriever` is the exception, in two ways. An unknown subject there is an empty listing rather than an error, so return an empty `ImmediateSubordinateEntities`. And a nil response is **not** treated as not found: it answers `server_error`, because a listing retriever that returns nothing at all is a misconfiguration rather than a statement about any one subject.
+
+An entity your `ExtendedListingRetriever` lists must also be resolvable through `Retriever`, or a request for the `subordinate_statement` claim returns that entity without one. The draft requires the claim when it is asked for, qualified by "if available", and a listed entity the server cannot sign for is an inconsistency between two of your retrievers rather than a fault in the request, so the page is still answered rather than failed. Every other failure while signing a statement answers `temporarily_unavailable`.
 
 Entries in `ImmediateSubordinateEntities` are `map[string]any`, and each one must carry an `id` whose value is a `string` holding an Entity Identifier. A store that round-trips through JSON yields `float64` for a numeric value, so an `id` that looks like a number arrives as the wrong type and the whole listing is refused with a `server_error`.
 
@@ -429,6 +435,8 @@ Policies are combined down a trust chain by `model.ProcessAndExtractPolicy` and 
 Policy comes from the subordinate statements in the chain and from nowhere else. `ProcessAndExtractPolicy` reads every statement whose `iss` differs from its `sub`, which is what makes a statement a subordinate statement, and skips the self-issued entity configurations at either end. So neither the subject nor the trust anchor can write policy for the subject through its own entity configuration, and a chain that omits the trust anchor's entity configuration, which the specification permits, still contributes every policy it holds. A policy carried in an entity configuration is also refused outright when the statement is validated.
 
 > **Breaking change.** `ProcessAndExtractPolicy` previously read every statement, so an entity configuration carrying a policy contributed it. It now skips self-issued statements, and the former requirement of at least two statements is gone. A caller that builds statements by hand must set `iss` and `sub`, matched byte for byte: a statement with neither set is self-issued by that rule and carries no policy, and two spellings of one identifier that differ by a trailing slash are not.
+
+It returns `(nil, nil)` for a chain that holds no subordinate statement, which includes a chain of entity configurations and any statement whose `iss` and `sub` are both unset. `ResolveMetadata` reads that as "no policy to apply"; a direct caller must check the result before dereferencing it.
 
 `ProcessAndExtractPolicy` merges the policy of the statements it is given and establishes nothing about them. It cannot: it holds no keys, so it cannot check a signature, and it does not check that each statement is issued by the subject of the one above it. Feed it a chain from `BuildTrustChain`, which verifies every link. A hand-assembled chain carrying a statement about an unrelated entity will have that statement's policy applied to the subject, and the function will not object. It also writes the merged policy back into the first statement that carried one, so do not reuse a chain you have passed to it ([#156](https://github.com/MichaelFraser99/go-openid-federation/issues/156)).
 

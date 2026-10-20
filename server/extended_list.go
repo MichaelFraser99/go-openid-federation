@@ -134,12 +134,15 @@ func parseExtendedListingFilter(query map[string][]string, defaultLimit int) (mo
 	}
 
 	var subordinateStatement bool
-	if claims := getSingle(query, "claims"); claims != "" {
-		split := strings.Split(claims, ",")
-		requestedClaims := make([]string, 0, len(split))
-		for _, claim := range split {
-			requestedClaims = append(requestedClaims, strings.TrimSpace(claim))
+	requestedClaims := make([]string, 0)
+	for _, claims := range query["claims"] {
+		for _, claim := range strings.Split(claims, ",") {
+			if trimmed := strings.TrimSpace(claim); trimmed != "" && !slices.Contains(requestedClaims, trimmed) {
+				requestedClaims = append(requestedClaims, trimmed)
+			}
 		}
+	}
+	if len(requestedClaims) > 0 {
 		if subordinateStatement = slices.Contains(requestedClaims, "subordinate_statement"); subordinateStatement {
 			requestedClaims = slices.DeleteFunc(requestedClaims, func(val string) bool {
 				return val == "subordinate_statement"

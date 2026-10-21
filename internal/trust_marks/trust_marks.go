@@ -263,7 +263,7 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 
 	if err = entity_statement.VerifySelectedKey(trustMark, selectedKey); err != nil {
 		cfg.LogError(ctx, "the key published for the trust mark issuer cannot verify this trust mark", slog.String("kid", kid), slog.String("issuer", string(*parsedIssuer)), slog.String("error", err.Error()))
-		return nil, fmt.Errorf("the key named by the trust mark 'kid' %q %s", model.TruncateForResponse(kid), err.Error())
+		return nil, fmt.Errorf("the trust mark 'kid' %q names a key published by issuer %s that cannot verify it: %s", model.TruncateForResponse(kid), *parsedIssuer, model.TruncateForResponse(err.Error()))
 	}
 
 	head, _, err := jwt.Validate(trustMark, func() ([]crypto.PublicKey, error) {

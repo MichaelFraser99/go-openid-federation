@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -153,7 +154,7 @@ func validate(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 		return nil, fmt.Errorf("'iss' claim does not match issuer 'sub' claim")
 	}
 
-	model.LogPrivateKeyMembers(ctx, &cfg, subordinateStatement.Sub, subordinateStatement.JWKs)
+	model.LogPrivateKeyMembersInRawSet(ctx, &cfg, subordinateStatement.Sub, bodyMap["jwks"])
 
 	if subordinateStatement.Metadata != nil {
 		if err = subordinateStatement.Metadata.Verify(cfg.EntityTypes, cfg.DiscardUnrecognisedEntityTypes); err != nil {
@@ -190,6 +191,7 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 	}
 
 	seen := map[string]struct{}{}
+	publishable := josemodel.Jwks{Keys: make([]map[string]any, 0, len(subjectSubordinateConfiguration.JWKs.Keys))}
 	for _, k := range subjectSubordinateConfiguration.JWKs.Keys {
 		kid, ok := k["kid"]
 		if !ok {
@@ -202,11 +204,25 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		if _, duplicate := seen[sKid]; duplicate {
 			return nil, fmt.Errorf("all provided subordinate configuration JWKs must have unique 'kid' values - %q appears more than once", sKid)
 		}
-		if err := model.VerifyPublishableJWK(k); err != nil {
-			return nil, fmt.Errorf("refusing to publish the provided subordinate configuration JWK with key ID %q because it %s", model.TruncateForResponse(sKid), err.Error())
-		}
 		seen[sKid] = struct{}{}
+
+		if err := model.VerifyPublishableJWK(k); err != nil {
+			configuration.LogError(ctx, "dropping a registered key from a subordinate statement because it carries private key material", slog.String("subject", string(subjectIdentifier)), slog.String("kid", model.TruncateForResponse(sKid)), slog.String("error", err.Error()))
+			continue
+		}
+		if declared, ok := k["alg"].(string); ok {
+			if err := model.VerifyKeyStrength(k, declared); err != nil {
+				configuration.LogError(ctx, "dropping a registered key from a subordinate statement because RFC 7518 requires a larger modulus for the algorithm it is registered for", slog.String("subject", string(subjectIdentifier)), slog.String("kid", model.TruncateForResponse(sKid)), slog.String("error", err.Error()))
+				continue
+			}
+		}
+		publishable.Keys = append(publishable.Keys, k)
 	}
+
+	if len(subjectSubordinateConfiguration.JWKs.Keys) > 0 && len(publishable.Keys) == 0 {
+		return nil, model.NewInvalidSubjectError("every key registered for this subject is unpublishable, so no usable subordinate statement can be issued for it")
+	}
+	subjectSubordinateConfiguration.JWKs = publishable
 
 	subordinateStatementLifetime, err := model.ResolveStatementLifetime("SubordinateStatementLifetime", configuration.IntermediateConfiguration.SubordinateStatementLifetime, model.DefaultSubordinateStatementLifetime)
 	if err != nil {

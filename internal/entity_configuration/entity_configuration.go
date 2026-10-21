@@ -144,11 +144,11 @@ func validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 		return nil, fmt.Errorf("the 'jwks' claim %s", err.Error())
 	}
 
-	model.LogPrivateKeyMembers(ctx, &cfg, entityIdentifier, parsedJwks)
-
 	if err = entity_statement.VerifyAgainstJwks(entityConfigurationJwt, sKid, parsedJwks); err != nil {
 		return nil, err
 	}
+
+	model.LogPrivateKeyMembersInRawSet(ctx, &cfg, entityIdentifier, jwks)
 	for _, claim := range []string{"metadata_policy", "metadata_policy_crit", "constraints", "source_endpoint"} {
 		if _, present := bodyMap[claim]; present {
 			return nil, model.NewInvalidTrustChainError(fmt.Sprintf("the %q claim is permitted only in subordinate statements, not in an entity configuration", claim))
@@ -241,6 +241,13 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 		entityConfiguration.Metadata = &metadata
 	}
 
+	if err := model.VerifyPublishableMetadataKeys(entityConfiguration.Metadata); err != nil {
+		return nil, fmt.Errorf("refusing to publish this entity configuration because %s", err.Error())
+	}
+	if err := model.VerifyPublishableTrustMarkOwnerKeys(entityConfiguration.TrustMarkOwners); err != nil {
+		return nil, fmt.Errorf("refusing to publish this entity configuration because %s", err.Error())
+	}
+
 	if cfg.SignerConfiguration.KeyID == "" {
 		return nil, fmt.Errorf("key ID cannot be empty")
 	}
@@ -304,7 +311,8 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 			(*apkJWK)["alg"] = signerConfiguration.Algorithm
 
 			if err := model.VerifyKeyStrength(*apkJWK, signerConfiguration.Algorithm); err != nil {
-				return nil, fmt.Errorf("refusing to publish subordinate signer key %q because it %s", model.TruncateForResponse(signerConfiguration.KeyID), err.Error())
+				cfg.LogError(ctx, "not publishing a subordinate signer key because RFC 7518 requires a larger modulus for the algorithm it signs with, so statements it signs cannot be verified", slog.String("kid", model.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
+				continue
 			}
 
 			if existing, _ := jwks.RetrieveByKeyID(signerConfiguration.KeyID); existing != nil {

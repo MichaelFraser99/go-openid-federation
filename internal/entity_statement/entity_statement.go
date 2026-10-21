@@ -138,6 +138,14 @@ func headerAlgorithm(token string) (string, error) {
 }
 
 func VerifyKeyAlgorithm(token string, key map[string]any) error {
+	header, err := headerAlgorithm(token)
+	if err != nil {
+		return err
+	}
+	return verifyKeyAlgorithm(header, key)
+}
+
+func verifyKeyAlgorithm(header string, key map[string]any) error {
 	declared, present := key["alg"]
 	if !present || declared == nil {
 		return nil
@@ -145,10 +153,6 @@ func VerifyKeyAlgorithm(token string, key map[string]any) error {
 	sDeclared, ok := declared.(string)
 	if !ok || sDeclared == "" {
 		return fmt.Errorf("the selected key in the included 'jwks' has a malformed 'alg' member")
-	}
-	header, err := headerAlgorithm(token)
-	if err != nil {
-		return err
 	}
 	if header != sDeclared {
 		return fmt.Errorf("the 'alg' header does not match the 'alg' the selected key in the included 'jwks' is published for")
@@ -172,14 +176,14 @@ func VerifyKeyUse(key map[string]any) error {
 }
 
 func VerifySelectedKey(token string, key map[string]any) error {
-	if err := VerifyKeyAlgorithm(token, key); err != nil {
+	header, err := headerAlgorithm(token)
+	if err != nil {
+		return err
+	}
+	if err := verifyKeyAlgorithm(header, key); err != nil {
 		return err
 	}
 	if err := VerifyKeyUse(key); err != nil {
-		return err
-	}
-	header, err := headerAlgorithm(token)
-	if err != nil {
 		return err
 	}
 	if err := model.VerifyKeyStrength(key, header); err != nil {

@@ -5,17 +5,19 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log/slog"
+	"maps"
 	"math/big"
+	"slices"
 
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 )
 
 const MinimumRSAKeyBits = 2048
 
-var privateJWKMembers = []string{"d", "p", "q", "dp", "dq", "qi", "oth", "k"}
+var privateJWKMembers = []string{"d", "p", "q", "dp", "dq", "qi", "oth", "k", "priv"}
 
 func PrivateJWKMembers(key map[string]any) []string {
-	members := make([]string, 0, len(privateJWKMembers))
+	var members []string
 	for _, member := range privateJWKMembers {
 		if _, present := key[member]; present {
 			members = append(members, member)
@@ -24,9 +26,60 @@ func PrivateJWKMembers(key map[string]any) []string {
 	return members
 }
 
+func VerifyPublishableTrustMarkOwnerKeys(owners map[string]TrustMarkOwner) error {
+	for trustMarkType, owner := range owners {
+		for _, key := range owner.JWKs.Keys {
+			if err := VerifyPublishableJWK(key); err != nil {
+				kid, _ := key["kid"].(string)
+				return fmt.Errorf("the 'trust_mark_owners' entry for %q holds a key with key ID %q that %s", TruncateForResponse(trustMarkType), TruncateForResponse(kid), err.Error())
+			}
+		}
+	}
+	return nil
+}
+
+func rawJWKSetEntries(raw any) []map[string]any {
+	set, ok := raw.(map[string]any)
+	if !ok {
+		return nil
+	}
+	entries, ok := set["keys"].([]any)
+	if !ok {
+		return nil
+	}
+	keys := make([]map[string]any, 0, len(entries))
+	for _, entry := range entries {
+		key, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+func VerifyPublishableMetadataKeys(m *Metadata) error {
+	if m == nil {
+		return nil
+	}
+	for entityType, entityMetadata := range m.byEntityType() {
+		raw, present := entityMetadata["jwks"]
+		if !present || raw == nil {
+			continue
+		}
+		for _, key := range rawJWKSetEntries(raw) {
+			if err := VerifyPublishableJWK(key); err != nil {
+				kid, _ := key["kid"].(string)
+				return fmt.Errorf("the %q metadata 'jwks' holds a key with key ID %q that %s", entityType, TruncateForResponse(kid), err.Error())
+			}
+		}
+	}
+	return nil
+}
+
 func VerifyPublishableJWK(key map[string]any) error {
 	if members := PrivateJWKMembers(key); len(members) > 0 {
-		return fmt.Errorf("carries the private key members %v that RFC 7518 sections 6.2.2, 6.3.2 and 6.4 define, and a published key set must carry public key material only", members)
+		return fmt.Errorf("carries the private key members %v that RFC 7518 sections 6.2.2, 6.3.2 and 6.4, RFC 8037 section 2.3 and the AKP key type define, and a published key set must carry public key material only", members)
 	}
 	return nil
 }
@@ -48,7 +101,7 @@ func VerifyKeyStrength(key map[string]any, alg string) error {
 		return nil
 	}
 	modulus, ok := key["n"].(string)
-	if !ok {
+	if !ok || modulus == "" {
 		return nil
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(modulus)
@@ -61,15 +114,37 @@ func VerifyKeyStrength(key map[string]any, alg string) error {
 	return nil
 }
 
+func LogPrivateKeyMembersInRawSet(ctx context.Context, cfg *Configuration, subject EntityIdentifier, raw any) {
+	LogPrivateKeyMembers(ctx, cfg, subject, josemodel.Jwks{Keys: rawJWKSetEntries(raw)})
+}
+
+const maxLoggedPrivateKeys = 8
+
 func LogPrivateKeyMembers(ctx context.Context, cfg *Configuration, subject EntityIdentifier, jwks josemodel.Jwks) {
+	if cfg == nil {
+		return
+	}
+	affected := 0
+	named := make([]string, 0, maxLoggedPrivateKeys)
+	members := map[string]struct{}{}
 	for _, key := range jwks.Keys {
-		members := PrivateJWKMembers(key)
-		if len(members) == 0 {
+		present := PrivateJWKMembers(key)
+		if len(present) == 0 {
 			continue
 		}
-		kid, _ := key["kid"].(string)
-		cfg.LogError(ctx, "a received key set carries private key material", slog.String("subject", string(subject)), slog.String("kid", TruncateForResponse(kid)), slog.Any("members", members))
+		affected++
+		for _, member := range present {
+			members[member] = struct{}{}
+		}
+		if len(named) < maxLoggedPrivateKeys {
+			kid, _ := key["kid"].(string)
+			named = append(named, TruncateForResponse(kid))
+		}
 	}
+	if affected == 0 {
+		return
+	}
+	cfg.LogError(ctx, "a received key set carries private key material", slog.String("subject", TruncateForResponse(string(subject))), slog.Int("affected_keys", affected), slog.Any("first_key_ids", named), slog.Any("members", slices.Sorted(maps.Keys(members))))
 }
 
 func ValidateJWKShape(key map[string]any) error {

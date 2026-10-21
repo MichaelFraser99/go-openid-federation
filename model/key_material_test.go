@@ -147,9 +147,16 @@ func TestVerifyKeyStrength(t *testing.T) {
 		expectErr string
 	}{
 		{name: "a 2048 bit modulus with RS256", reference: "RFC 7518 3.3", key: strong, alg: "RS256"},
+		{name: "a 2048 bit modulus carrying leading zero octets", reference: "RFC 7518 6.3.1.1", key: paddedModulus(t, strong, 3), alg: "RS256"},
+		{name: "a modulus one bit below the minimum", reference: "RFC 7518 3.3", key: rsaJWKOfExactBits(t, 2047), alg: "RS256", expectErr: "2047 bit RSA modulus"},
+		{name: "a modulus exactly at the minimum", reference: "RFC 7518 3.3", key: rsaJWKOfExactBits(t, 2048), alg: "RS256"},
+		{name: "an empty modulus is left to the shape check", reference: "RFC 7517 5", key: map[string]any{"kty": "RSA", "n": "", "e": "AQAB"}, alg: "RS256"},
 		{name: "a 1024 bit modulus with RS256", reference: "RFC 7518 3.3", key: weak, alg: "RS256", expectErr: "1024 bit RSA modulus"},
+		{name: "a 1024 bit modulus with RS384", reference: "RFC 7518 3.3", key: weak, alg: "RS384", expectErr: "1024 bit RSA modulus"},
 		{name: "a 1024 bit modulus with RS512", reference: "RFC 7518 3.3", key: weak, alg: "RS512", expectErr: "1024 bit RSA modulus"},
 		{name: "a 1024 bit modulus with PS256", reference: "RFC 7518 3.5", key: weak, alg: "PS256", expectErr: "1024 bit RSA modulus"},
+		{name: "a 1024 bit modulus with PS384", reference: "RFC 7518 3.5", key: weak, alg: "PS384", expectErr: "1024 bit RSA modulus"},
+		{name: "a 1024 bit modulus with PS512", reference: "RFC 7518 3.5", key: weak, alg: "PS512", expectErr: "1024 bit RSA modulus"},
 		{name: "a weak modulus used with an algorithm the rule does not cover", reference: "RFC 7518 3.3", key: weak, alg: "RSA-OAEP"},
 		{name: "an EC key has no modulus rule", reference: "RFC 7518 3.4", key: realJWK(t, elliptic.P256(), false), alg: "ES256"},
 		{name: "an RSA key with no modulus is left to the shape check", reference: "RFC 7517 5", key: map[string]any{"kty": "RSA", "e": "AQAB"}, alg: "RS256"},
@@ -174,5 +181,34 @@ func TestVerifyKeyStrength(t *testing.T) {
 				t.Errorf("[%s] expected the refusal to say %q, got %v", tc.reference, tc.expectErr, err)
 			}
 		})
+	}
+}
+
+func paddedModulus(t *testing.T, key map[string]any, zeros int) map[string]any {
+	t.Helper()
+	raw, err := base64.RawURLEncoding.DecodeString(key["n"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	padded := map[string]any{}
+	for member, value := range key {
+		padded[member] = value
+	}
+	padded["n"] = base64.RawURLEncoding.EncodeToString(append(make([]byte, zeros), raw...))
+	return padded
+}
+
+func rsaJWKOfExactBits(t *testing.T, bits int) map[string]any {
+	t.Helper()
+	modulus := new(big.Int).Lsh(big.NewInt(1), uint(bits-1))
+	modulus.Add(modulus, big.NewInt(1))
+	if modulus.BitLen() != bits {
+		t.Fatalf("expected a %d bit modulus, built %d bits", bits, modulus.BitLen())
+	}
+	return map[string]any{
+		"kty": "RSA",
+		"kid": "sized",
+		"n":   base64.RawURLEncoding.EncodeToString(modulus.Bytes()),
+		"e":   "AQAB",
 	}
 }

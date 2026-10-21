@@ -171,7 +171,7 @@ func issuerFederationKeys(ctx context.Context, cfg model.Configuration, issuer m
 
 		_, parsedChain, _, err := trust_chain.BuildTrustChain(ctx, cfg, issuer, opts.TrustAnchor, cache)
 		if err != nil {
-			return nil, fmt.Errorf("unable to establish trust in trust mark issuer %s through trust anchor %s: %s", issuer, opts.TrustAnchor, err.Error())
+			return nil, fmt.Errorf("unable to establish trust in trust mark issuer %s through trust anchor %s: %w", issuer, opts.TrustAnchor, err)
 		}
 		jwks := parsedChain[0].JWKs
 		return &jwks, nil

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_configuration"
+	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
 	"github.com/MichaelFraser99/go-openid-federation/internal/trust_chain"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
@@ -279,5 +280,55 @@ func TestFilterByTrusted_IssuerLimitErrorLeavesNoUnverifiedMarks(t *testing.T) {
 	}
 	if len(resolved.TrustMarks) != 0 {
 		t.Errorf("expected no unverified trust marks left on the response after the limit error, got %d", len(resolved.TrustMarks))
+	}
+}
+
+func TestFilterByTrusted_ALimitStoppingAnIssuerWalkOmitsOnlyThatMark(t *testing.T) {
+	tests := []struct {
+		name          string
+		maxEntities   int
+		wantMarksKept int
+	}{
+		{name: "a budget that covers the issuer's chain keeps the mark", maxEntities: 0, wantMarksKept: 1},
+		{name: "a budget too small for the issuer's chain omits the mark", maxEntities: 1, wantMarksKept: 0},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newRvFed(t, map[string]string{"int": "ta", "issuer": "int"})
+			ta := f.taConfig(t, map[string][]model.EntityIdentifier{rvType: {model.EntityIdentifier(f.id("issuer"))}})
+			tm := federationTrustMark(t, f.ecKey["issuer"], "test-key", f.id("issuer"), rvType, rvSub)
+			resolved := &model.ResolveResponse{Sub: rvSub, Exp: time.Now().Add(24 * time.Hour).Unix(), TrustMarks: []model.TrustMarkHolder{{TrustMarkType: rvType, TrustMark: tm}}}
+
+			cfg := model.Configuration{HttpClient: f.server.Client(), MaxEntitiesTraversed: tc.maxEntities}
+			err := FilterByTrusted(t.Context(), cfg, resolved, ta, resolvecache.New())
+
+			if err != nil {
+				t.Fatalf("a third party issuer that cannot be walked must not refuse the whole resolve, got %v", err)
+			}
+			if len(resolved.TrustMarks) != tc.wantMarksKept {
+				t.Errorf("expected %d marks kept, got %d", tc.wantMarksKept, len(resolved.TrustMarks))
+			}
+		})
+	}
+}
+
+func TestFilterByTrusted_AnIssuerBeyondTheDepthBoundDoesNotRefuseTheResolve(t *testing.T) {
+	f := newRvFed(t, map[string]string{"issuer": "ta"})
+	ta := f.taConfig(t, map[string][]model.EntityIdentifier{rvType: {model.EntityIdentifier(f.id("issuer")), model.EntityIdentifier(f.id("ta"))}})
+	good := federationTrustMark(t, f.ecKey["ta"], "test-key", f.id("ta"), rvType, rvSub)
+	deep := federationTrustMark(t, f.ecKey["issuer"], "test-key", f.id("issuer"), rvType, rvSub)
+	resolved := &model.ResolveResponse{
+		Sub:        rvSub,
+		Exp:        time.Now().Add(24 * time.Hour).Unix(),
+		TrustMarks: []model.TrustMarkHolder{{TrustMarkType: rvType, TrustMark: deep}, {TrustMarkType: rvType, TrustMark: good}},
+	}
+
+	cfg := model.Configuration{HttpClient: f.server.Client(), MaxTrustChainDepth: 1}
+	if err := FilterByTrusted(t.Context(), cfg, resolved, ta, resolvecache.New()); err != nil {
+		t.Fatalf("an issuer whose chain is past the depth bound must not refuse the whole resolve, got %v", err)
+	}
+	if len(resolved.TrustMarks) != 1 {
+		t.Errorf("expected the mark issued by the trust anchor itself to survive, got %d marks", len(resolved.TrustMarks))
 	}
 }

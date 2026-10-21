@@ -36,6 +36,10 @@ All JWS/JWK/JWT signing and verification goes through the sibling library `githu
 
 Data access is abstracted behind interfaces so consumers plug in their own storage: `Retriever` (subordinates + their signers), `TrustMarkRetriever`, `TrustMarkIssuerRetriever`, `ExtendedListingRetriever`, `SubordinateStatusRetriever`. Subordinate lookups are cached in-memory (`IntermediateConfiguration.subordinates`, TTL `SubordinateCacheTime`, `FlushCache()` to clear). `SetEntityIdentifier` / `SetHttpClient` on `Server` exist for test-server scenarios and are documented as not-for-production.
 
+Trust chain walking is bounded three ways, all non-zero by default: `MaxTrustChainDepth` (entities on one path), `MaxEntitiesTraversed` (entity configurations fetched for one request, charged in `entity_configuration.Retrieve` on a cache miss) and their product (entities stepped into for one request, charged in `chainUpOne`). Reaching one produces `model.NewLimitReachedError`, which is `ErrInvalidTrustAnchor` and `ErrLimitReached` — never `ErrServerError` or `ErrTemporarilyUnavailable`, because the graph is the caller's choice and a bound is neither a fault nor temporary.
+
+There are two memos, and the distinction is the subtle part. `internal/resolvecache` holds the per-request one, keyed by subject and target, and a verdict reaches it only when `tainted` is false. `walkMemo` is per walk, keyed by subject, target and the depth still available, and holds every verdict together with its taint. A tainted verdict is sound to reuse inside the walk that produced it — a superior that could reach the anchor would have reached it before the walk gave up — but not across walks, which may arrive by a path where the obstacle is absent. Without the per-walk memo a graph of mutually hinting entities re-walks every simple path; `internal/trust_chain/walk_differential_test.go` checks both memos against ground-truth reachability on random graphs, including several walks sharing one cache.
+
 ### Metadata policy engine (the most intricate part)
 
 The heart of the library is applying OpenID Federation **metadata policies** down a trust chain. Key pieces:

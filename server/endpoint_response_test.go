@@ -280,6 +280,30 @@ func TestServer_ExtendedList_BoundsTheRequestedClaimCount(t *testing.T) {
 		}
 	})
 
+	t.Run("a duplicate after the cap is reached", func(t *testing.T) {
+		unique := make([]string, maxRequestedClaims)
+		for i := range unique {
+			unique[i] = fmt.Sprintf("claim-%06d", i)
+		}
+
+		cases := map[string]url.Values{
+			"as a repeated parameter":  {"claims": {strings.Join(unique, ","), unique[0]}},
+			"as a trailing comma item": {"claims": {strings.Join(unique, ",") + "," + unique[0]}},
+		}
+
+		for name, query := range cases {
+			t.Run(name, func(t *testing.T) {
+				filter, _, err := parseExtendedListingFilter(query, 10)
+				if err != nil {
+					t.Fatalf("the request names %d distinct claims, so repeating one is still within the cap, got: %v", maxRequestedClaims, err)
+				}
+				if len(filter.Claims) != maxRequestedClaims {
+					t.Errorf("expected %d distinct claims, got %d", maxRequestedClaims, len(filter.Claims))
+				}
+			})
+		}
+	})
+
 	t.Run("one past the cap", func(t *testing.T) {
 		if _, _, err := parseExtendedListingFilter(build(maxRequestedClaims+1), 10); err == nil {
 			t.Error("expected a request naming more claims than the cap to be refused")
@@ -684,6 +708,43 @@ func TestServer_ExtendedList_BoundsTheRepeatedFilters(t *testing.T) {
 
 			if _, _, err := parseExtendedListingFilter(url.Values{parameter: values[:maxRepeatedFilterValues]}, 10); err != nil {
 				t.Errorf("no error expected at the cap, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestErrorStatusAndCode_AResolverLimitIsNotAServerFault(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantCode   string
+	}{
+		{
+			name:       "a limit the resolver reached while walking",
+			err:        model.NewLimitReachedError("the resolver reached the maximum trust chain depth before a trust anchor"),
+			wantStatus: http.StatusNotFound,
+			wantCode:   model.InvalidTrustAnchor,
+		},
+		{
+			name:       "an unreachable trust anchor",
+			err:        model.NewInvalidTrustAnchorError("unable to build trust chain from specified 'sub' to specified 'trust_anchor'"),
+			wantStatus: http.StatusNotFound,
+			wantCode:   model.InvalidTrustAnchor,
+		},
+		{
+			name:       "a fault of this server",
+			err:        model.NewServerError("the signer is unavailable"),
+			wantStatus: http.StatusInternalServerError,
+			wantCode:   model.ServerError,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			status, code := errorStatusAndCode(tc.err)
+			if status != tc.wantStatus || code != tc.wantCode {
+				t.Errorf("expected %d %s, got %d %s", tc.wantStatus, tc.wantCode, status, code)
 			}
 		})
 	}

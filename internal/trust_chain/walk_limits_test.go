@@ -47,7 +47,7 @@ func TestChainUpOne_NodeTooDeepOnOnePathIsStillTriedOnAShorterOne(t *testing.T) 
 		"ta":   nil,
 	})
 	cfg := model.Configuration{HttpClient: srv.Client(), MaxTrustChainDepth: 3}
-	_, route, _, err := ChainUpOne(context.Background(), cfg, model.EntityIdentifier(srv.URL+"/leaf"), model.EntityIdentifier(srv.URL+"/ta"), nil, nil, nil, resolvecache.New(), map[DeadEnd]struct{}{})
+	_, route, _, err := ChainUpOne(context.Background(), cfg, model.EntityIdentifier(srv.URL+"/leaf"), model.EntityIdentifier(srv.URL+"/ta"), nil, nil, nil, resolvecache.New())
 	if err != nil || len(route) == 0 {
 		t.Fatalf("expected the chain leaf -> c -> ta, got route of %d entries, err %v", len(route), err)
 	}

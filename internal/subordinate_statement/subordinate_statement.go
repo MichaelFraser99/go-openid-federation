@@ -65,7 +65,7 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 		return nil, nil, fmt.Errorf("%q's federation fetch response exceeded the %d byte response limit", issuer.Sub, limit)
 	}
 
-	subordinateStatement, err := Validate(cfg, issuer, string(responseBytes))
+	subordinateStatement, err := Validate(ctx, cfg, issuer, string(responseBytes))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -77,8 +77,8 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 	return josemodel.Pointer(string(responseBytes)), subordinateStatement, nil
 }
 
-func Validate(cfg model.Configuration, issuer model.EntityStatement, subordinateStatementJwt string) (*model.EntityStatement, error) {
-	subordinateStatement, err := validate(cfg, issuer, subordinateStatementJwt)
+func Validate(ctx context.Context, cfg model.Configuration, issuer model.EntityStatement, subordinateStatementJwt string) (*model.EntityStatement, error) {
+	subordinateStatement, err := validate(ctx, cfg, issuer, subordinateStatementJwt)
 	if err != nil {
 		if errors.Is(err, model.ErrInvalidMetadata) || errors.Is(err, model.ErrInvalidTrustChain) {
 			return nil, err
@@ -88,7 +88,7 @@ func Validate(cfg model.Configuration, issuer model.EntityStatement, subordinate
 	return subordinateStatement, nil
 }
 
-func validate(cfg model.Configuration, issuer model.EntityStatement, subordinateStatementJwt string) (*model.EntityStatement, error) {
+func validate(ctx context.Context, cfg model.Configuration, issuer model.EntityStatement, subordinateStatementJwt string) (*model.EntityStatement, error) {
 	parts := strings.Split(subordinateStatementJwt, ".")
 	if len(parts) != 3 {
 		return nil, fmt.Errorf("invalid JWT structure")
@@ -153,6 +153,8 @@ func validate(cfg model.Configuration, issuer model.EntityStatement, subordinate
 		return nil, fmt.Errorf("'iss' claim does not match issuer 'sub' claim")
 	}
 
+	model.LogPrivateKeyMembers(ctx, &cfg, subordinateStatement.Sub, subordinateStatement.JWKs)
+
 	if subordinateStatement.Metadata != nil {
 		if err = subordinateStatement.Metadata.Verify(cfg.EntityTypes, cfg.DiscardUnrecognisedEntityTypes); err != nil {
 			return nil, model.NewInvalidMetadataError(err.Error())
@@ -199,6 +201,9 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		}
 		if _, duplicate := seen[sKid]; duplicate {
 			return nil, fmt.Errorf("all provided subordinate configuration JWKs must have unique 'kid' values - %q appears more than once", sKid)
+		}
+		if err := model.VerifyPublishableJWK(k); err != nil {
+			return nil, fmt.Errorf("refusing to publish the provided subordinate configuration JWK with key ID %q because it %s", model.TruncateForResponse(sKid), err.Error())
 		}
 		seen[sKid] = struct{}{}
 	}

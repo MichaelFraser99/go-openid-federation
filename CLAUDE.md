@@ -89,6 +89,12 @@ Spec-defined member names must be read by their exact name. Go's `encoding/json`
 
 Keys the library publishes are held to more than keys it reads. `entity_configuration.New` refuses to publish a key of the operator's own that is not a usable JWK; `subordinate_statement.New` does not, because that set is a registrant's keys relayed by its authority, and one bad registered key must not take down the statement or anything resolved through it.
 
+Private key material is the one rule both issuance paths share. `model.VerifyPublishableJWK` refuses a key carrying any member from RFC 7518 section 6's private set (`d`, `p`, `q`, `dp`, `dq`, `qi`, `oth`, `k`), and both `entity_configuration.New` and `subordinate_statement.New` call it on every key they are about to publish — a registrant's leaked key must not be republished either. The read path only logs: `model.LogPrivateKeyMembers` records it at error level and verification continues, because a peer that published its own private key has already leaked it and refusing the statement would deny service over the peer's mistake.
+
+`model.VerifyKeyStrength` holds an RSA key to RFC 7518 sections 3.3 and 3.5's "2048 bits or larger" for the RS and PS algorithms, on both paths. Three things keep it from refusing a key it has no business judging: a key whose `kty` is not `RSA`, an algorithm outside that family, and a modulus it cannot decode all return nil rather than an error.
+
+The read-path checks apply to the **selected** key only — the one the `kid` header names — never to the whole set. That is what keeps a valid but unsupported JWK sitting beside the signing key from taking down the flow: `internal/entity_statement.VerifySelectedKey` runs `alg`, `use` and key strength against that one key, and `internal/entity_statement/key_material_test.go` holds the cases that matter, including a key of a post-quantum `kty` in either position in the set. `go-jose` returns an error rather than panicking on a `kty` it does not know, but its `kty.(string)` assertion would panic on a non-string one, and `model.ValidateJWKShape` is what stands between that and a peer's statement.
+
 ## Conventions
 
 - `//todo:` comments mark known incomplete areas across the client, server and model packages (the unimplemented `constraints` claim, trust mark delegation, content-type matching, error-type revisits, and handler duplication). They are intentional signposts, not stray notes.

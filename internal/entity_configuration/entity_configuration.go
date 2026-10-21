@@ -144,6 +144,8 @@ func validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 		return nil, fmt.Errorf("the 'jwks' claim %s", err.Error())
 	}
 
+	model.LogPrivateKeyMembers(ctx, &cfg, entityIdentifier, parsedJwks)
+
 	if err = entity_statement.VerifyAgainstJwks(entityConfigurationJwt, sKid, parsedJwks); err != nil {
 		return nil, err
 	}
@@ -268,6 +270,14 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 		if err := model.ValidateJWKShape(key); err != nil {
 			return nil, fmt.Errorf("the provided jwk value with key ID %q %s", model.TruncateForResponse(sKid), err.Error())
 		}
+		if err := model.VerifyPublishableJWK(key); err != nil {
+			return nil, fmt.Errorf("refusing to publish the jwk value with key ID %q because it %s", model.TruncateForResponse(sKid), err.Error())
+		}
+		if declared, ok := key["alg"].(string); ok {
+			if err := model.VerifyKeyStrength(key, declared); err != nil {
+				return nil, fmt.Errorf("the provided jwk value with key ID %q %s", model.TruncateForResponse(sKid), err.Error())
+			}
+		}
 		seen[sKid] = struct{}{}
 		jwks.Keys = append(jwks.Keys, key)
 	}
@@ -292,6 +302,10 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 			}
 			(*apkJWK)["kid"] = signerConfiguration.KeyID
 			(*apkJWK)["alg"] = signerConfiguration.Algorithm
+
+			if err := model.VerifyKeyStrength(*apkJWK, signerConfiguration.Algorithm); err != nil {
+				return nil, fmt.Errorf("refusing to publish subordinate signer key %q because it %s", model.TruncateForResponse(signerConfiguration.KeyID), err.Error())
+			}
 
 			if existing, _ := jwks.RetrieveByKeyID(signerConfiguration.KeyID); existing != nil {
 				if err := publishedKeyUsableForSigning(existing, *apkJWK, signerConfiguration.Signer.Public()); err != nil {

@@ -119,7 +119,7 @@ func TestValidate_SubordinateStatementRules(t *testing.T) {
 			issuer := testIssuerStatement(t, trustAnchor, issuerJwk)
 			statement := testSign(t, issuerKey, tc.head, body(tc.extra))
 
-			result, err := Validate(model.Configuration{}, issuer, statement)
+			result, err := Validate(t.Context(), model.Configuration{}, issuer, statement)
 
 			if tc.expectErr == "" {
 				if err != nil {

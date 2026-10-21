@@ -64,7 +64,7 @@ func TestValidate_StatementFailuresAreChainFailures(t *testing.T) {
 			issuer := testIssuerStatement(t, trustAnchor, issuerJwk)
 			statement := testSign(t, signer, tc.head, body(tc.extra))
 
-			_, err := Validate(model.Configuration{}, issuer, statement)
+			_, err := Validate(t.Context(), model.Configuration{}, issuer, statement)
 			if err == nil {
 				t.Fatalf("[%s] expected the statement to be rejected", tc.kind)
 			}

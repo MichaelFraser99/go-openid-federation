@@ -430,3 +430,96 @@ func TestParseJWKSet_DoesNotRequireAKeyId(t *testing.T) {
 		t.Errorf("expected the key to be kept, got %d", len(parsed.Keys))
 	}
 }
+
+func TestEntityStatement_TheKeyIdRulesCoverAnEntryThatIsLeftOut(t *testing.T) {
+	usable := `{"kid":"leaf","kty":"RSA","n":"AQAB","e":"AQAB"}`
+
+	tests := []struct {
+		name      string
+		reference string
+		keys      string
+		expectErr string
+	}{
+		{
+			name:      "a duplicate kid on an entry with no kty",
+			reference: "3.1.1",
+			keys:      `{"kid":"leaf","x5c":["AQAB"]},` + usable,
+			expectErr: "same 'kid'",
+		},
+		{
+			name:      "a duplicate kid on an EC entry with no crv",
+			reference: "3.1.1",
+			keys:      `{"kid":"leaf","kty":"EC","x":"AQAB","y":"AQAB"},` + usable,
+			expectErr: "same 'kid'",
+		},
+		{
+			name:      "an entry with no kid",
+			reference: "3.1.1",
+			keys:      `{"x5c":["AQAB"]},` + usable,
+			expectErr: "no 'kid' member",
+		},
+		{
+			name:      "an entry whose kid is the empty string",
+			reference: "3.1.1",
+			keys:      `{"kid":"","x5c":["AQAB"]},` + usable,
+			expectErr: "malformed 'kid' member",
+		},
+		{
+			name:      "an unusable entry with a kid of its own",
+			reference: "RFC 7517 5",
+			keys:      `{"kid":"retired","x5c":["AQAB"]},` + usable,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			body := fmt.Sprintf(`{"iss":"https://ta.example.com","sub":"https://leaf.example.com","iat":%d,"exp":%d,"jwks":{"keys":[%s]}}`,
+				time.Now().Unix(), time.Now().Add(time.Hour).Unix(), tc.keys)
+
+			var statement EntityStatement
+			err := json.Unmarshal([]byte(body), &statement)
+
+			if tc.expectErr == "" {
+				if err != nil {
+					t.Fatalf("[%s] expected the statement to be accepted with the unusable key left out, got %v", tc.reference, err)
+				}
+				if len(statement.JWKs.Keys) != 1 {
+					t.Errorf("[%s] expected only the usable key, got %d", tc.reference, len(statement.JWKs.Keys))
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("[%s] section 3.1.1 requires a unique kid on every key in the set, so the statement must be refused, got keys %v", tc.reference, statement.JWKs.Keys)
+			}
+			if !strings.Contains(err.Error(), tc.expectErr) {
+				t.Fatalf("[%s] expected an error naming %s, got %v", tc.reference, tc.expectErr, err)
+			}
+		})
+	}
+}
+
+func TestEntityStatement_TrustMarkOwnerKeysKeepTheOptionalKeyId(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference string
+		keys      string
+	}{
+		{name: "an owner key with no kid", reference: "RFC 7517 4.5", keys: `{"kty":"RSA","n":"AQAB","e":"AQAB"}`},
+		{name: "two owner keys sharing a kid", reference: "RFC 7517 4.5", keys: `{"kid":"a","kty":"RSA","n":"AQAB","e":"AQAB"},{"kid":"a","kty":"RSA","n":"AQAB","e":"AQAB"}`},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			body := fmt.Sprintf(`{"iss":"https://ta.example.com","sub":"https://ta.example.com","iat":%d,"exp":%d,"jwks":{"keys":[{"kid":"ta","kty":"RSA","n":"AQAB","e":"AQAB"}]},"trust_mark_owners":{"https://tm.example.com/a":{"sub":"https://owner.example.com","jwks":{"keys":[%s]}}}}`,
+				time.Now().Unix(), time.Now().Add(time.Hour).Unix(), tc.keys)
+
+			var statement EntityStatement
+			if err := json.Unmarshal([]byte(body), &statement); err != nil {
+				t.Fatalf("[%s] section 3.1.1 states the unique kid rule for the 'jwks' claim, not for a trust mark owner's keys, so this must parse: %v", tc.reference, err)
+			}
+			if _, present := statement.TrustMarkOwners["https://tm.example.com/a"]; !present {
+				t.Error("expected the owner entry to be parsed")
+			}
+		})
+	}
+}

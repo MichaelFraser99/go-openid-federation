@@ -382,3 +382,30 @@ func TestValidate_TrustMarkKeyAlgorithmIsHonoured(t *testing.T) {
 		})
 	}
 }
+
+func TestValidate_TheKeyAlgorithmRefusalIsBounded(t *testing.T) {
+	longKid := strings.Repeat("k", 20000)
+
+	f := newRvFed(t, map[string]string{})
+	ta := f.taConfig(t, map[string][]model.EntityIdentifier{rvType: {model.EntityIdentifier(f.id("ta"))}})
+	for _, key := range ta.JWKs.Keys {
+		key["alg"] = "PS256"
+		key["kid"] = longKid
+	}
+
+	tm := federationTrustMark(t, f.ecKey["ta"], longKid, f.id("ta"), rvType, rvSub)
+	_, err := Validate(t.Context(), model.Configuration{HttpClient: f.server.Client()}, tm, ValidateOptions{
+		ExpectedType:             rvType,
+		ExpectedSubject:          rvSub,
+		AuthorizedIssuers:        []model.EntityIdentifier{model.EntityIdentifier(f.id("ta"))},
+		TrustAnchor:              ta.Sub,
+		TrustAnchorConfiguration: ta,
+	}, nil)
+
+	if err == nil {
+		t.Fatal("a key published for another algorithm must be refused")
+	}
+	if limit := model.MaxErrorDescriptionBytes + 512; len(err.Error()) > limit {
+		t.Errorf("a peer chooses the 'kid', so the refusal must stay within %d bytes, got %d", limit, len(err.Error()))
+	}
+}

@@ -439,7 +439,7 @@ func parseTrustMarkOwners(value any) (map[string]TrustMarkOwner, error) {
 		if !present {
 			return nil, fmt.Errorf("'trust_mark_owners' entry for %q is missing the required 'jwks' member", trustMarkType)
 		}
-		parsedJwks, err := ParseFederationEntityKeys(jwks)
+		parsedJwks, err := ParseJWKSet(jwks)
 		if err != nil {
 			return nil, fmt.Errorf("'trust_mark_owners' entry for %q has a 'jwks' member that %s", trustMarkType, err.Error())
 		}

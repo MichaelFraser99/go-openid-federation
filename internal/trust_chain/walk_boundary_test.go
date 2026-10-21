@@ -250,3 +250,25 @@ func TestConfiguration_TheDocumentedDefaultsAreTheOnesInUse(t *testing.T) {
 		t.Errorf("the fetch bound must cover a subject walk and %d issuer walks of %d entities, which needs %d, the default is %d", model.DefaultMaxTrustMarkIssuers, model.DefaultMaxTrustChainDepth, want, model.DefaultMaxEntitiesTraversed)
 	}
 }
+
+func TestChainUpOne_ADepthRefusalReusedWithinAWalkIsNotRememberedForAnother(t *testing.T) {
+	srv, _ := loggingHintGraph(t, map[string][]string{
+		"subject": {"b", "c"},
+		"b":       {"d"},
+		"c":       {"d"},
+		"d":       {"ta"},
+		"ta":      nil,
+	})
+	cfg := model.Configuration{HttpClient: srv.Client(), MaxTrustChainDepth: 3}
+	cache := resolvecache.New()
+	anchor := model.EntityIdentifier(srv.URL + "/ta")
+
+	if _, _, _, err := ChainUpOne(t.Context(), cfg, model.EntityIdentifier(srv.URL+"/subject"), anchor, nil, nil, nil, cache); err == nil {
+		t.Fatal("every chain from subject is longer than three entities, so the walk must fail")
+	}
+
+	_, route, _, err := ChainUpOne(t.Context(), cfg, model.EntityIdentifier(srv.URL+"/c"), anchor, nil, nil, nil, cache)
+	if err != nil || len(route) != 3 {
+		t.Fatalf("expected the chain c -> d -> ta, got %d entries, err %v", len(route), err)
+	}
+}

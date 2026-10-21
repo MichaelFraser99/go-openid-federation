@@ -147,6 +147,32 @@ func VerifyKeyAlgorithm(token string, key map[string]any) error {
 	return nil
 }
 
+func VerifyAgainstAnyKey(token string, jwks josemodel.Jwks) error {
+	usable := 0
+	for _, key := range jwks.Keys {
+		if model.ValidateJWKShape(key) != nil {
+			continue
+		}
+		if VerifyKeyAlgorithm(token, key) != nil {
+			continue
+		}
+		pubKey, err := jwk.PublicFromJwk(key)
+		if err != nil {
+			continue
+		}
+		usable++
+		if _, _, err := jws.VerifyCompactSerialization(token, func() ([]crypto.PublicKey, error) {
+			return []crypto.PublicKey{pubKey}, nil
+		}, &josemodel.JoseOptions{UseTokenProvidedKeys: false}); err == nil {
+			return nil
+		}
+	}
+	if usable == 0 {
+		return fmt.Errorf("the key set holds no key this library can verify a signature with")
+	}
+	return fmt.Errorf("no key in the key set verifies the signature")
+}
+
 func VerifyAgainstJwks(token, kid string, jwks josemodel.Jwks) error {
 	selectedKey, selectErr := SelectKey(jwks, kid)
 	if selectErr == nil {

@@ -233,7 +233,7 @@ Use `Configure` to mount the endpoints. It wraps every route it registers, so a 
 | `MetadataRetriever` | Source of subordinate data, if not held in memory |
 | `TrustMarkIssuerRetriever` | Populates `trust_mark_issuers` in the entity configuration |
 | `TrustMarkRetriever` | Enables the trust mark endpoints |
-| `TrustAnchors` | Keys held for each trust anchor this deployment trusts. Optional. See [Anchoring a chain a caller supplies](#anchoring-a-chain-a-caller-supplies) |
+| `TrustAnchors` | Keys held for each trust anchor this deployment trusts. Optional, but setting it restricts which anchors `/resolve` serves. See [Anchoring a chain a caller supplies](#anchoring-a-chain-a-caller-supplies) |
 
 The signer's public key is added to the published JWKS, keyed by `kid`, if not already present.
 
@@ -260,7 +260,7 @@ A request may also step into at most `MaxTrustChainDepth` × `MaxEntitiesTravers
 
 The default fetch bound is derived from the other two: a request may build one chain for the subject and one for each of `MaxTrustMarkIssuers` issuers, so a federation whose chains run to the full depth needs `(64 + 1) × 10 = 650` fetches before anything is wrong. Raising `MaxTrustChainDepth` or `MaxTrustMarkIssuers` without raising this one can starve the later issuer walks.
 
-Reaching any of the three answers 404 `invalid_trust_anchor`, the code section 8.9 defines for a trust anchor that "cannot be found or used", with a description naming the bound. It is deliberately neither a `server_error` nor a `temporarily_unavailable`: the graph is the caller's choice, walking less of it than asked is not a fault of this server, and retrying gives the same answer. Consumers can separate the two cases with `errors.Is(err, model.ErrLimitReached)`. An operator reading a response body sees which bound was reached; a caller reading only the code cannot tell a bound from a genuinely unreachable anchor, which is deliberate, since the resolver does not know what lies past its own bound.
+Reaching any of the three answers 404 `invalid_trust_anchor`, the code section 8.9 defines for a trust anchor that "cannot be found or used", with a description naming the bound. Four other conditions answer the same code: a chain that does not end in the named anchor, an anchor absent from a populated `TrustAnchors` map, an anchor whose entity configuration no configured key verifies, and a walk that reaches no anchor at all. Only the bounds also wrap `model.ErrLimitReached`. It is deliberately neither a `server_error` nor a `temporarily_unavailable`: the graph is the caller's choice, walking less of it than asked is not a fault of this server, and retrying gives the same answer. Consumers can separate the two cases with `errors.Is(err, model.ErrLimitReached)`. An operator reading a response body sees which bound was reached; a caller reading only the code cannot tell a bound from a genuinely unreachable anchor, which is deliberate, since the resolver does not know what lies past its own bound.
 
 The bounds and the memory of dead ends span one resolve. `Server` builds a chain for the subject and another for each distinct trust mark issuer against a single budget, so one branch of the subject's graph can spend the budget that later issuer walks would have used. `Client.BuildTrustChain` and `Client.ResolveMetadata` each start their own, so a consumer calling both gets two budgets.
 
@@ -519,17 +519,34 @@ Trust marks in a resolve response are filtered against the trust anchor's `trust
 
 `Client.ResolveMetadata` takes a chain the caller supplies, such as one from a peer's `trust_chain` JWS header. The library does not read that header, so the caller must extract it.
 
-The last statement in the chain must be the entity configuration of the trust anchor named in the call. Section 10.2 requires that statement to verify against a key of the trust anchor. A chain that ends anywhere else is refused with `invalid_trust_anchor`, so a chain made of the caller's own self-signed entity configuration no longer resolves against another entity's anchor.
+Two things are checked at the top of a chain, and only the second has cryptographic content.
 
-`Configuration.TrustAnchors` holds the keys you have for each trust anchor you trust. Section 4 says those keys reach you out of band, so the library cannot fetch them. When the map holds keys for the named anchor, the anchor's entity configuration must verify against one of them. When the map is set but holds nothing for the named anchor, the anchor is refused.
+The first is the identifier. The last statement must be the entity configuration of the trust anchor named in the call, which means its `iss` and its `sub` both equal that identifier. A chain that ends anywhere else is refused with `invalid_trust_anchor`.
 
-When the map is empty, the identifier check still applies and the anchor's entity configuration is trusted on its own signature. The two refusals carry different descriptions, so a log tells an unconfigured anchor apart from a wrong key.
+The second is the signature. `Configuration.TrustAnchors` holds the keys you have for each trust anchor you trust, and when the map holds keys for the named anchor the anchor's entity configuration must verify against one of them. Section 4 puts the distribution of those keys out of band, so the library cannot fetch them and has no way to obtain them itself.
 
-Set `TrustAnchors` wherever you hold the keys. Without it, a caller-supplied chain that ends in the right identifier is accepted on its own signature, which is weaker than section 10.2 asks for.
+> **The identifier check alone does not make a caller-supplied chain safe.** An attacker who writes the trust anchor's identifier into the `iss` and `sub` of their own self-signed entity configuration produces a chain that passes it, because nothing without the anchor's keys can tell that statement from the real one. **Do not pass a chain from an untrusted source to `Client.ResolveMetadata` unless `TrustAnchors` holds keys for the anchor you name.** Build the chain yourself with `Client.BuildTrustChain`, or configure the keys.
 
-`BuildTrustChain` verifies every link as section 10.2 requires: each statement is signed by a key published for it in the statement above. It applies the same anchor check to the top of the chain it builds.
+Section 10.2 draws the same distinction: an inner link verifies "with a public key in `ES[j+1]["jwks"]`", a key the chain itself carries, but the last statement must verify "with a public key of the Trust Anchor". Only `TrustAnchors` supplies the latter.
 
-> **Breaking change.** `Client.ResolveMetadata` takes a `trustAnchor` argument between `subject` and `trustChain`. The trust anchor is a required parameter of the resolve request in section 8.3, and the chain cannot be anchored without it. An empty value is refused with `invalid_request`.
+Four states, and the message says which one you are in:
+
+| `TrustAnchors` | The named anchor | Result |
+| --- | --- | --- |
+| unset (nil) | — | Identifier check only. The anchor's entity configuration is trusted on its own signature |
+| set | has keys | Identifier check, then the entity configuration must verify against one of those keys |
+| set | absent, or mapped to an empty set | Refused: "not one this deployment is configured to trust" |
+| set | present but every key is unusable | Refused as `server_error`: the deployment configured a key set it cannot use |
+
+A non-nil map with no entries refuses every anchor. That is deliberate: an anchor list that parsed to nothing is a configuration fault, not permission to check nothing.
+
+Any key in the set may verify the entity configuration. Selection is not by `kid`, because section 4 hands you these keys out of band and RFC 7517 section 4.5 keeps `kid` optional, so a key you hold under a label of your own still works. A key the library cannot parse is skipped rather than refusing the set.
+
+`BuildTrustChain` applies both checks to the top of the chain it builds, and refuses an anchor absent from a populated map before it makes any request.
+
+> **Breaking change.** `Client.ResolveMetadata` takes a `trustAnchor` argument between `subject` and `trustChain`. The trust anchor is a required parameter of the resolve request in section 8.3, and the chain cannot be anchored without it. An empty or malformed value is refused with `invalid_request`.
+
+> **Breaking change.** Setting `TrustAnchors` on a `ServerConfiguration` restricts which anchors `/resolve` serves. Once the map is non-nil, a request naming an anchor it does not hold keys for is refused with 404 `invalid_trust_anchor`, on the subject's chain and on every trust mark issuer walk. A resolver that served any anchor in the federation becomes one that serves only the configured list. Leave the field unset to keep the old behaviour.
 
 > **Breaking change.** `Client.ResolveMetadata` no longer returns nil metadata. Section 8.3.2 makes the claim required, so a subject that publishes no `metadata` now resolves to an empty `model.Metadata` rather than a nil pointer. A consumer treating nil as "this entity publishes nothing usable" must check the entity types instead.
 
@@ -609,6 +626,7 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | Area | Status | Issue |
 |---|---|---|
 | `constraints` claim | Parsed and carried, never enforced | [#50](https://github.com/MichaelFraser99/go-openid-federation/issues/50) |
+| The anchor check with no `TrustAnchors` configured | Identifier only, so a caller-supplied chain is not cryptographically anchored | [#189](https://github.com/MichaelFraser99/go-openid-federation/issues/189) |
 | Clock skew tolerance | `model.ClockSkewLeeway` is a constant and cannot be configured | [#141](https://github.com/MichaelFraser99/go-openid-federation/issues/141) |
 | Server configuration validation | A bad `ServerConfiguration` is reported when a peer first fetches, not at startup | [#145](https://github.com/MichaelFraser99/go-openid-federation/issues/145) |
 | Extension claims | Dropped on parse and cannot be issued | [#132](https://github.com/MichaelFraser99/go-openid-federation/issues/132) |

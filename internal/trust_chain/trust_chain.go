@@ -22,6 +22,10 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 		return nil, nil, nil, fmt.Errorf("target leaf entity identifier must not match target trust anchor entity identifier")
 	}
 
+	if err = verifyTrustAnchorRequested(ctx, cfg, targetTrustAnchorEntityIdentifier); err != nil {
+		return nil, nil, nil, err
+	}
+
 	signedRoute, route, _, err := chainUpOne(ctx, cfg, targetLeafEntityIdentifier, targetTrustAnchorEntityIdentifier, []model.EntityIdentifier{}, []model.EntityStatement{}, []string{}, cache, newWalkMemo())
 	if err != nil {
 		return nil, nil, nil, err
@@ -66,32 +70,44 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 	return trustChain, parsedTrustChain, &exp, nil
 }
 
+func verifyTrustAnchorRequested(ctx context.Context, cfg model.Configuration, requested model.EntityIdentifier) error {
+	if requested == "" {
+		cfg.LogInfo(ctx, "no trust anchor was named, so a chain cannot be anchored")
+		return model.NewInvalidRequestError("a trust anchor must be named to resolve a trust chain")
+	}
+	if !cfg.TrustAnchorsConfigured() {
+		return nil
+	}
+	if _, configured := cfg.TrustAnchorKeys(requested); !configured {
+		cfg.LogInfo(ctx, "the requested trust anchor is not one this deployment is configured to trust", slog.String("requested", string(requested)))
+		return model.NewInvalidTrustAnchorError("the requested trust anchor is not one this deployment is configured to trust")
+	}
+	return nil
+}
+
 func verifyTrustAnchor(ctx context.Context, cfg model.Configuration, expected model.EntityIdentifier, signedAnchor string, anchor model.EntityStatement) error {
-	if anchor.Iss != expected {
-		cfg.LogInfo(ctx, "trust chain does not end in the requested trust anchor", slog.String("requested", string(expected)), slog.String("chain_ends_in", string(anchor.Iss)))
-		return model.NewInvalidTrustAnchorError("the trust chain does not end in the requested trust anchor")
+	if anchor.Iss != expected || anchor.Sub != expected {
+		cfg.LogInfo(ctx, "trust chain does not end in the entity configuration of the requested trust anchor", slog.String("requested", string(expected)), slog.String("chain_ends_in_iss", string(anchor.Iss)), slog.String("chain_ends_in_sub", string(anchor.Sub)))
+		return model.NewInvalidTrustAnchorError("the trust chain does not end in the entity configuration of the requested trust anchor")
 	}
 
 	keys, configured := cfg.TrustAnchorKeys(expected)
 	if !configured {
 		if cfg.TrustAnchorsConfigured() {
-			cfg.LogError(ctx, "the requested trust anchor is not one this deployment is configured to trust", slog.String("requested", string(expected)))
+			cfg.LogInfo(ctx, "the requested trust anchor is not one this deployment is configured to trust", slog.String("requested", string(expected)))
 			return model.NewInvalidTrustAnchorError("the requested trust anchor is not one this deployment is configured to trust")
 		}
-		cfg.LogInfo(ctx, "no trust anchor keys are configured, so the trust anchor entity configuration is trusted on its own signature", slog.String("trust_anchor", string(expected)))
 		return nil
 	}
+	if len(keys.Keys) == 0 {
+		cfg.LogError(ctx, "every key configured for the requested trust anchor is unusable, so no chain can be anchored in it", slog.String("trust_anchor", string(expected)))
+		return model.NewServerError("the keys configured for the requested trust anchor hold no usable key")
+	}
 
-	kid, _, _, err := entity_statement.ExtractDetails(signedAnchor)
-	if err != nil {
-		cfg.LogInfo(ctx, "trust anchor entity configuration malformed", slog.String("trust_anchor", string(expected)), slog.String("error", err.Error()))
-		return model.NewInvalidTrustChainError("the trust anchor entity configuration in the chain is malformed")
+	if err := entity_statement.VerifyAgainstAnyKey(signedAnchor, keys); err != nil {
+		cfg.LogError(ctx, "trust anchor entity configuration not signed by any key configured for it", slog.String("trust_anchor", string(expected)), slog.String("error", model.TruncateForResponse(err.Error())))
+		return model.NewInvalidTrustAnchorError("the trust anchor entity configuration is not signed by any key configured for it")
 	}
-	if err = entity_statement.VerifyAgainstJwks(signedAnchor, *kid, keys); err != nil {
-		cfg.LogError(ctx, "trust anchor entity configuration not signed by a configured key", slog.String("trust_anchor", string(expected)), slog.String("kid", *kid), slog.String("error", err.Error()))
-		return model.NewInvalidTrustAnchorError("the trust anchor entity configuration is not signed by a key configured for it")
-	}
-	cfg.LogInfo(ctx, "trust anchor entity configuration verified against a configured key", slog.String("trust_anchor", string(expected)), slog.String("kid", *kid))
 	return nil
 }
 
@@ -293,9 +309,8 @@ func resolvedMetadata(metadata *model.Metadata) *model.Metadata {
 func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityIdentifier, trustAnchorEntityIdentifier model.EntityIdentifier, trustChain []string, cache *resolvecache.Cache) (*model.ResolveResponse, error) {
 	cfg.LogInfo(ctx, "resolving metadata from trust chain", slog.String("issuer", string(issuerEntityIdentifier)), slog.String("trust_anchor", string(trustAnchorEntityIdentifier)), slog.Int("chain_length", len(trustChain)))
 
-	if trustAnchorEntityIdentifier == "" {
-		cfg.LogError(ctx, "no trust anchor was named, so the chain cannot be anchored", slog.String("issuer", string(issuerEntityIdentifier)))
-		return nil, model.NewInvalidRequestError("a trust anchor must be named to resolve a trust chain")
+	if err := verifyTrustAnchorRequested(ctx, cfg, trustAnchorEntityIdentifier); err != nil {
+		return nil, err
 	}
 
 	if len(trustChain) == 0 {
@@ -335,6 +350,10 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 		}
 		processedChain = append(processedChain, *response)
 	} else {
+		if *parsedIss != trustAnchorEntityIdentifier {
+			cfg.LogInfo(ctx, "trust chain does not end in a statement issued by the requested trust anchor", slog.String("requested", string(trustAnchorEntityIdentifier)), slog.String("chain_ends_in", string(*parsedIss)))
+			return nil, model.NewInvalidTrustAnchorError("the trust chain does not end in a statement issued by the requested trust anchor")
+		}
 		cfg.LogInfo(ctx, "retrieving omitted trust anchor entity configuration", slog.String("trust_anchor", string(*parsedIss)))
 		signedEntityConfiguration, entityConfiguration, err := entity_configuration.Retrieve(ctx, cfg, *parsedIss, cache)
 		if err != nil {

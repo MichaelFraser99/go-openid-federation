@@ -102,6 +102,20 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 		}
 	}
 
+	for i, subordinateEntity := range response.ImmediateSubordinateEntities {
+		entity := make(map[string]any, len(subordinateEntity))
+		for key, value := range subordinateEntity {
+			entity[key] = value
+		}
+		var dropped []string
+		model.StripUnpublishableKeys(entity, 0, &dropped)
+		if len(dropped) > 0 {
+			identifier, _ := entity["id"].(string)
+			s.cfg.LogError(ctx, "dropping keys carrying private key material from an extended listing entry", slog.String("sub", model.TruncateForResponse(identifier)), slog.Any("key_ids", dropped))
+			response.ImmediateSubordinateEntities[i] = entity
+		}
+	}
+
 	entitiesJSON, err := json.Marshal(response)
 	if err != nil {
 		s.cfg.LogError(ctx, "error marshalling subordinate entities", slog.String("error", err.Error()))

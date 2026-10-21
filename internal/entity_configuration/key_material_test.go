@@ -7,8 +7,10 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
+	"encoding/json"
 	"log/slog"
 	"math/big"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -254,6 +256,35 @@ func TestNew_RefusesToPublishMetadataKeysCarryingPrivateMembers(t *testing.T) {
 	}
 	(*publicRSA)["kid"] = "rp-signing"
 
+	privateJwksShapes := map[string]func(key map[string]any) any{
+		"a decoded JSON key set":    func(key map[string]any) any { return map[string]any{"keys": []any{key}} },
+		"a typed slice of key maps": func(key map[string]any) any { return map[string]any{"keys": []map[string]any{key}} },
+		"a josemodel.Jwks value":    func(key map[string]any) any { return josemodel.Jwks{Keys: []map[string]any{key}} },
+		"a josemodel.Jwks pointer":  func(key map[string]any) any { return &josemodel.Jwks{Keys: []map[string]any{key}} },
+	}
+
+	for shape, build := range privateJwksShapes {
+		t.Run("a relying party publishing its private RSA key as "+shape, func(t *testing.T) {
+			cfg := publishableConfiguration(t)
+			rp := model.OpenIDRelyingPartyMetadata{
+				"redirect_uris": []any{"https://rp.example.com/cb"},
+				"jwks":          build(privateRSA),
+			}
+			cfg.EntityConfiguration.Metadata = &model.Metadata{OpenIDRelyingPartyMetadata: &rp}
+
+			signed, err := New(t.Context(), cfg)
+			if err == nil {
+				t.Fatalf("[RFC 7518 6.3.2] a key set written as %s is serialised the same way, so it must be refused the same way, got a published statement", shape)
+			}
+			if !strings.Contains(err.Error(), "private key members") {
+				t.Errorf("[RFC 7518 6.3.2] expected the refusal to name the private members, got %v", err)
+			}
+			if signed != nil {
+				t.Errorf("[RFC 7518 6.3.2] expected no statement to be published")
+			}
+		})
+	}
+
 	tests := []struct {
 		name       string
 		reference  string
@@ -433,8 +464,8 @@ func TestValidate_APeerPublishingPrivateMembersIsLoggedEvenWhenTheKeyIsUnusable(
 			if !strings.Contains(logs.String(), "private key material") {
 				t.Fatalf("[%s] an entry the lenient parse drops is the realistic shape of an accidental key dump, so the log must see it before the filter: %s", tc.reference, logs.String())
 			}
-			if !strings.Contains(logs.String(), tc.expectLog) {
-				t.Errorf("[%s] expected the log to name the member %q, got %s", tc.reference, tc.expectLog, logs.String())
+			if !loggedMember(t, logs.String(), tc.expectLog) {
+				t.Errorf("[%s] expected the log's own members attribute to name %q, got %s", tc.reference, tc.expectLog, logs.String())
 			}
 		})
 	}
@@ -555,4 +586,86 @@ func TestNew_DoesNotPublishASubordinateSignerKeyBelowItsAlgorithmsMinimumModulus
 			}
 		})
 	}
+}
+
+func TestValidate_AStatementThatFailsAnIdentityCheckIsNotLoggedAsALeak(t *testing.T) {
+	const (
+		victim   = model.EntityIdentifier("https://victim.example.com")
+		attacker = model.EntityIdentifier("https://attacker.example.com")
+	)
+
+	tests := []struct {
+		name      string
+		reference string
+		iss       model.EntityIdentifier
+		sub       model.EntityIdentifier
+		signWith  string
+		expectLog bool
+	}{
+		{name: "the victim's own configuration", reference: "RFC 7518 6.2.2", iss: victim, sub: victim, signWith: "victim", expectLog: true},
+		{name: "a configuration signed by another key", reference: "3.2", iss: victim, sub: victim, signWith: "forger"},
+		{name: "a configuration whose iss is another entity", reference: "3.2", iss: attacker, sub: victim, signWith: "victim"},
+		{name: "a configuration whose sub is another entity", reference: "3.2", iss: victim, sub: attacker, signWith: "victim"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			victimKey := headerJwkKey(t)
+			forgerKey := headerJwkKey(t)
+
+			published := headerJwkPublicJwk(t, victimKey.Public(), "leaf")
+			published["d"] = "AQAB"
+
+			signer := victimKey
+			if tc.signWith == "forger" {
+				signer = forgerKey
+			}
+
+			token, err := jwt.New(signer, map[string]any{"kid": "leaf", "alg": "RS256", "typ": "entity-statement+jwt"}, map[string]any{
+				"iss":      string(tc.iss),
+				"sub":      string(tc.sub),
+				"iat":      time.Now().Unix(),
+				"exp":      time.Now().Add(time.Hour).Unix(),
+				"jwks":     map[string]any{"keys": []any{published}},
+				"metadata": map[string]any{},
+			}, jwt.Opts{Algorithm: josemodel.RS256})
+			if err != nil {
+				t.Fatalf("failed to sign: %v", err)
+			}
+
+			var logs bytes.Buffer
+			cfg := model.Configuration{Logger: slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))}
+
+			_, err = Validate(t.Context(), cfg, victim, *token)
+			if tc.expectLog && err != nil {
+				t.Fatalf("[%s] expected the victim's own configuration to validate, got %v", tc.reference, err)
+			}
+			if !tc.expectLog && err == nil {
+				t.Fatalf("[%s] expected the configuration to be refused", tc.reference)
+			}
+
+			logged := strings.Contains(logs.String(), "private key material")
+			if logged != tc.expectLog {
+				t.Fatalf("[%s] anyone able to answer a fetch for an entity can serve a statement, so a leak must be attributed only once every identity check passes: logged %v, logs %s", tc.reference, logged, logs.String())
+			}
+		})
+	}
+}
+
+func loggedMember(t *testing.T, raw, member string) bool {
+	t.Helper()
+	for _, line := range strings.Split(strings.TrimSpace(raw), "\n") {
+		var record map[string]any
+		if json.Unmarshal([]byte(line), &record) != nil {
+			continue
+		}
+		if record["msg"] != "a received key set carries private key material" {
+			continue
+		}
+		members, _ := record["members"].([]any)
+		if slices.Contains(members, any(member)) {
+			return true
+		}
+	}
+	return false
 }

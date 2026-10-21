@@ -3,8 +3,12 @@ package subordinate_statement
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -165,7 +169,7 @@ func weakRegisteredKey(t *testing.T) map[string]any {
 	}
 }
 
-func TestValidate_APeerRepublishingPrivateMembersIsLoggedAndStillVerified(t *testing.T) {
+func TestRetrieve_APeerRepublishingPrivateMembersIsLoggedAndStillVerified(t *testing.T) {
 	tests := []struct {
 		name      string
 		reference string
@@ -179,8 +183,13 @@ func TestValidate_APeerRepublishingPrivateMembersIsLoggedAndStillVerified(t *tes
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			key := testKey(t)
-			published := testPublicJwk(t, key.Public(), "leaf")
+			const (
+				subject = model.EntityIdentifier("https://leaf.example.com")
+				other   = model.EntityIdentifier("https://other.example.com")
+			)
+
+			subjectKey := testKey(t)
+			published := testPublicJwk(t, subjectKey.Public(), "leaf")
 			for member, value := range tc.extra {
 				if value == nil {
 					delete(published, member)
@@ -191,24 +200,36 @@ func TestValidate_APeerRepublishingPrivateMembersIsLoggedAndStillVerified(t *tes
 
 			issuerKey := testKey(t)
 			issuerJwk := testPublicJwk(t, issuerKey.Public(), "ta")
+
+			servedSubject := subject
+			var server *httptest.Server
+			server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				statement := testSign(t, issuerKey, map[string]any{"kid": "ta", "typ": "entity-statement+jwt", "alg": "RS256"}, map[string]any{
+					"iss":  server.URL,
+					"sub":  string(servedSubject),
+					"iat":  time.Now().UTC().Unix(),
+					"exp":  time.Now().Add(time.Hour).UTC().Unix(),
+					"jwks": map[string]any{"keys": []any{published}},
+				})
+				w.Header().Set("Content-Type", "application/entity-statement+jwt")
+				_, _ = w.Write([]byte(statement))
+			}))
+			t.Cleanup(server.Close)
+
 			issuer := model.EntityStatement{
-				Iss:  "https://ta.example.com",
-				Sub:  "https://ta.example.com",
-				JWKs: josemodel.Jwks{Keys: []map[string]any{issuerJwk}},
+				Iss:      model.EntityIdentifier(server.URL),
+				Sub:      model.EntityIdentifier(server.URL),
+				Metadata: &model.Metadata{FederationMetadata: &model.FederationMetadata{"federation_fetch_endpoint": server.URL + "/fetch"}},
+				JWKs:     josemodel.Jwks{Keys: []map[string]any{issuerJwk}},
 			}
 
-			statement := testSign(t, issuerKey, map[string]any{"kid": "ta", "typ": "entity-statement+jwt", "alg": "RS256"}, map[string]any{
-				"iss":  "https://ta.example.com",
-				"sub":  "https://leaf.example.com",
-				"iat":  time.Now().UTC().Unix(),
-				"exp":  time.Now().Add(time.Hour).UTC().Unix(),
-				"jwks": map[string]any{"keys": []any{published}},
-			})
-
 			var logs bytes.Buffer
-			cfg := model.Configuration{Logger: slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))}
+			cfg := model.Configuration{
+				HttpClient: server.Client(),
+				Logger:     slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+			}
 
-			if _, err := Validate(t.Context(), cfg, issuer, statement); err != nil {
+			if _, _, err := Retrieve(t.Context(), cfg, issuer, subject); err != nil {
 				t.Fatalf("[%s] a superior's mistake must not deny service over the statement, got %v", tc.reference, err)
 			}
 
@@ -216,9 +237,42 @@ func TestValidate_APeerRepublishingPrivateMembersIsLoggedAndStillVerified(t *tes
 			if logged != (tc.expectLog != "") {
 				t.Fatalf("[%s] expected private material logged: %v, got logs %s", tc.reference, tc.expectLog != "", logs.String())
 			}
-			if tc.expectLog != "" && !strings.Contains(logs.String(), tc.expectLog) {
-				t.Errorf("[%s] expected the log to name the member %q, got %s", tc.reference, tc.expectLog, logs.String())
+			if tc.expectLog == "" {
+				return
+			}
+			if !loggedMember(t, logs.String(), tc.expectLog) {
+				t.Errorf("[%s] expected the log's own members attribute to name %q, got %s", tc.reference, tc.expectLog, logs.String())
+			}
+			if !strings.Contains(logs.String(), `"issuer":"`+server.URL) {
+				t.Errorf("[%s] the log must name the superior that republished the key, got %s", tc.reference, logs.String())
+			}
+
+			logs.Reset()
+			servedSubject = other
+			if _, _, err := Retrieve(t.Context(), cfg, issuer, subject); err == nil {
+				t.Fatalf("[%s] expected a statement about another subject to be refused", tc.reference)
+			}
+			if strings.Contains(logs.String(), "private key material") {
+				t.Errorf("[%s] any superior reached during a walk can answer with another entity's subject, so a refused statement must not be logged as that entity's leak: %s", tc.reference, logs.String())
 			}
 		})
 	}
+}
+
+func loggedMember(t *testing.T, raw, member string) bool {
+	t.Helper()
+	for _, line := range strings.Split(strings.TrimSpace(raw), "\n") {
+		var record map[string]any
+		if json.Unmarshal([]byte(line), &record) != nil {
+			continue
+		}
+		if record["msg"] != "a received key set carries private key material" {
+			continue
+		}
+		members, _ := record["members"].([]any)
+		if slices.Contains(members, any(member)) {
+			return true
+		}
+	}
+	return false
 }

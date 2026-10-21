@@ -8,6 +8,7 @@ import (
 	"maps"
 	"math/big"
 	"slices"
+	"strings"
 
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 )
@@ -24,18 +25,6 @@ func PrivateJWKMembers(key map[string]any) []string {
 		}
 	}
 	return members
-}
-
-func VerifyPublishableTrustMarkOwnerKeys(owners map[string]TrustMarkOwner) error {
-	for trustMarkType, owner := range owners {
-		for _, key := range owner.JWKs.Keys {
-			if err := VerifyPublishableJWK(key); err != nil {
-				kid, _ := key["kid"].(string)
-				return fmt.Errorf("the 'trust_mark_owners' entry for %q holds a key with key ID %q that %s", TruncateForResponse(trustMarkType), TruncateForResponse(kid), err.Error())
-			}
-		}
-	}
-	return nil
 }
 
 func rawJWKSetEntries(raw any) []map[string]any {
@@ -58,20 +47,120 @@ func rawJWKSetEntries(raw any) []map[string]any {
 	return keys
 }
 
-func VerifyPublishableMetadataKeys(m *Metadata) error {
-	if m == nil {
-		return nil
+const maxPublishableScanDepth = 32
+
+type locatedJWK struct {
+	key  map[string]any
+	path string
+}
+
+func collectJWKSetEntries(value any, path string, depth int, into *[]locatedJWK) {
+	if depth > maxPublishableScanDepth {
+		return
 	}
-	for entityType, entityMetadata := range m.byEntityType() {
-		raw, present := entityMetadata["jwks"]
-		if !present || raw == nil {
+	switch typed := value.(type) {
+	case map[string]any:
+		if entries, ok := typed["keys"].([]any); ok {
+			for _, entry := range entries {
+				if key, ok := entry.(map[string]any); ok {
+					*into = append(*into, locatedJWK{key: key, path: path})
+				}
+			}
+		}
+		for member, held := range typed {
+			collectJWKSetEntries(held, path+"."+member, depth+1, into)
+		}
+	case []any:
+		for _, member := range typed {
+			collectJWKSetEntries(member, path, depth+1, into)
+		}
+	}
+}
+
+func findPublishableKeySets(value any, path string, depth int, found *[]locatedJWK) {
+	if depth > maxPublishableScanDepth {
+		return
+	}
+	switch typed := value.(type) {
+	case map[string]any:
+		for member, held := range typed {
+			if member == "jwks" {
+				collectJWKSetEntries(held, strings.TrimPrefix(path+".jwks", "."), 0, found)
+				continue
+			}
+			findPublishableKeySets(held, path+"."+member, depth+1, found)
+		}
+	case []any:
+		for _, member := range typed {
+			findPublishableKeySets(member, path, depth+1, found)
+		}
+	}
+}
+
+func stripJWKSetEntries(value any, depth int, dropped *[]string) any {
+	if depth > maxPublishableScanDepth {
+		return value
+	}
+	switch typed := value.(type) {
+	case map[string]any:
+		if entries, ok := typed["keys"].([]any); ok {
+			kept := make([]any, 0, len(entries))
+			for _, entry := range entries {
+				key, ok := entry.(map[string]any)
+				if ok && VerifyPublishableJWK(key) != nil {
+					kid, _ := key["kid"].(string)
+					*dropped = append(*dropped, TruncateForResponse(kid))
+					continue
+				}
+				kept = append(kept, entry)
+			}
+			typed["keys"] = kept
+		}
+		for member, held := range typed {
+			if member == "keys" {
+				continue
+			}
+			typed[member] = stripJWKSetEntries(held, depth+1, dropped)
+		}
+		return typed
+	case []any:
+		for i, member := range typed {
+			typed[i] = stripJWKSetEntries(member, depth+1, dropped)
+		}
+		return typed
+	}
+	return value
+}
+
+func StripUnpublishableKeys(statement map[string]any, depth int, dropped *[]string) {
+	if depth > maxPublishableScanDepth {
+		return
+	}
+	for member, held := range statement {
+		if member == "jwks" {
+			statement[member] = stripJWKSetEntries(held, 0, dropped)
 			continue
 		}
-		for _, key := range rawJWKSetEntries(raw) {
-			if err := VerifyPublishableJWK(key); err != nil {
-				kid, _ := key["kid"].(string)
-				return fmt.Errorf("the %q metadata 'jwks' holds a key with key ID %q that %s", entityType, TruncateForResponse(kid), err.Error())
+		switch typed := held.(type) {
+		case map[string]any:
+			StripUnpublishableKeys(typed, depth+1, dropped)
+		case []any:
+			for _, entry := range typed {
+				if nested, ok := entry.(map[string]any); ok {
+					StripUnpublishableKeys(nested, depth+1, dropped)
+				}
 			}
+		}
+	}
+}
+
+func VerifyPublishableStatementKeys(statement map[string]any) error {
+	var keys []locatedJWK
+	findPublishableKeySets(statement, "", 0, &keys)
+	for _, located := range keys {
+		if err := VerifyPublishableJWK(located.key); err != nil {
+			kid, _ := located.key["kid"].(string)
+			return fmt.Errorf("the %q key set holds a key with key ID %q that %s", located.path, TruncateForResponse(kid), err.Error())
 		}
 	}
 	return nil
@@ -114,13 +203,13 @@ func VerifyKeyStrength(key map[string]any, alg string) error {
 	return nil
 }
 
-func LogPrivateKeyMembersInRawSet(ctx context.Context, cfg *Configuration, subject EntityIdentifier, raw any) {
-	LogPrivateKeyMembers(ctx, cfg, subject, josemodel.Jwks{Keys: rawJWKSetEntries(raw)})
+func LogPrivateKeyMembersInRawSet(ctx context.Context, cfg *Configuration, issuer, subject EntityIdentifier, raw any) {
+	LogPrivateKeyMembers(ctx, cfg, issuer, subject, josemodel.Jwks{Keys: rawJWKSetEntries(raw)})
 }
 
 const maxLoggedPrivateKeys = 8
 
-func LogPrivateKeyMembers(ctx context.Context, cfg *Configuration, subject EntityIdentifier, jwks josemodel.Jwks) {
+func LogPrivateKeyMembers(ctx context.Context, cfg *Configuration, issuer, subject EntityIdentifier, jwks josemodel.Jwks) {
 	if cfg == nil {
 		return
 	}
@@ -144,7 +233,7 @@ func LogPrivateKeyMembers(ctx context.Context, cfg *Configuration, subject Entit
 	if affected == 0 {
 		return
 	}
-	cfg.LogError(ctx, "a received key set carries private key material", slog.String("subject", TruncateForResponse(string(subject))), slog.Int("affected_keys", affected), slog.Any("first_key_ids", named), slog.Any("members", slices.Sorted(maps.Keys(members))))
+	cfg.LogError(ctx, "a received key set carries private key material", slog.String("issuer", TruncateForResponse(string(issuer))), slog.String("subject", TruncateForResponse(string(subject))), slog.Int("affected_keys", affected), slog.Any("first_key_ids", named), slog.Any("members", slices.Sorted(maps.Keys(members))))
 }
 
 func ValidateJWKShape(key map[string]any) error {

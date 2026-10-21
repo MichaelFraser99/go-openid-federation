@@ -75,6 +75,8 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 		return nil, nil, fmt.Errorf("'sub' claim does not match the requested subject entity identifier")
 	}
 
+	model.LogPrivateKeyMembersInRawSet(ctx, &cfg, subordinateStatement.Iss, subordinateStatement.Sub, rawJWKSClaim(string(responseBytes)))
+
 	return josemodel.Pointer(string(responseBytes)), subordinateStatement, nil
 }
 
@@ -154,8 +156,6 @@ func validate(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 		return nil, fmt.Errorf("'iss' claim does not match issuer 'sub' claim")
 	}
 
-	model.LogPrivateKeyMembersInRawSet(ctx, &cfg, subordinateStatement.Sub, bodyMap["jwks"])
-
 	if subordinateStatement.Metadata != nil {
 		if err = subordinateStatement.Metadata.Verify(cfg.EntityTypes, cfg.DiscardUnrecognisedEntityTypes); err != nil {
 			return nil, model.NewInvalidMetadataError(err.Error())
@@ -219,10 +219,9 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		publishable.Keys = append(publishable.Keys, k)
 	}
 
-	if len(subjectSubordinateConfiguration.JWKs.Keys) > 0 && len(publishable.Keys) == 0 {
+	if len(publishable.Keys) == 0 {
 		return nil, model.NewInvalidSubjectError("every key registered for this subject is unpublishable, so no usable subordinate statement can be issued for it")
 	}
-	subjectSubordinateConfiguration.JWKs = publishable
 
 	subordinateStatementLifetime, err := model.ResolveStatementLifetime("SubordinateStatementLifetime", configuration.IntermediateConfiguration.SubordinateStatementLifetime, model.DefaultSubordinateStatementLifetime)
 	if err != nil {
@@ -238,7 +237,7 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		Iss:  configuration.EntityIdentifier,
 		Iat:  time.Now().UTC().Unix(),
 		Exp:  time.Now().Add(subordinateStatementLifetime).UTC().Unix(),
-		JWKs: subjectSubordinateConfiguration.JWKs,
+		JWKs: publishable,
 	}
 
 	if policy := subjectSubordinateConfiguration.Policies; policy.HasParameterPolicies() {
@@ -258,6 +257,10 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 	err = json.Unmarshal(subordinateStatementBytes, &subordinateStatementMap)
 	if err != nil {
 		return nil, fmt.Errorf("failed to deserialize entity configuration: %s", err.Error())
+	}
+
+	if err = model.VerifyPublishableStatementKeys(subordinateStatementMap); err != nil {
+		return nil, fmt.Errorf("refusing to publish this subordinate statement because %s", err.Error())
 	}
 
 	if err = model.VerifyIssuedStatement(subordinateStatementBytes, configuration.EntityTypes); err != nil {
@@ -282,4 +285,20 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 	}
 
 	return token, nil
+}
+
+func rawJWKSClaim(statement string) any {
+	parts := strings.Split(statement, ".")
+	if len(parts) != 3 {
+		return nil
+	}
+	body, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil
+	}
+	var bodyMap map[string]any
+	if json.Unmarshal(body, &bodyMap) != nil {
+		return nil
+	}
+	return bodyMap["jwks"]
 }

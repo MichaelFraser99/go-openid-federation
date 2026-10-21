@@ -58,6 +58,11 @@ func TestVerifyAgainstJwks_HonoursWhatTheSelectedKeySaysAboutItsUse(t *testing.T
 		{name: "a use this library does not know", reference: "RFC 7517 4.2", use: "deriveBits", expectErr: "declares a 'use' of \"deriveBits\""},
 		{name: "a use that is not a string", reference: "RFC 7517 4.2", use: 1, expectErr: "malformed 'use' member"},
 		{name: "a use that is the empty string", reference: "RFC 7517 4.2", use: "", expectErr: "malformed 'use' member"},
+		{name: "a use of SIG, which RFC 7517 compares case-sensitively", reference: "RFC 7517 4.2", use: "SIG", expectErr: "declares a 'use' of \"SIG\""},
+		{name: "a use of Sig", reference: "RFC 7517 4.2", use: "Sig", expectErr: "declares a 'use' of \"Sig\""},
+		{name: "a use of sig with a trailing space", reference: "RFC 7517 4.2", use: "sig ", expectErr: "declares a 'use' of \"sig \""},
+		{name: "a use that merely begins with sig", reference: "RFC 7517 4.2", use: "signature", expectErr: "declares a 'use' of \"signature\""},
+		{name: "a use that is an array holding sig", reference: "RFC 7517 4.2", use: []any{"sig"}, expectErr: "malformed 'use' member"},
 	}
 
 	for _, tc := range tests {

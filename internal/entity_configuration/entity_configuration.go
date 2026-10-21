@@ -148,7 +148,6 @@ func validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 		return nil, err
 	}
 
-	model.LogPrivateKeyMembersInRawSet(ctx, &cfg, entityIdentifier, jwks)
 	for _, claim := range []string{"metadata_policy", "metadata_policy_crit", "constraints", "source_endpoint"} {
 		if _, present := bodyMap[claim]; present {
 			return nil, model.NewInvalidTrustChainError(fmt.Sprintf("the %q claim is permitted only in subordinate statements, not in an entity configuration", claim))
@@ -175,6 +174,8 @@ func validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 	if entityConfiguration.Sub != entityIdentifier {
 		return nil, fmt.Errorf("'sub' claim does not match the original entity identifier")
 	}
+
+	model.LogPrivateKeyMembersInRawSet(ctx, &cfg, entityConfiguration.Sub, entityConfiguration.Sub, jwks)
 
 	if entityConfiguration.Metadata != nil {
 		if err = entityConfiguration.Metadata.Verify(cfg.EntityTypes, cfg.DiscardUnrecognisedEntityTypes); err != nil {
@@ -239,13 +240,6 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 	}
 	if cfg.EntityConfiguration.Metadata != nil || len(federationMetadata) > 0 {
 		entityConfiguration.Metadata = &metadata
-	}
-
-	if err := model.VerifyPublishableMetadataKeys(entityConfiguration.Metadata); err != nil {
-		return nil, fmt.Errorf("refusing to publish this entity configuration because %s", err.Error())
-	}
-	if err := model.VerifyPublishableTrustMarkOwnerKeys(entityConfiguration.TrustMarkOwners); err != nil {
-		return nil, fmt.Errorf("refusing to publish this entity configuration because %s", err.Error())
 	}
 
 	if cfg.SignerConfiguration.KeyID == "" {
@@ -353,6 +347,10 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 	err = json.Unmarshal(entityConfigurationBytes, &entityConfigurationMap)
 	if err != nil {
 		return nil, fmt.Errorf("failed to deserialize entity cfg: %s", err.Error())
+	}
+
+	if err = model.VerifyPublishableStatementKeys(entityConfigurationMap); err != nil {
+		return nil, fmt.Errorf("refusing to publish this entity configuration because %s", err.Error())
 	}
 
 	if err = model.VerifyIssuedStatement(entityConfigurationBytes, cfg.EntityTypes); err != nil {

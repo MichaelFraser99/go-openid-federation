@@ -200,6 +200,9 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		if _, duplicate := seen[sKid]; duplicate {
 			return nil, fmt.Errorf("all provided subordinate configuration JWKs must have unique 'kid' values - %q appears more than once", sKid)
 		}
+		if err := model.ValidateJWKShape(k); err != nil {
+			return nil, fmt.Errorf("the provided subordinate configuration JWK with key ID %q %s", sKid, err.Error())
+		}
 		seen[sKid] = struct{}{}
 	}
 

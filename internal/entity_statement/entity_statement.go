@@ -116,7 +116,7 @@ func SelectKey(jwks josemodel.Jwks, kid string) (map[string]any, error) {
 	return selectedKey, nil
 }
 
-func verifyKeyAlgorithm(token string, key map[string]any) error {
+func VerifyKeyAlgorithm(token string, key map[string]any) error {
 	declared, present := key["alg"]
 	if !present || declared == nil {
 		return nil
@@ -148,13 +148,15 @@ func verifyKeyAlgorithm(token string, key map[string]any) error {
 }
 
 func VerifyAgainstJwks(token, kid string, jwks josemodel.Jwks) error {
-	if _, _, err := jws.VerifyCompactSerialization(token, func() ([]crypto.PublicKey, error) {
-		selectedKey, err := SelectKey(jwks, kid)
-		if err != nil {
-			return nil, err
+	selectedKey, selectErr := SelectKey(jwks, kid)
+	if selectErr == nil {
+		if err := VerifyKeyAlgorithm(token, selectedKey); err != nil {
+			return err
 		}
-		if err = verifyKeyAlgorithm(token, selectedKey); err != nil {
-			return nil, err
+	}
+	if _, _, err := jws.VerifyCompactSerialization(token, func() ([]crypto.PublicKey, error) {
+		if selectErr != nil {
+			return nil, selectErr
 		}
 		pubKey, err := jwk.PublicFromJwk(selectedKey)
 		if err != nil {

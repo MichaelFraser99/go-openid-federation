@@ -281,3 +281,52 @@ func TestFilterByTrusted_IssuerLimitErrorLeavesNoUnverifiedMarks(t *testing.T) {
 		t.Errorf("expected no unverified trust marks left on the response after the limit error, got %d", len(resolved.TrustMarks))
 	}
 }
+
+func TestValidate_TrustMarkKeyAlgorithmIsHonoured(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference string
+		keyAlg    any
+		expectErr string
+	}{
+		{name: "the algorithm the key is published for", reference: "RFC 7517 4.4", keyAlg: "RS256"},
+		{name: "no published algorithm leaves the key unconstrained", reference: "RFC 7517 4.4", keyAlg: nil},
+		{name: "another algorithm", reference: "RFC 7517 4.4", keyAlg: "PS256", expectErr: "published for another algorithm"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newRvFed(t, map[string]string{})
+			ta := f.taConfig(t, map[string][]model.EntityIdentifier{rvType: {model.EntityIdentifier(f.id("ta"))}})
+			for _, key := range ta.JWKs.Keys {
+				if tc.keyAlg == nil {
+					delete(key, "alg")
+					continue
+				}
+				key["alg"] = tc.keyAlg
+			}
+
+			tm := federationTrustMark(t, f.ecKey["ta"], "test-key", f.id("ta"), rvType, rvSub)
+			_, err := Validate(t.Context(), model.Configuration{HttpClient: f.server.Client()}, tm, ValidateOptions{
+				ExpectedType:             rvType,
+				ExpectedSubject:          rvSub,
+				AuthorizedIssuers:        []model.EntityIdentifier{model.EntityIdentifier(f.id("ta"))},
+				TrustAnchor:              ta.Sub,
+				TrustAnchorConfiguration: ta,
+			}, nil)
+
+			if tc.expectErr == "" {
+				if err != nil {
+					t.Fatalf("[%s] expected the mark to be validated, got %v", tc.reference, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("[%s] expected the mark to be refused", tc.reference)
+			}
+			if !strings.Contains(err.Error(), tc.expectErr) {
+				t.Fatalf("[%s] expected an error naming %s, got %v", tc.reference, tc.expectErr, err)
+			}
+		})
+	}
+}

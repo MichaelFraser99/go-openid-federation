@@ -37,10 +37,9 @@ func TestEntityTypes_KeySetClaimsAreCheckedOnEveryTypeThatMayCarryThem(t *testin
 			expectErr: "'jwks' is missing the required 'keys' member",
 		},
 		{
-			name:      "a jwks whose key omits kty",
-			reference: "RFC 7517 4.1",
+			name:      "a jwks whose key omits kty is accepted, the key is ignored",
+			reference: "RFC 7517 5",
 			metadata:  map[string]any{"jwks": map[string]any{"keys": []any{map[string]any{"kid": "a"}}}},
-			expectErr: "position 0 of 'keys'",
 		},
 		{
 			name:      "a jwks carrying a well formed key",
@@ -79,8 +78,8 @@ func TestEntityTypes_KeySetClaimsAreCheckedOnEveryTypeThatMayCarryThem(t *testin
 
 				err := definition.VerifyMetadata(metadata)
 				if tc.expectErr == "" {
-					if err != nil && strings.Contains(err.Error(), "jwks") {
-						t.Fatalf("[%s] expected the key claim to be accepted, got %v", tc.reference, err)
+					if err != nil {
+						t.Fatalf("[%s] expected the metadata to be accepted, got %v", tc.reference, err)
 					}
 					return
 				}

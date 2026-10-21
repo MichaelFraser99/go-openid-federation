@@ -38,8 +38,8 @@ func ParseJWKSet(value any) (josemodel.Jwks, error) {
 		if !ok {
 			return josemodel.Jwks{}, fmt.Errorf("has an entry at position %d of 'keys' that is not a JSON object", i)
 		}
-		if err := ValidateJWKShape(key); err != nil {
-			return josemodel.Jwks{}, fmt.Errorf("has an entry at position %d of 'keys' that %s", i, err.Error())
+		if ValidateJWKShape(key) != nil {
+			continue
 		}
 		keys = append(keys, key)
 	}

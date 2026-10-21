@@ -304,7 +304,9 @@ A `SubordinateConfiguration` may carry its own `SignerConfiguration`. When prese
 
 ## Entity statements and metadata
 
-`model.EntityStatement` covers both entity configurations and subordinate statements. Its `UnmarshalJSON` enforces the required claims `iss`, `sub`, `iat`, `exp` and `jwks`, and validates entity identifiers.
+`model.EntityStatement` covers both entity configurations and subordinate statements. Its `UnmarshalJSON` enforces the required claims `iss`, `sub`, `iat`, `exp` and `jwks`, validates entity identifiers, and reads `jwks` as a JWK Set.
+
+> **Breaking change.** A `jwks` claim, and a `jwks` metadata parameter, must now be a JWK Set rather than any JSON object: the `keys` member is required. An entity that published `"jwks": {}` in its metadata is refused where it previously parsed. Keys inside the set that are not usable JWKs are left out rather than refusing the statement, so a set carrying one retired or malformed entry still verifies through its good keys.
 
 Parsing applies the claim rules from section 3.2 of the specification. Three of these reject statements that earlier releases accepted.
 
@@ -417,6 +419,9 @@ The validators the built-in types use are exported for custom types to reuse.
 | `VerifyHTTPSURLClaim(m, key, allowQuery)` | The claim, if present, is an HTTPS URL with no fragment and no userinfo component |
 | `VerifyAlgValuesClaim(m, key, allowNone)` | The claim, if present, is an array of algorithm names. Rejects `none` unless `allowNone` is set |
 | `VerifyAlgClaim(m, key, allowNone)` | The claim, if present, is a single algorithm name. Rejects `none` unless `allowNone` is set |
+| `VerifyJWKSetClaims(m)` | `jwks`, if present, is a JWK Set, and `jwks_uri` and `signed_jwks_uri`, if present, are HTTPS URLs. Section 5.2.1 defines these three for every entity type but `federation_entity`, which must not carry any of them |
+
+`ParseJWKSet(v)` reads a JWK Set from a decoded JSON value. Use it rather than unmarshalling into a `jwks` struct field: Go matches struct fields with Unicode simple folding, so a member named `keyſ` decodes as `keys` and the keys a conforming parser reads are not the keys you get. It takes the keys from the exact `keys` member and leaves out any entry that is not a usable JWK, which RFC 7517 section 5 asks of an implementation. `ValidateJWKShape(key)` is the per-key check it applies.
 
 `MetadataStringSlice(v)` returns a `[]string` from either a `[]string` or a `[]any`. JSON unmarshalling produces the latter and Go-constructed metadata the former, so a validator handling only one will reject valid input.
 

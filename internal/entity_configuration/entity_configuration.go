@@ -260,6 +260,9 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 		if _, duplicate := seen[sKid]; duplicate {
 			return nil, fmt.Errorf("all provided jwk values in entity cfg must have unique `kid` claims - %q appears more than once", sKid)
 		}
+		if err := model.ValidateJWKShape(key); err != nil {
+			return nil, fmt.Errorf("the provided jwk value with key ID %q %s", sKid, err.Error())
+		}
 		seen[sKid] = struct{}{}
 		jwks.Keys = append(jwks.Keys, key)
 	}

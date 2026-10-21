@@ -46,16 +46,28 @@ func TestParseJWKSet(t *testing.T) {
 			expectErr: "is missing the required 'keys' member",
 		},
 		{
-			name:      "a key missing the required kty",
-			reference: "RFC 7517 4.1",
+			name:      "a key missing the required kty is ignored",
+			reference: "RFC 7517 5",
 			value:     map[string]any{"keys": []any{map[string]any{"kid": "a"}}},
-			expectErr: "position 0 of 'keys'",
+			keys:      0,
 		},
 		{
-			name:      "a second key missing the required kty",
-			reference: "RFC 7517 4.1",
+			name:      "a second key missing the required kty is ignored",
+			reference: "RFC 7517 5",
 			value:     map[string]any{"keys": []any{map[string]any{"kid": "a", "kty": "RSA"}, map[string]any{"kid": "b"}}},
-			expectErr: "position 1 of 'keys'",
+			keys:      1,
+		},
+		{
+			name:      "an EC key missing the required crv is ignored",
+			reference: "RFC 7517 5",
+			value:     map[string]any{"keys": []any{map[string]any{"kid": "a", "kty": "EC", "x": "AQAB", "y": "AQAB"}}},
+			keys:      0,
+		},
+		{
+			name:      "a key of a type this implementation may not support is kept",
+			reference: "RFC 7517 4.1",
+			value:     map[string]any{"keys": []any{map[string]any{"kid": "a", "kty": "AKP", "pub": "AQAB"}}},
+			keys:      1,
 		},
 		{
 			name:      "a key that is not an object",
@@ -91,7 +103,12 @@ func TestParseJWKSet(t *testing.T) {
 					t.Fatalf("[%s] expected the key set to be accepted, got %v", tc.reference, err)
 				}
 				if len(parsed.Keys) != tc.keys {
-					t.Errorf("[%s] expected %d keys, got %d", tc.reference, tc.keys, len(parsed.Keys))
+					t.Errorf("[%s] expected %d usable keys, got %d", tc.reference, tc.keys, len(parsed.Keys))
+				}
+				for i, key := range parsed.Keys {
+					if err := ValidateJWKShape(key); err != nil {
+						t.Errorf("[%s] key %d was kept though it %s", tc.reference, i, err.Error())
+					}
 				}
 				return
 			}
@@ -219,6 +236,64 @@ func TestTrustMarkHolder_MembersAreReadByTheirExactName(t *testing.T) {
 			}
 			if holder.TrustMarkType != "https://tm.example.com/a" {
 				t.Errorf("[%s] expected the exact member value, got %q", tc.reference, holder.TrustMarkType)
+			}
+		})
+	}
+}
+
+func TestTrustMarkOwner_MembersAreReadByTheirExactName(t *testing.T) {
+	keys := `{"keys":[{"kid":"a","kty":"RSA","n":"AQAB","e":"AQAB"}]}`
+
+	tests := []struct {
+		name      string
+		reference string
+		entry     string
+		expectErr string
+	}{
+		{
+			name:      "the exact member names",
+			reference: "3.1.2",
+			entry:     `{"sub":"https://owner.example.com","jwks":` + keys + `}`,
+		},
+		{
+			name:      "a sub that case folds is not read as the member",
+			reference: "RFC 7517 6",
+			entry:     `{"ſub":"https://evil.example.com","jwks":` + keys + `}`,
+			expectErr: "missing the required 'sub' member",
+		},
+		{
+			name:      "a jwks that case folds is not read as the member",
+			reference: "RFC 7517 6",
+			entry:     `{"sub":"https://owner.example.com","jwkſ":` + keys + `}`,
+			expectErr: "missing the required 'jwks' member",
+		},
+		{
+			name:      "a keys member that case folds supplies no keys",
+			reference: "RFC 7517 6",
+			entry:     `{"sub":"https://owner.example.com","jwks":{"keyſ":[{"kid":"a","kty":"RSA"}]}}`,
+			expectErr: "missing the required 'keys' member",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var owner TrustMarkOwner
+			err := json.Unmarshal([]byte(tc.entry), &owner)
+
+			if tc.expectErr != "" {
+				if err == nil {
+					t.Fatalf("[%s] expected the entry to be refused, got sub %q with %d keys", tc.reference, owner.Sub, len(owner.JWKs.Keys))
+				}
+				if !strings.Contains(err.Error(), tc.expectErr) {
+					t.Fatalf("[%s] expected an error naming %s, got %v", tc.reference, tc.expectErr, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("[%s] expected the entry to be accepted, got %v", tc.reference, err)
+			}
+			if owner.Sub != "https://owner.example.com" || len(owner.JWKs.Keys) != 1 {
+				t.Errorf("[%s] expected the exact members to be read, got sub %q with %d keys", tc.reference, owner.Sub, len(owner.JWKs.Keys))
 			}
 		})
 	}

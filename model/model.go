@@ -324,6 +324,19 @@ type TrustMarkOwner struct {
 	AdditionalClaims map[string]any   `json:"-"`
 }
 
+func (t *TrustMarkOwner) UnmarshalJSON(data []byte) error {
+	var entry any
+	if err := json.Unmarshal(data, &entry); err != nil {
+		return err
+	}
+	parsed, err := parseTrustMarkOwners(map[string]any{"": entry})
+	if err != nil {
+		return err
+	}
+	*t = parsed[""]
+	return nil
+}
+
 func (t TrustMarkOwner) MarshalJSON() ([]byte, error) {
 	out := make(map[string]any, len(t.AdditionalClaims)+2)
 	for claim, value := range t.AdditionalClaims {
@@ -716,7 +729,7 @@ func (t *TrustMarkHolder) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("the 'trust_mark' member of a 'trust_marks' entry has a malformed 'trust_mark_type' claim")
 	}
 	if sClaimed != trustMarkType {
-		return fmt.Errorf("the 'trust_mark_type' member %q does not match the 'trust_mark_type' claim %q in the trust mark itself", trustMarkType, sClaimed)
+		return fmt.Errorf("the 'trust_mark_type' member %q does not match the 'trust_mark_type' claim %q in the trust mark itself", TruncateForResponse(trustMarkType), TruncateForResponse(sClaimed))
 	}
 
 	t.TrustMarkType = trustMarkType

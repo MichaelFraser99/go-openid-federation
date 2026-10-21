@@ -1,6 +1,7 @@
 package trust_chain
 
 import (
+	"context"
 	"crypto"
 	"crypto/rsa"
 	"errors"
@@ -8,10 +9,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/MichaelFraser99/go-jose/jwk"
+	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
 	"github.com/MichaelFraser99/go-openid-federation/model"
@@ -31,6 +34,15 @@ func anchorKeySet(t *testing.T, pub crypto.PublicKey, members map[string]any) jo
 		(*published)[member] = value
 	}
 	return josemodel.Jwks{Keys: []map[string]any{*published}}
+}
+
+func chainSignStatementWithKid(t *testing.T, signer crypto.Signer, kid string, body map[string]any) string {
+	t.Helper()
+	token, err := jwt.New(signer, map[string]any{"kid": kid, "typ": "entity-statement+jwt", "alg": "RS256"}, body, jwt.Opts{Algorithm: josemodel.RS256})
+	if err != nil {
+		t.Fatalf("failed to sign statement: %v", err)
+	}
+	return *token
 }
 
 func anchoredChain(t *testing.T, anchorKey, subjectKey *rsa.PrivateKey) []string {
@@ -636,6 +648,255 @@ func TestResolveMetadata_AnUnreachableAnchorIsNotAServerFault(t *testing.T) {
 			}
 			if strings.Contains(err.Error(), http.StatusText(status)) || strings.Contains(err.Error(), fmt.Sprint(status)) {
 				t.Errorf("[8.9] the refusal echoes the peer's status, which makes it a probe oracle: %v", err)
+			}
+			if served != 1 {
+				t.Errorf("[8.9] expected the anchor's configuration to be fetched once, got %d", served)
+			}
+		})
+	}
+}
+
+func TestResolveMetadata_TheFetchedAnchorConfigurationIsWhatIsVerified(t *testing.T) {
+	anchorKey := chainSigningKey(t)
+	attackerKey := chainSigningKey(t)
+	leafKey := chainSigningKey(t)
+
+	anchorPub := anchorKeySet(t, anchorKey.Public(), map[string]any{"kid": "chain-key"})
+	attackerPub := anchorKeySet(t, attackerKey.Public(), map[string]any{"kid": "attacker"})
+
+	var served atomic.Value
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/entity-statement+jwt")
+		_, _ = w.Write([]byte(served.Load().(string)))
+	}))
+	t.Cleanup(server.Close)
+
+	anchor := model.EntityIdentifier(server.URL)
+	now := time.Now().UTC()
+
+	configuration := func(signer *rsa.PrivateKey, kid string, keys ...map[string]any) string {
+		entries := make([]any, 0, len(keys))
+		for _, key := range keys {
+			entries = append(entries, key)
+		}
+		return chainSignStatementWithKid(t, signer, kid, map[string]any{
+			"iss":      string(anchor),
+			"sub":      string(anchor),
+			"iat":      now.Unix(),
+			"exp":      now.Add(time.Hour).Unix(),
+			"jwks":     map[string]any{"keys": entries},
+			"metadata": map[string]any{},
+		})
+	}
+
+	leafEC := chainSignStatement(t, leafKey, map[string]any{
+		"iss":             string(chainSubject),
+		"sub":             string(chainSubject),
+		"iat":             now.Unix(),
+		"exp":             now.Add(time.Hour).Unix(),
+		"jwks":            chainJwks(t, leafKey),
+		"authority_hints": []any{string(anchor)},
+		"metadata":        map[string]any{},
+	})
+	subordinateStatement := chainSignStatement(t, anchorKey, map[string]any{
+		"iss":  string(anchor),
+		"sub":  string(chainSubject),
+		"iat":  now.Unix(),
+		"exp":  now.Add(time.Hour).Unix(),
+		"jwks": chainJwks(t, leafKey),
+	})
+
+	tests := []struct {
+		name      string
+		reference string
+		served    string
+		expectErr bool
+	}{
+		{
+			name:      "the anchor's genuine configuration",
+			reference: "10.2",
+			served:    configuration(anchorKey, "chain-key", anchorPub.Keys[0]),
+		},
+		{
+			name:      "a configuration signed by a key the anchor's set carries but this deployment does not hold",
+			reference: "10.2",
+			served:    configuration(attackerKey, "attacker", anchorPub.Keys[0], attackerPub.Keys[0]),
+			expectErr: true,
+		},
+	}
+
+	cfg := model.Configuration{
+		HttpClient:   server.Client(),
+		TrustAnchors: map[model.EntityIdentifier]josemodel.Jwks{anchor: {Keys: []map[string]any{anchorPub.Keys[0]}}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			served.Store(tc.served)
+
+			_, err := ResolveMetadata(t.Context(), cfg, chainSubject, anchor, []string{leafEC, subordinateStatement}, resolvecache.New())
+			if !tc.expectErr {
+				if err != nil {
+					t.Fatalf("[%s] expected the genuine anchor configuration to resolve, got %v", tc.reference, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("[%s] the statement verified must be the anchor's own fetched configuration, not the caller's subordinate statement, which is genuine here", tc.reference)
+			}
+			if !errors.Is(err, model.ErrInvalidTrustAnchor) {
+				t.Errorf("[%s] expected invalid_trust_anchor, got %v", tc.reference, err)
+			}
+		})
+	}
+}
+
+func TestResolveMetadata_AnUnusableConfiguredSetCostsNoRequest(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference string
+		keys      []map[string]any
+	}{
+		{name: "an Ed25519 key", reference: "8.9", keys: []map[string]any{{"kid": "ed", "kty": "OKP", "crv": "Ed25519", "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}}},
+		{name: "a symmetric key", reference: "8.9", keys: []map[string]any{{"kid": "oct", "kty": "oct", "k": "AQAB"}}},
+		{name: "an RSA key published for an algorithm this library cannot verify with", reference: "8.9", keys: []map[string]any{{"kid": "rsa", "kty": "RSA", "n": "AQAB", "e": "AQAB", "alg": "EdDSA"}}},
+		{name: "a key with no kty", reference: "8.9", keys: []map[string]any{{"kid": "broken"}}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tp := newTopo(t, map[string][]string{"leaf": {"ta"}, "ta": {}})
+			cfg := model.Configuration{
+				HttpClient:   tp.server.Client(),
+				TrustAnchors: map[model.EntityIdentifier]josemodel.Jwks{tp.id["ta"]: {Keys: tc.keys}},
+			}
+
+			leafEC := createEntityStatement(t, tp.id["leaf"], tp.id["leaf"], []model.EntityIdentifier{tp.id["ta"]}, tp.keys["leaf"], false)
+			subordinateStatement := createSubordinateStatement(t, tp.id["ta"], tp.id["leaf"], tp.keys["ta"], tp.keys["leaf"].Public())
+
+			for _, entry := range []struct {
+				name string
+				call func() error
+			}{
+				{
+					name: "BuildTrustChain",
+					call: func() error {
+						_, _, _, err := BuildTrustChain(t.Context(), cfg, tp.id["leaf"], tp.id["ta"], resolvecache.New())
+						return err
+					},
+				},
+				{
+					name: "ResolveMetadata with an omitted anchor",
+					call: func() error {
+						_, err := ResolveMetadata(t.Context(), cfg, tp.id["leaf"], tp.id["ta"], []string{leafEC, subordinateStatement}, resolvecache.New())
+						return err
+					},
+				},
+			} {
+				t.Run(entry.name, func(t *testing.T) {
+					tp.mu.Lock()
+					tp.hits["leaf"], tp.hits["ta"] = 0, 0
+					tp.mu.Unlock()
+
+					err := entry.call()
+
+					tp.mu.Lock()
+					walked := tp.hits["leaf"] + tp.hits["ta"]
+					tp.mu.Unlock()
+
+					if !errors.Is(err, model.ErrServerError) {
+						t.Errorf("[%s] a configured set this deployment cannot verify with is its own fault, got %v", tc.reference, err)
+					}
+					if errors.Is(err, model.ErrInvalidTrustAnchor) {
+						t.Errorf("[%s] must not blame the anchor for this deployment's configuration, got %v", tc.reference, err)
+					}
+					if walked != 0 {
+						t.Errorf("[%s] this is decidable with no I/O, yet %d requests were made", tc.reference, walked)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestResolveMetadata_ACancelledAnchorFetchIsNotTheAnchorsFault(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		cancel()
+		select {
+		case <-r.Context().Done():
+		case <-time.After(2 * time.Second):
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	anchor := model.EntityIdentifier(server.URL)
+	leafKey := chainSigningKey(t)
+	now := time.Now().UTC()
+
+	leafEC := chainSignStatement(t, leafKey, map[string]any{
+		"iss":             string(chainSubject),
+		"sub":             string(chainSubject),
+		"iat":             now.Unix(),
+		"exp":             now.Add(time.Hour).Unix(),
+		"jwks":            chainJwks(t, leafKey),
+		"authority_hints": []any{string(anchor)},
+		"metadata":        map[string]any{},
+	})
+	subordinateStatement := chainSignStatement(t, leafKey, map[string]any{
+		"iss":  string(anchor),
+		"sub":  string(chainSubject),
+		"iat":  now.Unix(),
+		"exp":  now.Add(time.Hour).Unix(),
+		"jwks": chainJwks(t, leafKey),
+	})
+
+	_, err := ResolveMetadata(ctx, model.Configuration{HttpClient: server.Client()}, chainSubject, anchor, []string{leafEC, subordinateStatement}, resolvecache.New())
+	if !errors.Is(err, model.ErrTemporarilyUnavailable) {
+		t.Fatalf("[8.9] a fetch abandoned because the caller's own context ended is a walk that did not complete, not an anchor fault, got %v", err)
+	}
+	if errors.Is(err, model.ErrInvalidTrustAnchor) {
+		t.Errorf("[8.9] must not blame the anchor, got %v", err)
+	}
+}
+
+func TestVerifyTrustAnchor_RefusesAnUnusableConfiguredSetAtTheChainToo(t *testing.T) {
+	anchorKey := chainSigningKey(t)
+	now := time.Now().UTC()
+	signed := chainSignStatement(t, anchorKey, map[string]any{
+		"iss":  string(chainAnchor),
+		"sub":  string(chainAnchor),
+		"iat":  now.Unix(),
+		"exp":  now.Add(time.Hour).Unix(),
+		"jwks": chainJwks(t, anchorKey),
+	})
+
+	tests := []struct {
+		name      string
+		reference string
+		keys      []map[string]any
+		expectErr error
+	}{
+		{name: "the anchor's own key", reference: "10.2", keys: []map[string]any{anchorKeySet(t, anchorKey.Public(), nil).Keys[0]}},
+		{name: "an Ed25519 key", reference: "8.9", keys: []map[string]any{{"kid": "ed", "kty": "OKP", "crv": "Ed25519", "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}}, expectErr: model.ErrServerError},
+		{name: "a key with no kty", reference: "8.9", keys: []map[string]any{{"kid": "broken"}}, expectErr: model.ErrServerError},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := model.Configuration{TrustAnchors: map[model.EntityIdentifier]josemodel.Jwks{chainAnchor: {Keys: tc.keys}}}
+			err := verifyTrustAnchor(t.Context(), cfg, chainAnchor, signed, model.EntityStatement{Iss: chainAnchor, Sub: chainAnchor})
+
+			if tc.expectErr == nil {
+				if err != nil {
+					t.Fatalf("[%s] expected the anchor to verify, got %v", tc.reference, err)
+				}
+				return
+			}
+			if !errors.Is(err, tc.expectErr) {
+				t.Errorf("[%s] the entry check catches this first through every public entry point, so this branch is defence in depth and must still answer %v, got %v", tc.reference, tc.expectErr, err)
 			}
 		})
 	}

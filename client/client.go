@@ -42,6 +42,9 @@ func (c *Client) ResolveMetadata(ctx context.Context, subject, trustAnchor strin
 	if err != nil {
 		return nil, fmt.Errorf("invalid subject entity identifier: %s", err.Error())
 	}
+	if trustAnchor == "" {
+		return nil, model.NewInvalidRequestError("a trust anchor must be named to resolve a trust chain")
+	}
 	parsedTrustAnchor, err := model.ValidateEntityIdentifier(trustAnchor)
 	if err != nil {
 		return nil, model.NewInvalidRequestError(fmt.Sprintf("invalid trust anchor entity identifier: %s", err.Error()))

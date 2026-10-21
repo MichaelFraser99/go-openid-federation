@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/MichaelFraser99/go-jose/jwk"
@@ -161,10 +162,26 @@ func KeyCanVerify(key map[string]any) bool {
 	if err != nil {
 		return false
 	}
-	for _, algorithm := range verificationAlgorithms {
-		if _, err := jws.GetValidator(algorithm, pubKey); err == nil {
-			return true
+
+	candidates := verificationAlgorithms
+	if declared, present := key["alg"]; present {
+		named, ok := declared.(string)
+		if !ok {
+			return false
 		}
+		if !slices.ContainsFunc(verificationAlgorithms, func(algorithm josemodel.Algorithm) bool {
+			return algorithm.String() == named
+		}) {
+			return false
+		}
+		candidates = []josemodel.Algorithm{josemodel.GetAlgorithm(named)}
+	}
+
+	for _, algorithm := range candidates {
+		if _, err := jws.GetValidator(algorithm, pubKey); err != nil {
+			continue
+		}
+		return true
 	}
 	return false
 }

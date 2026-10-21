@@ -8,6 +8,8 @@ import (
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
+const subordinateStatementUnavailableError = "unable to produce the subordinate statement at this time"
+
 func (s *Server) Fetch(w http.ResponseWriter, r *http.Request) ResponseFunc {
 	ctx := r.Context()
 	sub := r.URL.Query().Get("sub")
@@ -31,7 +33,7 @@ func (s *Server) Fetch(w http.ResponseWriter, r *http.Request) ResponseFunc {
 	token, err := subordinate_statement.New(ctx, *parsedSub, s.loadSubordinate(ctx, *parsedSub), s.cfg)
 	if err != nil {
 		s.cfg.LogInfo(ctx, "error creating subordinate statement", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, err)
+		return s.RespondWithError(ctx, w, s.retrieverError(err, subordinateStatementUnavailableError))
 	}
 
 	return s.RespondWithEntityStatement(w, []byte(*token))

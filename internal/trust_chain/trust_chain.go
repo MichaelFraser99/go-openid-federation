@@ -46,7 +46,7 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return nil, nil, nil, walkNotCompleted(ctxErr)
 			}
-			return nil, nil, nil, fmt.Errorf("failed to retrieve subordinate statement: %w", err)
+			return nil, nil, nil, subordinateStatementFailure(err)
 		}
 		trustChain = append(trustChain, *signedResponse)
 		parsedTrustChain = append(parsedTrustChain, *subordinateStatement)
@@ -110,6 +110,18 @@ func verifyTrustAnchor(ctx context.Context, cfg model.Configuration, expected mo
 		return model.NewInvalidTrustAnchorError("the trust anchor entity configuration is not signed by any key configured for it")
 	}
 	return nil
+}
+
+const subordinateStatementUnusable = "failed to retrieve a usable subordinate statement for an entity in the trust chain"
+
+func subordinateStatementFailure(err error) error {
+	if errors.Is(err, model.ErrServerError) {
+		return err
+	}
+	if errors.Is(err, model.ErrInvalidMetadata) {
+		return model.NewInvalidMetadataError(subordinateStatementUnusable)
+	}
+	return model.NewInvalidTrustChainError(subordinateStatementUnusable)
 }
 
 func verifyChainLinks(ctx context.Context, cfg model.Configuration, signedChain []string, parsedChain []model.EntityStatement) error {
@@ -326,13 +338,13 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 	}
 	parsedSub, err := model.ValidateEntityIdentifier(*sub)
 	if err != nil {
-		cfg.LogInfo(ctx, "invalid sub claim in final chain entry", slog.String("sub", *sub), slog.String("error", err.Error()))
-		return nil, fmt.Errorf("error validating `sub` claim of final chain entry: %s", err.Error())
+		cfg.LogInfo(ctx, "invalid sub claim in final chain entry", slog.String("sub", model.TruncateForResponse(*sub)), slog.String("error", err.Error()))
+		return nil, model.NewInvalidTrustChainError("final entry in chain carries an invalid `sub` claim")
 	}
 	parsedIss, err := model.ValidateEntityIdentifier(*iss)
 	if err != nil {
-		cfg.LogInfo(ctx, "invalid iss claim in final chain entry", slog.String("iss", *iss), slog.String("error", err.Error()))
-		return nil, fmt.Errorf("error validating `iss` claim of final chain entry: %s", err.Error())
+		cfg.LogInfo(ctx, "invalid iss claim in final chain entry", slog.String("iss", model.TruncateForResponse(*iss)), slog.String("error", err.Error()))
+		return nil, model.NewInvalidTrustChainError("final entry in chain carries an invalid `iss` claim")
 	}
 
 	cfg.LogInfo(ctx, "extracted chain endpoints", slog.String("sub", string(*parsedSub)), slog.String("iss", string(*parsedIss)))

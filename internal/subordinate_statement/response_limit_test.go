@@ -72,6 +72,58 @@ func TestRetrieve_BoundsPeerResponseBodySize(t *testing.T) {
 	}
 }
 
+func TestRetrieve_AppliesTheDefaultResponseLimitWhenNoneIsConfigured(t *testing.T) {
+	tests := map[string]struct {
+		bodyBytes   int64
+		expectLimit bool
+	}{
+		"well under the default limit is read":       {bodyBytes: 4096, expectLimit: false},
+		"one byte over the default limit is refused": {bodyBytes: model.DefaultMaxPeerResponseBytes + 1, expectLimit: true},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/entity-statement+jwt")
+				remaining := tc.bodyBytes
+				for remaining > 0 {
+					chunk := int64(4096)
+					if remaining < chunk {
+						chunk = remaining
+					}
+					if _, err := w.Write([]byte(strings.Repeat("a", int(chunk)))); err != nil {
+						return
+					}
+					remaining -= chunk
+				}
+			}))
+			t.Cleanup(server.Close)
+
+			cfg := model.Configuration{HttpClient: server.Client()}
+			issuer := model.EntityStatement{
+				Iss: model.EntityIdentifier(server.URL),
+				Sub: model.EntityIdentifier(server.URL),
+				Metadata: &model.Metadata{FederationMetadata: &model.FederationMetadata{
+					"federation_fetch_endpoint": fmt.Sprintf("%s/fetch", server.URL),
+				}},
+				JWKs: josemodel.Jwks{},
+			}
+
+			_, _, err := Retrieve(context.Background(), cfg, issuer, "https://leaf.example.com")
+			if err == nil {
+				t.Fatal("expected an error, since the served body is not a valid subordinate statement")
+			}
+			reportsLimit := strings.Contains(err.Error(), "response limit")
+			if tc.expectLimit && !reportsLimit {
+				t.Fatalf("expected the default %d byte limit to refuse a %d byte body, got %v", model.DefaultMaxPeerResponseBytes, tc.bodyBytes, err)
+			}
+			if !tc.expectLimit && reportsLimit {
+				t.Fatalf("expected a %d byte body within the default %d byte limit to be read, got %v", tc.bodyBytes, model.DefaultMaxPeerResponseBytes, err)
+			}
+		})
+	}
+}
+
 func TestRetrieve_StopsReadingAtTheLimitRatherThanBuffering(t *testing.T) {
 	const limit int64 = 4096
 

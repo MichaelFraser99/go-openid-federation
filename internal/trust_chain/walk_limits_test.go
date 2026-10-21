@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -53,7 +54,7 @@ func TestChainUpOne_NodeTooDeepOnOnePathIsStillTriedOnAShorterOne(t *testing.T) 
 	}
 }
 
-func TestBuildTrustChain_DefaultLimitBoundsSubordinateStatements(t *testing.T) {
+func TestBuildTrustChain_MasksTheDetailOfASubordinateStatementFetchFailure(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatal(err)
@@ -70,7 +71,7 @@ func TestBuildTrustChain_DefaultLimitBoundsSubordinateStatements(t *testing.T) {
 			w.Write([]byte(createEntityStatement(t, id, id, nil, key, true))) //nolint:errcheck
 		case strings.HasSuffix(r.URL.Path, "/fetch"):
 			chunk := []byte(strings.Repeat("A", 4096))
-			for range 64 << 10 {
+			for range (model.DefaultMaxPeerResponseBytes / 4096) + 1 {
 				if _, err := w.Write(chunk); err != nil {
 					return
 				}
@@ -81,7 +82,16 @@ func TestBuildTrustChain_DefaultLimitBoundsSubordinateStatements(t *testing.T) {
 	}))
 	defer srv.Close()
 	_, _, _, err = BuildTrustChain(context.Background(), model.Configuration{HttpClient: srv.Client()}, model.EntityIdentifier(srv.URL+"/leaf"), model.EntityIdentifier(srv.URL+"/ta"), resolvecache.New())
-	if err == nil || !strings.Contains(err.Error(), "response limit") {
-		t.Fatalf("expected the default response limit to refuse the fetch, got %v", err)
+	if err == nil {
+		t.Fatal("expected the fetch of the subordinate statement to be refused")
+	}
+	if !errors.Is(err, model.ErrInvalidTrustChain) {
+		t.Fatalf("expected a superior the caller reached through to be reported as an invalid trust chain, got %v", err)
+	}
+	if errors.Is(err, model.ErrServerError) {
+		t.Fatalf("expected a superior's fault not to be reported as this server's, got %v", err)
+	}
+	if err.Error() != subordinateStatementUnusable {
+		t.Fatalf("expected the fixed description %q, got %q", subordinateStatementUnusable, err.Error())
 	}
 }

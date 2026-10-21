@@ -48,3 +48,63 @@ func TestClient_ResolveMetadata_RefusesAMissingOrMalformedTrustAnchor(t *testing
 		})
 	}
 }
+
+func TestClient_ResolveMetadata_ASubjectMustNotBeItsOwnTrustAnchor(t *testing.T) {
+	const (
+		subject     = model.EntityIdentifier("https://leaf.example.com")
+		trustAnchor = model.EntityIdentifier("https://ta.example.com")
+		higher      = model.EntityIdentifier("https://higher.example.com")
+	)
+
+	tests := []struct {
+		name      string
+		reference string
+		subject   model.EntityIdentifier
+		anchor    model.EntityIdentifier
+		chain     func(t *testing.T) []string
+		expectErr error
+	}{
+		{
+			name:      "a leaf resolved against its trust anchor",
+			reference: "4",
+			subject:   subject,
+			anchor:    trustAnchor,
+			chain:     func(t *testing.T) []string { return bindingChain(t, subject, trustAnchor) },
+		},
+		{
+			name:      "a trust anchor resolved against a higher anchor, which section 4.1 allows",
+			reference: "4.1",
+			subject:   trustAnchor,
+			anchor:    higher,
+			chain:     func(t *testing.T) []string { return bindingChain(t, trustAnchor, higher) },
+		},
+		{
+			name:      "a subject named as its own trust anchor",
+			reference: "4",
+			subject:   trustAnchor,
+			anchor:    trustAnchor,
+			chain:     func(t *testing.T) []string { return bindingChain(t, subject, trustAnchor)[2:] },
+			expectErr: model.ErrInvalidRequest,
+		},
+	}
+
+	c := New(model.ClientConfiguration{})
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := c.ResolveMetadata(t.Context(), string(tc.subject), string(tc.anchor), tc.chain(t))
+			if tc.expectErr == nil {
+				if err != nil {
+					t.Fatalf("[%s] expected the chain to resolve, got %v", tc.reference, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("[%s] section 4 requires a trust chain to include the subordinate statement the trust anchor issued about its subject, which no entity issues about itself, so a chain of one cannot be a trust chain", tc.reference)
+			}
+			if !errors.Is(err, tc.expectErr) {
+				t.Errorf("[%s] expected %v, matching what /resolve answers for the same request, got %v", tc.reference, tc.expectErr, err)
+			}
+		})
+	}
+}

@@ -546,7 +546,7 @@ Any key in the set may verify the entity configuration, wherever it sits in the 
 
 `BuildTrustChain` applies both checks to the top of the chain it builds, and refuses an anchor absent from a populated map before it makes any request.
 
-> **Breaking change.** A chain of one entry now resolves only when the caller names that entry's own subject as the trust anchor. With `TrustAnchors` unset any entity is accepted as its own anchor, so this is an identifier check rather than a trust decision.
+> **Breaking change.** A chain of one entry no longer resolves at all, and a subject must not be named as its own trust anchor. Section 4 requires a trust chain to include the subordinate statement the trust anchor issued about its subject, and only the anchor's own entity configuration may be omitted from the array, so two entries is the minimum. No entity issues a subordinate statement about itself. `Client.ResolveMetadata` now refuses `subject == trustAnchor` with `invalid_request`, which is what `/resolve` already answered. Resolving a trust anchor against a **higher** anchor is unaffected, as section 4.1 allows.
 
 > **Breaking change.** `Client.ResolveMetadata` takes a `trustAnchor` argument between `subject` and `trustChain`. The trust anchor is a required parameter of the resolve request in section 8.3, and the chain cannot be anchored without it. An empty or malformed value is refused with `invalid_request`.
 

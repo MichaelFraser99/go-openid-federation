@@ -50,6 +50,10 @@ func (c *Client) ResolveMetadata(ctx context.Context, subject, trustAnchor strin
 		return nil, model.NewInvalidRequestError(fmt.Sprintf("invalid trust anchor entity identifier: %s", err.Error()))
 	}
 
+	if *parsedSubject == *parsedTrustAnchor {
+		return nil, model.NewInvalidRequestError("the subject must not be the trust anchor it is resolved against")
+	}
+
 	resolved, err := trust_chain.ResolveMetadata(ctx, c.cfg.Configuration, *parsedSubject, *parsedTrustAnchor, trustChain, resolvecache.New())
 	if err != nil {
 		return nil, err

@@ -112,14 +112,21 @@ func verifyTrustAnchor(ctx context.Context, cfg model.Configuration, expected mo
 	return nil
 }
 
-const subordinateStatementUnusable = "failed to retrieve a usable subordinate statement for an entity in the trust chain"
+const (
+	subordinateStatementUnusable     = "failed to retrieve a usable subordinate statement for an entity in the trust chain"
+	subordinateStatementUnacceptable = "a subordinate statement for an entity in the trust chain did not pass validation"
+	subordinateStatementUnreachable  = "a subordinate statement for an entity in the trust chain could not be retrieved at this time"
+)
 
 func subordinateStatementFailure(err error) error {
 	if errors.Is(err, model.ErrServerError) {
 		return err
 	}
+	if errors.Is(err, model.ErrTemporarilyUnavailable) {
+		return model.NewTemporarilyUnavailableError(subordinateStatementUnreachable)
+	}
 	if errors.Is(err, model.ErrInvalidMetadata) {
-		return model.NewInvalidMetadataError(subordinateStatementUnusable)
+		return model.NewInvalidMetadataError(subordinateStatementUnacceptable)
 	}
 	return model.NewInvalidTrustChainError(subordinateStatementUnusable)
 }
@@ -204,7 +211,7 @@ func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 }
 
 func chainUpOne(ctx context.Context, cfg model.Configuration, subject, target model.EntityIdentifier, checked []model.EntityIdentifier, path []model.EntityStatement, signedPath []string, cache *resolvecache.Cache, walk *walkMemo) ([]string, []model.EntityStatement, bool, error) {
-	cfg.LogInfo(ctx, "walking trust chain", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Any("checked", checked), slog.Any("path", path), slog.Any("signed_path", signedPath))
+	cfg.LogInfo(ctx, "walking trust chain", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Int("depth", len(path)))
 
 	if cache == nil {
 		cache = resolvecache.New()
@@ -266,7 +273,7 @@ func chainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 		return signedPath, path, false, nil
 	}
 
-	cfg.LogInfo(ctx, "evaluating chain options", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Any("checked", checked), slog.Any("path", path))
+	cfg.LogInfo(ctx, "evaluating chain options", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Int("depth", len(path)), slog.Int("authority_hints", len(subjectEntityStatement.AuthorityHints)))
 	tainted := false
 	depthRefused := false
 	var toCheck []model.EntityIdentifier
@@ -301,7 +308,7 @@ func chainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 		depthRefused = depthRefused || errors.Is(err, model.ErrLimitReached)
 		tainted = tainted || childTainted
 	}
-	cfg.LogInfo(ctx, "dead end in path traversal", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Any("checked", checked), slog.Any("path", path), slog.Any("signed_path", signedPath))
+	cfg.LogInfo(ctx, "dead end in path traversal", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Int("depth", len(path)))
 	walk.record(subjectWalkKey, tainted)
 	if !tainted {
 		cache.RecordDeadEnd(subjectKey)

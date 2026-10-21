@@ -375,7 +375,7 @@ func TestValue_Merge(t *testing.T) {
 				if err == nil {
 					t.Fatal("expected an error, got none")
 				}
-				expectedError := "merging foo-bar and baz-qux not possible"
+				expectedError := "two levels of the trust chain set a different 'value', which cannot be merged"
 				if err.Error() != expectedError {
 					t.Errorf("expected error %q, got %q", expectedError, err.Error())
 				}
@@ -391,7 +391,7 @@ func TestValue_Merge(t *testing.T) {
 				if err == nil {
 					t.Fatal("expected an error, got none")
 				}
-				expectedError := "merging <nil> and foo-bar not possible"
+				expectedError := "two levels of the trust chain set a different 'value', which cannot be merged"
 				if err.Error() != expectedError {
 					t.Errorf("expected error %q, got %q", expectedError, err.Error())
 				}
@@ -407,7 +407,7 @@ func TestValue_Merge(t *testing.T) {
 				if err == nil {
 					t.Fatal("expected an error, got none")
 				}
-				expectedError := "merging foo-bar and <nil> not possible"
+				expectedError := "two levels of the trust chain set a different 'value', which cannot be merged"
 				if err.Error() != expectedError {
 					t.Errorf("expected error %q, got %q", expectedError, err.Error())
 				}
@@ -423,7 +423,7 @@ func TestValue_Merge(t *testing.T) {
 				if err == nil {
 					t.Fatal("expected an error, got none")
 				}
-				expectedError := "merging foo-bar and 42 not possible"
+				expectedError := "two levels of the trust chain set a different 'value', which cannot be merged"
 				if err.Error() != expectedError {
 					t.Errorf("expected error %q, got %q", expectedError, err.Error())
 				}
@@ -453,7 +453,7 @@ func TestValue_Merge(t *testing.T) {
 				if err == nil {
 					t.Fatal("expected an error, got none")
 				}
-				expectedError := "merging [1 2 3] and [4 5 6] not possible"
+				expectedError := "two levels of the trust chain set a different 'value', which cannot be merged"
 				if err.Error() != expectedError {
 					t.Errorf("expected error %q, got %q", expectedError, err.Error())
 				}

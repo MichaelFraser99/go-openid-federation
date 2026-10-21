@@ -431,8 +431,11 @@ func TestFilterByTrusted_RefusesMoreIssuersThanTheLimit(t *testing.T) {
 				if err == nil {
 					t.Fatalf("expected the limit to be reported rather than marks silently dropped")
 				}
-				if !errors.Is(err, model.ErrServerError) {
-					t.Errorf("expected a server_error, got %v", err)
+				if !errors.Is(err, model.ErrInvalidSubject) {
+					t.Errorf("[8.9] a subject presenting more issuers than this resolver will verify is a subject it cannot serve, not a fault of its own, got %v", err)
+				}
+				if errors.Is(err, model.ErrServerError) {
+					t.Error("[8.9] a peer chooses how many trust marks to publish, so the refusal must not be a server_error")
 				}
 				return
 			}

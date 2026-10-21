@@ -146,10 +146,10 @@ func FilterByTrusted(ctx context.Context, cfg model.Configuration, resolved *mod
 		if errors.Is(err, errTooManyTrustMarkIssuers) {
 			cfg.LogError(ctx, "subject presents trust marks from more distinct issuers than the configured limit", slog.Int("limit", limit), slog.String("subject", string(resolved.Sub)))
 			resolved.TrustMarks = nil
-			return model.NewServerError(fmt.Sprintf("subject %s presents trust marks from more than %d distinct issuers, which exceeds the configured limit", resolved.Sub, limit))
+			return model.NewInvalidSubjectError(fmt.Sprintf("the subject presents trust marks from more than %d distinct issuers, which is more than this resolver will verify", limit))
 		}
 		if err != nil {
-			cfg.LogInfo(ctx, "failed to validate trust mark", slog.String("trust_mark_type", tm.TrustMarkType), slog.String("trust_mark", tm.TrustMark), slog.String("error", err.Error()))
+			cfg.LogInfo(ctx, "failed to validate trust mark", slog.String("trust_mark_type", model.TruncateForResponse(tm.TrustMarkType)), slog.String("error", model.TruncateForResponse(err.Error())))
 			continue
 		}
 

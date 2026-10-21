@@ -26,12 +26,16 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 	if issuer.Iss != issuer.Sub {
 		return nil, nil, model.NewServerError("the value of 'issuer' must be an entity configuration")
 	}
-	if issuer.Metadata == nil || issuer.Metadata.FederationMetadata == nil || (*issuer.Metadata.FederationMetadata)["federation_fetch_endpoint"] == nil {
+	if issuer.Metadata == nil || issuer.Metadata.FederationMetadata == nil {
+		return nil, nil, model.NewInvalidTrustChainError("issuer entity statement does not list a federation fetch endpoint within it's federation metadata")
+	}
+	fetchEndpoint, ok := (*issuer.Metadata.FederationMetadata)["federation_fetch_endpoint"].(string)
+	if !ok || fetchEndpoint == "" {
 		return nil, nil, model.NewInvalidTrustChainError("issuer entity statement does not list a federation fetch endpoint within it's federation metadata")
 	}
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%ssub=%s", func() string {
-		trimmedString := strings.TrimSuffix((*issuer.Metadata.FederationMetadata)["federation_fetch_endpoint"].(string), "/")
+		trimmedString := strings.TrimSuffix(fetchEndpoint, "/")
 		if strings.Contains(trimmedString, "?") {
 			return trimmedString + "&"
 		} else {
@@ -47,7 +51,7 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 	response, err := cfg.HttpClient.Do(request)
 	if err != nil {
 		cfg.LogInfo(ctx, "failed to reach the issuer's federation fetch endpoint", slog.String("issuer", string(issuer.Sub)), slog.String("error", err.Error()))
-		return nil, nil, model.NewInvalidTrustChainError("failed to reach the issuer's federation fetch endpoint")
+		return nil, nil, model.NewTemporarilyUnavailableError("failed to reach the issuer's federation fetch endpoint")
 	}
 	defer response.Body.Close() //nolint:errcheck
 
@@ -65,7 +69,7 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 	responseBytes, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
 	if err != nil {
 		cfg.LogInfo(ctx, "failed to read the issuer's federation fetch response body", slog.String("issuer", string(issuer.Sub)), slog.String("error", err.Error()))
-		return nil, nil, model.NewInvalidTrustChainError("failed to read the issuer's federation fetch response body")
+		return nil, nil, model.NewTemporarilyUnavailableError("failed to read the issuer's federation fetch response body")
 	}
 	if int64(len(responseBytes)) > limit {
 		cfg.LogInfo(ctx, "the issuer's federation fetch response exceeded the response limit", slog.String("issuer", string(issuer.Sub)), slog.Int64("limit", limit))

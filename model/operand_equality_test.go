@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -547,6 +548,82 @@ func TestOperands_AddUnionIsASet(t *testing.T) {
 			}
 			if !reflect.DeepEqual(resolved, any(test.expect)) {
 				t.Errorf("expected %v, got %v", test.expect, resolved)
+			}
+		})
+	}
+}
+
+func TestMergePolicyOperators_DoesNotReflectOperandsIntoTheError(t *testing.T) {
+	marker := "OPERAND-MARKER-" + strings.Repeat("Z", 32)
+
+	tests := []struct {
+		name      string
+		reference string
+		first     string
+		second    string
+	}{
+		{name: "two levels setting a different value", reference: "8.9", first: `{"value":"` + marker + `-ONE"}`, second: `{"value":"` + marker + `-TWO"}`},
+		{name: "two levels setting a different default", reference: "8.9", first: `{"default":"` + marker + `-ONE"}`, second: `{"default":"` + marker + `-TWO"}`},
+		{name: "add against an operand that cannot be compared", reference: "8.9", first: `{"add":["` + marker + `-ONE"]}`, second: `{"add":["` + marker + `-TWO"]}`},
+		{name: "superset_of against an operand that cannot be compared", reference: "8.9", first: `{"superset_of":["` + marker + `-ONE"]}`, second: `{"superset_of":["` + marker + `-TWO"]}`},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var first, second PolicyOperators
+			if err := json.Unmarshal([]byte(tc.first), &first); err != nil {
+				t.Fatalf("the first fixture did not parse: %v", err)
+			}
+			if err := json.Unmarshal([]byte(tc.second), &second); err != nil {
+				t.Fatalf("the second fixture did not parse: %v", err)
+			}
+
+			_, err := MergePolicyOperators("client_name", first, second)
+			if err == nil {
+				return
+			}
+			if strings.Contains(err.Error(), marker) {
+				t.Errorf("[%s] a superior publishes these operands and the error reaches an unauthenticated caller, so it must not carry them: %v", tc.reference, err)
+			}
+		})
+	}
+}
+
+func TestPolicyOperators_CombineErrorsDoNotReflectOperands(t *testing.T) {
+	marker := "OPERAND-MARKER-" + strings.Repeat("Q", 32)
+	unusable := func() []any { return []any{[]any{marker}} }
+
+	tests := []struct {
+		name      string
+		reference string
+		merge     func() error
+	}{
+		{
+			name:      "add combining an operand it cannot key",
+			reference: "8.9",
+			merge: func() error {
+				_, err := Add{operatorValue: unusable()}.Merge(unusable())
+				return err
+			},
+		},
+		{
+			name:      "superset_of combining an operand it cannot key",
+			reference: "8.9",
+			merge: func() error {
+				_, err := SupersetOf{operatorValue: unusable()}.Merge(unusable())
+				return err
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.merge()
+			if err == nil {
+				t.Skip("this operator accepted the operand, so there is no error to inspect")
+			}
+			if strings.Contains(err.Error(), marker) {
+				t.Errorf("[%s] the error carries a superior's operand: %v", tc.reference, err)
 			}
 		})
 	}

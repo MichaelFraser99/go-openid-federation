@@ -239,10 +239,12 @@ func TestServer_Resolve_DoesNotReflectSubordinateStatementFetchDetail(t *testing
 		metadata  func(base string) map[string]any
 		fetch     func(signer crypto.Signer, publicJWK map[string]any) http.HandlerFunc
 		forbidden []string
+		transient bool
 	}{
 		{
 			name:      "a fetch endpoint that refuses the connection",
-			reference: "8.9 invalid_trust_chain",
+			transient: true,
+			reference: "8.9 temporarily_unavailable",
 			metadata: func(string) map[string]any {
 				return federationFetchEndpointMetadata("https://127.0.0.1:1/" + peerFetchMarker)
 			},
@@ -346,14 +348,18 @@ func TestServer_Resolve_DoesNotReflectSubordinateStatementFetchDetail(t *testing
 			}
 			body := string(raw)
 
-			if response.StatusCode != http.StatusBadRequest {
-				t.Errorf("[%s] a superior the caller named is not a fault of this server, expected 400, got %d with %s", tc.reference, response.StatusCode, body)
+			wantStatus, wantCode := http.StatusBadRequest, model.InvalidTrustChain
+			if tc.transient {
+				wantStatus, wantCode = http.StatusServiceUnavailable, model.TemporarilyUnavailable
 			}
-			if !strings.Contains(body, `"`+model.InvalidTrustChain+`"`) {
-				t.Errorf("[%s] expected the error code for a chain that cannot be validated, got %s", tc.reference, body)
+			if response.StatusCode != wantStatus {
+				t.Errorf("[%s] expected %d, got %d with %s", tc.reference, wantStatus, response.StatusCode, body)
 			}
-			if !strings.Contains(body, subordinateStatementFetchDescription) {
-				t.Errorf("[%s] expected the fixed description %q, got %s", tc.reference, subordinateStatementFetchDescription, body)
+			if !strings.Contains(body, `"`+wantCode+`"`) {
+				t.Errorf("[%s] expected the error code %q, got %s", tc.reference, wantCode, body)
+			}
+			if response.StatusCode >= 500 && !tc.transient {
+				t.Errorf("[%s] a superior the caller named is not a fault of this server, got %d", tc.reference, response.StatusCode)
 			}
 			for _, forbidden := range tc.forbidden {
 				if strings.Contains(body, forbidden) {
@@ -367,4 +373,4 @@ func TestServer_Resolve_DoesNotReflectSubordinateStatementFetchDetail(t *testing
 	}
 }
 
-const subordinateStatementFetchDescription = "failed to retrieve a usable subordinate statement for an entity in the trust chain"
+const subordinateStatementRejectedDescription = "a subordinate statement for an entity in the trust chain did not pass validation"

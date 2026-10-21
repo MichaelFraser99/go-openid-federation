@@ -595,7 +595,11 @@ if errors.Is(err, model.ErrInvalidTrustAnchor) {
 | `ErrUnsupportedParameter` | `unsupported_parameter` | 400 |
 | `ErrServerError` | `server_error` | 500 |
 
+`ErrLimitReached` carries no code of its own: it accompanies `ErrInvalidTrustAnchor`, so a walk refused by a configured bound answers 404 `invalid_trust_anchor` and a consumer can still tell the two apart with `errors.Is`.
+
 Errors are returned to callers as a JSON object with `error` and `error_description`.
+
+A condition a peer or a caller caused is never a `server_error`. A peer that cannot be reached right now answers `temporarily_unavailable`, so a caller knows the answer may differ on a retry; a statement that was retrieved and then failed validation answers `invalid_trust_chain`, which will not. The description a caller receives carries no text this server was given by a peer: a peer's error, a URL a peer published, or a value from a peer's statement. The detail goes to the log instead, so an operator can still tell one fetch failure from another while a caller cannot read a third party's internals out of a response. `server_error` is left for this server's own faults, such as a signer it cannot use or a retriever that failed for a reason it does not classify.
 
 ## Extensions
 
@@ -650,7 +654,7 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | Extension claims | Dropped on parse and cannot be issued | [#132](https://github.com/MichaelFraser99/go-openid-federation/issues/132) |
 | `trust_chain` and `peer_trust_chain` JOSE headers | Not read or written | [#139](https://github.com/MichaelFraser99/go-openid-federation/issues/139) |
 | Trust mark type identifiers as object member names | Member names in `trust_mark_issuers` and `trust_mark_owners` are not checked against a syntax, because §7.1 makes a URL RECOMMENDED rather than required and the one MUST, collision resistance, is not checkable | [#140](https://github.com/MichaelFraser99/go-openid-federation/issues/140) |
-| Error classes on the fetch path | A peer's fault is reported as a server error | [#148](https://github.com/MichaelFraser99/go-openid-federation/issues/148) |
+| Statement validation text on the resolve path | `ResolveMetadata` revalidates a chain `BuildTrustChain` already validated, and those three paths still carry the parser's text, which names peer claims. Reachable through `Client.ResolveMetadata`, and through `/resolve` only where a statement expires between the two passes | [#184](https://github.com/MichaelFraser99/go-openid-federation/issues/184) |
 | `subordinate_statement` on an unlistable entity | Table 4 of the extended listing draft makes the attribute a MUST when requested, and an entity the subordinate store does not hold is returned without it | [#126](https://github.com/MichaelFraser99/go-openid-federation/issues/126) |
 | Shape rules after a policy is applied | Required claims and the relying party key pair are checked on the resolved metadata, the remaining claim shape rules are not, so a policy can set a value the parser would refuse | [#144](https://github.com/MichaelFraser99/go-openid-federation/issues/144) |
 | Policy merge against trust chain length | Cost grows faster than the chain. `MaxTrustChainDepth` now bounds the chain, which bounds the cost, but the merge still re-keys the whole accumulated array on every level | [#153](https://github.com/MichaelFraser99/go-openid-federation/issues/153) |

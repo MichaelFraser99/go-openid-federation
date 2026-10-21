@@ -87,7 +87,13 @@ func TestSubordinateStatementFailure_KeepsTheClassAndDropsThePeersText(t *testin
 			reference:   "8.9 invalid_metadata",
 			err:         model.NewInvalidMetadataError("invalid openid_relying_party metadata: " + chainEntryMarker),
 			expectKind:  model.ErrInvalidMetadata,
-			description: subordinateStatementUnusable,
+			description: subordinateStatementUnacceptable,
+		},
+		"a superior that could not be reached": {
+			reference:   "8.9 temporarily_unavailable",
+			err:         model.NewTemporarilyUnavailableError("failed to reach the issuer's federation fetch endpoint"),
+			expectKind:  model.ErrTemporarilyUnavailable,
+			description: subordinateStatementUnreachable,
 		},
 		"a statement the superior would not serve": {
 			reference:   "8.9 invalid_trust_chain",

@@ -75,7 +75,7 @@ func TestVerifyAgainstAnyKey(t *testing.T) {
 			name:      "only keys this library cannot use",
 			reference: "RFC 7517 5",
 			keys:      []map[string]any{{"kid": "pq", "kty": "ML-DSA-44", "pk": "AQAB"}, {"kid": "broken"}},
-			expectErr: "holds no key this library can verify a signature with",
+			expectErr: "no key in the key set can verify a signature made with this token's 'alg'",
 		},
 		{
 			name:      "the signing key held after a key whose kty is not a string",
@@ -91,13 +91,13 @@ func TestVerifyAgainstAnyKey(t *testing.T) {
 			name:      "only a key whose kty is not a string",
 			reference: "RFC 7517 4.1",
 			keys:      []map[string]any{{"kid": "folded", "kty": []any{"RSA"}}},
-			expectErr: "holds no key this library can verify a signature with",
+			expectErr: "no key in the key set can verify a signature made with this token's 'alg'",
 		},
 		{
 			name:      "an empty key set",
 			reference: "RFC 7517 5",
 			keys:      nil,
-			expectErr: "holds no key this library can verify a signature with",
+			expectErr: "no key in the key set can verify a signature made with this token's 'alg'",
 		},
 		{
 			name:      "only the signing key published for another algorithm",
@@ -107,7 +107,7 @@ func TestVerifyAgainstAnyKey(t *testing.T) {
 				published["alg"] = "PS256"
 				return published
 			}()},
-			expectErr: "holds no key this library can verify a signature with",
+			expectErr: "no key in the key set can verify a signature made with this token's 'alg'",
 		},
 	}
 

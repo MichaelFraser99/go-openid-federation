@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -147,8 +148,8 @@ func TestBuildTrustChain(t *testing.T) {
 				if err == nil {
 					t.Fatal("expected error when leaf equals trust anchor, got nil")
 				}
-				if err.Error() != "target leaf entity identifier must not match target trust anchor entity identifier" {
-					t.Fatalf("expected error message 'target leaf entity identifier must not match target trust anchor entity identifier', got '%s'", err.Error())
+				if !errors.Is(err, model.ErrInvalidRequest) {
+					t.Fatalf("[8.9] a subject named as its own trust anchor is the caller's mistake, so it must be invalid_request rather than a server fault, got '%s'", err.Error())
 				}
 			},
 		},

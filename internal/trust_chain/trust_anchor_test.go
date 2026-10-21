@@ -4,6 +4,9 @@ import (
 	"crypto"
 	"crypto/rsa"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -259,12 +262,36 @@ func TestResolveMetadata_ConfiguredTrustAnchorKeys(t *testing.T) {
 			expectErr: "not one this deployment is configured to trust",
 		},
 		{
-			name:      "an anchor whose every configured key is unusable is this deployment's own fault",
+			name:      "an anchor whose configured key has no kty is this deployment's own fault",
 			reference: "8.9",
 			configure: func(*testing.T, *rsa.PrivateKey) map[model.EntityIdentifier]josemodel.Jwks {
 				return map[model.EntityIdentifier]josemodel.Jwks{chainAnchor: {Keys: []map[string]any{{"kid": "broken"}}}}
 			},
-			expectErr: "hold no usable key",
+			expectErr: "no key that can verify a signature",
+		},
+		{
+			name:      "an anchor configured with an Ed25519 key this library cannot verify with is this deployment's own fault",
+			reference: "8.9",
+			configure: func(*testing.T, *rsa.PrivateKey) map[model.EntityIdentifier]josemodel.Jwks {
+				return map[model.EntityIdentifier]josemodel.Jwks{chainAnchor: {Keys: []map[string]any{{"kid": "ed", "kty": "OKP", "crv": "Ed25519", "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}}}}
+			},
+			expectErr: "no key that can verify a signature",
+		},
+		{
+			name:      "an anchor configured with a symmetric key is this deployment's own fault",
+			reference: "8.9",
+			configure: func(*testing.T, *rsa.PrivateKey) map[model.EntityIdentifier]josemodel.Jwks {
+				return map[model.EntityIdentifier]josemodel.Jwks{chainAnchor: {Keys: []map[string]any{{"kid": "oct", "kty": "oct", "k": "AQAB"}}}}
+			},
+			expectErr: "no key that can verify a signature",
+		},
+		{
+			name:      "an anchor configured with an RSA key carrying no modulus is this deployment's own fault",
+			reference: "8.9",
+			configure: func(*testing.T, *rsa.PrivateKey) map[model.EntityIdentifier]josemodel.Jwks {
+				return map[model.EntityIdentifier]josemodel.Jwks{chainAnchor: {Keys: []map[string]any{{"kid": "rsa", "kty": "RSA", "e": "AQAB"}}}}
+			},
+			expectErr: "no key that can verify a signature",
 		},
 	}
 
@@ -284,7 +311,7 @@ func TestResolveMetadata_ConfiguredTrustAnchorKeys(t *testing.T) {
 				if !strings.Contains(err.Error(), tc.expectErr) {
 					t.Errorf("[%s] expected the refusal to say %q, got %v", tc.reference, tc.expectErr, err)
 				}
-				if strings.Contains(tc.expectErr, "usable") {
+				if strings.Contains(tc.expectErr, "can verify a signature") {
 					if !errors.Is(err, model.ErrServerError) {
 						t.Errorf("[%s] a key set this deployment configured and cannot use is a server fault, got %v", tc.reference, err)
 					}
@@ -501,6 +528,114 @@ func TestVerifyTrustAnchor_TheLastEntryMustBeTheAnchorsOwnEntityConfiguration(t 
 			}
 			if !strings.Contains(err.Error(), "entity configuration of the requested trust anchor") {
 				t.Errorf("[%s] expected the refusal to say the chain does not end in the anchor's entity configuration, got %v", tc.reference, err)
+			}
+		})
+	}
+}
+
+func TestResolveMetadata_ACallerSuppliedChainDrivesNoFetchItCannotUse(t *testing.T) {
+	tp := newTopo(t, map[string][]string{"leaf": {"ta"}, "ta": {}})
+	cfg := model.Configuration{HttpClient: tp.server.Client()}
+
+	leafEC := createEntityStatement(t, tp.id["leaf"], tp.id["leaf"], []model.EntityIdentifier{tp.id["ta"]}, tp.keys["leaf"], false)
+	subordinateStatement := createSubordinateStatement(t, tp.id["ta"], tp.id["leaf"], tp.keys["ta"], tp.keys["leaf"].Public())
+
+	tests := []struct {
+		name      string
+		reference string
+		chain     []string
+		expectErr error
+	}{
+		{
+			name:      "a chain of one subordinate statement",
+			reference: "10.2",
+			chain:     []string{subordinateStatement},
+			expectErr: model.ErrInvalidTrustChain,
+		},
+		{
+			name:      "a chain whose subordinate statement is above its subject's configuration",
+			reference: "10.2",
+			chain:     []string{leafEC, subordinateStatement},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tp.mu.Lock()
+			tp.hits["ta"] = 0
+			tp.mu.Unlock()
+
+			_, err := ResolveMetadata(t.Context(), cfg, tp.id["leaf"], tp.id["ta"], tc.chain, resolvecache.New())
+
+			tp.mu.Lock()
+			hits := tp.hits["ta"]
+			tp.mu.Unlock()
+
+			if tc.expectErr == nil {
+				if err != nil {
+					t.Fatalf("[%s] expected the chain to resolve, got %v", tc.reference, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("[%s] a chain with no statement about its subject can never resolve", tc.reference)
+			}
+			if !errors.Is(err, tc.expectErr) {
+				t.Errorf("[%s] expected %v, got %v", tc.reference, tc.expectErr, err)
+			}
+			if hits != 0 {
+				t.Errorf("[%s] a chain too short to resolve must buy no outbound request, got %d", tc.reference, hits)
+			}
+		})
+	}
+}
+
+func TestResolveMetadata_AnUnreachableAnchorIsNotAServerFault(t *testing.T) {
+	statuses := []int{401, 403, 404, 418, 500, 503}
+
+	for _, status := range statuses {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			var served int
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				served++
+				w.WriteHeader(status)
+			}))
+			t.Cleanup(server.Close)
+
+			anchor := model.EntityIdentifier(server.URL)
+			leafKey := chainSigningKey(t)
+			now := time.Now().UTC()
+
+			leafEC := chainSignStatement(t, leafKey, map[string]any{
+				"iss":             string(chainSubject),
+				"sub":             string(chainSubject),
+				"iat":             now.Unix(),
+				"exp":             now.Add(time.Hour).Unix(),
+				"jwks":            chainJwks(t, leafKey),
+				"authority_hints": []any{string(anchor)},
+				"metadata":        map[string]any{},
+			})
+			subordinateStatement := chainSignStatement(t, leafKey, map[string]any{
+				"iss":  string(anchor),
+				"sub":  string(chainSubject),
+				"iat":  now.Unix(),
+				"exp":  now.Add(time.Hour).Unix(),
+				"jwks": chainJwks(t, leafKey),
+			})
+
+			cfg := model.Configuration{HttpClient: server.Client()}
+			_, err := ResolveMetadata(t.Context(), cfg, chainSubject, anchor, []string{leafEC, subordinateStatement}, resolvecache.New())
+			if err == nil {
+				t.Fatalf("[8.9] expected an unreachable trust anchor to be refused")
+			}
+			if errors.Is(err, model.ErrServerError) {
+				t.Errorf("[8.9] a peer this server cannot reach is not an unexpected condition in this server, got %v", err)
+			}
+			if !errors.Is(err, model.ErrInvalidTrustAnchor) {
+				t.Errorf("[8.9] expected invalid_trust_anchor for an anchor that cannot be found or used, got %v", err)
+			}
+			if strings.Contains(err.Error(), http.StatusText(status)) || strings.Contains(err.Error(), fmt.Sprint(status)) {
+				t.Errorf("[8.9] the refusal echoes the peer's status, which makes it a probe oracle: %v", err)
 			}
 		})
 	}

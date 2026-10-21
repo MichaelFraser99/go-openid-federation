@@ -521,7 +521,7 @@ Trust marks in a resolve response are filtered against the trust anchor's `trust
 
 Two things are checked at the top of a chain, and only the second has cryptographic content.
 
-The first is the identifier. The last statement must be the entity configuration of the trust anchor named in the call, which means its `iss` and its `sub` both equal that identifier. A chain that ends anywhere else is refused with `invalid_trust_anchor`.
+The first is the identifier, and a chain may end in either of two shapes. Where the last statement is the trust anchor's own entity configuration, its `iss` and its `sub` must both equal the named anchor. Where the anchor's entity configuration is omitted and the last statement is the anchor's subordinate statement about the entity below it, only `iss` must equal the named anchor — the library then fetches the anchor's own entity configuration from its well-known URL and applies both checks to that. A chain that ends in neither shape is refused with `invalid_trust_anchor`, and so is one too short to carry a statement about its subject, before any request is made.
 
 The second is the signature. `Configuration.TrustAnchors` holds the keys you have for each trust anchor you trust, and when the map holds keys for the named anchor the anchor's entity configuration must verify against one of them. Section 4 puts the distribution of those keys out of band, so the library cannot fetch them and has no way to obtain them itself.
 
@@ -533,16 +533,20 @@ Four states, and the message says which one you are in:
 
 | `TrustAnchors` | The named anchor | Result |
 | --- | --- | --- |
-| unset (nil) | — | Identifier check only. The anchor's entity configuration is trusted on its own signature |
-| set | has keys | Identifier check, then the entity configuration must verify against one of those keys |
+| unset (nil) | — | Identifier check only. The entity configuration is accepted on its own signature, whether it came from the chain or from the anchor's well-known URL |
+| set | has a key that can verify a signature | Identifier check, then the entity configuration must verify against one of those keys |
 | set | absent, or mapped to an empty set | Refused: "not one this deployment is configured to trust" |
-| set | present but every key is unusable | Refused as `server_error`: the deployment configured a key set it cannot use |
+| set | present, but no key in it can verify a signature | Refused as `server_error` before any request: the deployment configured a key set it cannot use |
+
+"Can verify a signature" means what the signing library means, not what the JWK syntax allows. A key is counted only if `github.com/MichaelFraser99/go-jose` can build a validator for it, which today covers the `ES`, `RS` and `PS` families. An Ed25519 key is valid JOSE and is **not** usable here, so configuring one is a `server_error` naming your own configuration rather than a 404 blaming the anchor.
 
 A non-nil map with no entries refuses every anchor. That is deliberate: an anchor list that parsed to nothing is a configuration fault, not permission to check nothing.
 
-Any key in the set may verify the entity configuration. Selection is not by `kid`, because section 4 hands you these keys out of band and RFC 7517 section 4.5 keeps `kid` optional, so a key you hold under a label of your own still works. A key the library cannot parse is skipped rather than refusing the set.
+Any key in the set may verify the entity configuration. Selection is not by `kid`, because section 4 hands you these keys out of band and RFC 7517 section 4.5 keeps `kid` optional, so a key you hold under a label of your own still works. A key the library cannot verify with is skipped rather than refusing the set, and a set left with none is the `server_error` above. The set is not checked against `use` or `key_ops`, so do not paste an anchor's encryption keys in alongside its signing keys; see [#188](https://github.com/MichaelFraser99/go-openid-federation/issues/188).
 
 `BuildTrustChain` applies both checks to the top of the chain it builds, and refuses an anchor absent from a populated map before it makes any request.
+
+> **Breaking change.** A chain of one entry now resolves only when the caller names that entry's own subject as the trust anchor. With `TrustAnchors` unset any entity is accepted as its own anchor, so this is an identifier check rather than a trust decision.
 
 > **Breaking change.** `Client.ResolveMetadata` takes a `trustAnchor` argument between `subject` and `trustChain`. The trust anchor is a required parameter of the resolve request in section 8.3, and the chain cannot be anchored without it. An empty or malformed value is refused with `invalid_request`.
 

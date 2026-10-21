@@ -147,10 +147,42 @@ func VerifyKeyAlgorithm(token string, key map[string]any) error {
 	return nil
 }
 
-func VerifyAgainstAnyKey(token string, jwks josemodel.Jwks) error {
-	usable := 0
+var verificationAlgorithms = []josemodel.Algorithm{
+	josemodel.ES256, josemodel.ES384, josemodel.ES512,
+	josemodel.RS256, josemodel.RS384, josemodel.RS512,
+	josemodel.PS256, josemodel.PS384, josemodel.PS512,
+}
+
+func KeyCanVerify(key map[string]any) bool {
+	if model.ValidateJWKShape(key) != nil {
+		return false
+	}
+	pubKey, err := jwk.PublicFromJwk(key)
+	if err != nil {
+		return false
+	}
+	for _, algorithm := range verificationAlgorithms {
+		if _, err := jws.GetValidator(algorithm, pubKey); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+func UsableVerificationKeys(jwks josemodel.Jwks) josemodel.Jwks {
+	usable := josemodel.Jwks{Keys: make([]map[string]any, 0, len(jwks.Keys))}
 	for _, key := range jwks.Keys {
-		if model.ValidateJWKShape(key) != nil {
+		if KeyCanVerify(key) {
+			usable.Keys = append(usable.Keys, key)
+		}
+	}
+	return usable
+}
+
+func VerifyAgainstAnyKey(token string, jwks josemodel.Jwks) error {
+	tried := 0
+	for _, key := range jwks.Keys {
+		if !KeyCanVerify(key) {
 			continue
 		}
 		if VerifyKeyAlgorithm(token, key) != nil {
@@ -160,15 +192,15 @@ func VerifyAgainstAnyKey(token string, jwks josemodel.Jwks) error {
 		if err != nil {
 			continue
 		}
-		usable++
+		tried++
 		if _, _, err := jws.VerifyCompactSerialization(token, func() ([]crypto.PublicKey, error) {
 			return []crypto.PublicKey{pubKey}, nil
 		}, &josemodel.JoseOptions{UseTokenProvidedKeys: false}); err == nil {
 			return nil
 		}
 	}
-	if usable == 0 {
-		return fmt.Errorf("the key set holds no key this library can verify a signature with")
+	if tried == 0 {
+		return fmt.Errorf("no key in the key set can verify a signature made with this token's 'alg'")
 	}
 	return fmt.Errorf("no key in the key set verifies the signature")
 }

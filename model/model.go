@@ -56,14 +56,7 @@ func (cfg *Configuration) TrustAnchorKeys(anchor EntityIdentifier) (josemodel.Jw
 	if !configured || len(keys.Keys) == 0 {
 		return josemodel.Jwks{}, false
 	}
-	usable := josemodel.Jwks{Keys: make([]map[string]any, 0, len(keys.Keys))}
-	for _, key := range keys.Keys {
-		if ValidateJWKShape(key) != nil {
-			continue
-		}
-		usable.Keys = append(usable.Keys, key)
-	}
-	return usable, true
+	return keys, true
 }
 
 const DefaultMaxPeerResponseBytes int64 = 1 << 20

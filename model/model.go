@@ -414,7 +414,7 @@ func parseTrustMarkOwners(value any) (map[string]TrustMarkOwner, error) {
 		if !present {
 			return nil, fmt.Errorf("'trust_mark_owners' entry for %q is missing the required 'jwks' member", trustMarkType)
 		}
-		parsedJwks, err := ParseJWKSet(jwks)
+		parsedJwks, err := ParseFederationEntityKeys(jwks)
 		if err != nil {
 			return nil, fmt.Errorf("'trust_mark_owners' entry for %q has a 'jwks' member that %s", trustMarkType, err.Error())
 		}
@@ -545,7 +545,7 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 	if jwks, ok := jsonMap["jwks"]; !ok {
 		return fmt.Errorf("missing required body claim 'jwks'")
 	} else {
-		parsed, err := ParseJWKSet(jwks)
+		parsed, err := ParseFederationEntityKeys(jwks)
 		if err != nil {
 			return fmt.Errorf("malformed 'jwks' claim: %s", err.Error())
 		}

@@ -306,7 +306,15 @@ A `SubordinateConfiguration` may carry its own `SignerConfiguration`. When prese
 
 `model.EntityStatement` covers both entity configurations and subordinate statements. Its `UnmarshalJSON` enforces the required claims `iss`, `sub`, `iat`, `exp` and `jwks`, validates entity identifiers, and reads `jwks` as a JWK Set.
 
-> **Breaking change.** A `jwks` claim, and a `jwks` metadata parameter, must now be a JWK Set rather than any JSON object: the `keys` member is required. An entity that published `"jwks": {}` in its metadata is refused where it previously parsed. Keys inside the set that are not usable JWKs are left out rather than refusing the statement, so a set carrying one retired or malformed entry still verifies through its good keys.
+> **Breaking change.** Statements that earlier releases accepted are now refused.
+>
+> - A `jwks` **metadata parameter** must be a JWK Set: the `keys` member is required. Four entity types checked nothing there and accepted any JSON value; `"jwks": {}` is now refused everywhere. The `jwks` **claim** already required `keys`.
+> - A key within a set that is not a usable JWK — no `kty`, or an EC key with no `crv` — is left out rather than refusing the statement, so a set carrying one retired entry still verifies through its good keys. "Usable" is only that much: `ValidateJWKShape` does not check the members RFC 7518 section 6 defines per key type, so an RSA key with no `n` is kept and fails later at verification.
+> - Every key in a `jwks` **claim** must carry a unique, non-empty, string `kid`, which section 3.1.1 requires. A set that breaks this is refused rather than having the offending entry left out, because the rule is a Federation MUST about the whole set, not RFC 7517's advice about one key. A metadata `jwks` is unaffected: RFC 7517 section 4.5 keeps `kid` optional there.
+> - A statement signed with a key that its publisher declares an `alg` for must use that `alg`. RFC 8725 section 3.1 requires a key to be used with exactly one algorithm and the check to be made where the operation happens. The comparison is exact, so a key published for `rs256` no longer verifies an `RS256` signature. **In a trust chain the key is the copy a superior published in its subordinate statement, so a superior's registration binds which algorithm its subordinate may sign with.** A trust anchor configured by hand with a subordinate's key and an `alg` the subordinate does not sign with refuses that subordinate with 400 `invalid_trust_chain`, where it previously resolved. A key with no `alg` is unconstrained.
+> - `jwks_uri` and `signed_jwks_uri` must use https on every entity type but `federation_entity`, which section 5.2.1 defines them for. Six types gained the `signed_jwks_uri` check and three the `jwks_uri` check. Both go through the same URL check as the other claims, so a fragment or a userinfo component is refused too, which is what the relying party and provider types already did.
+>
+> A `kid` naming a key that was left out reads as no usable key with that `kid`, which is the same message as a `kid` that was never published. The library cannot say more, because the entry is gone by the time a key is selected.
 
 Parsing applies the claim rules from section 3.2 of the specification. Three of these reject statements that earlier releases accepted.
 
@@ -419,9 +427,9 @@ The validators the built-in types use are exported for custom types to reuse.
 | `VerifyHTTPSURLClaim(m, key, allowQuery)` | The claim, if present, is an HTTPS URL with no fragment and no userinfo component |
 | `VerifyAlgValuesClaim(m, key, allowNone)` | The claim, if present, is an array of algorithm names. Rejects `none` unless `allowNone` is set |
 | `VerifyAlgClaim(m, key, allowNone)` | The claim, if present, is a single algorithm name. Rejects `none` unless `allowNone` is set |
-| `VerifyJWKSetClaims(m)` | `jwks`, if present, is a JWK Set, and `jwks_uri` and `signed_jwks_uri`, if present, are HTTPS URLs. Section 5.2.1 defines these three for every entity type but `federation_entity`, which must not carry any of them |
+| `VerifyJWKSetClaims(m)` | `jwks`, if present, is a JWK Set, and `jwks_uri` and `signed_jwks_uri`, if present, are HTTPS URLs. Call it from a custom type that may carry keys. It does not enforce section 5.2.1's prohibition on these parameters in `federation_entity` metadata, which `FederationMetadata` carries |
 
-`ParseJWKSet(v)` reads a JWK Set from a decoded JSON value. Use it rather than unmarshalling into a `jwks` struct field: Go matches struct fields with Unicode simple folding, so a member named `keyſ` decodes as `keys` and the keys a conforming parser reads are not the keys you get. It takes the keys from the exact `keys` member and leaves out any entry that is not a usable JWK, which RFC 7517 section 5 asks of an implementation. `ValidateJWKShape(key)` is the per-key check it applies.
+`ParseJWKSet(v)` reads a JWK Set from a decoded JSON value. Use it rather than unmarshalling into a `jwks` struct field: Go matches struct fields with Unicode simple folding, so a member named `keyſ` decodes as `keys` and the keys a conforming parser reads are not the keys you get. It takes the keys from the exact `keys` member and leaves out an entry that `ValidateJWKShape` finds unusable, which RFC 7517 section 5 asks of an implementation. `ParseFederationEntityKeys(v)` is the stricter reading for a `jwks` claim: it adds section 3.1.1's rule that every key in the set carry a unique `kid`.
 
 `MetadataStringSlice(v)` returns a `[]string` from either a `[]string` or a `[]any`. JSON unmarshalling produces the latter and Go-constructed metadata the former, so a validator handling only one will reject valid input.
 

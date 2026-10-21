@@ -134,7 +134,7 @@ func validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 		return nil, fmt.Errorf("missing required body claim 'jwks'")
 	}
 
-	parsedJwks, err := model.ParseJWKSet(jwks)
+	parsedJwks, err := model.ParseFederationEntityKeys(jwks)
 	if err != nil {
 		return nil, fmt.Errorf("the 'jwks' claim %s", err.Error())
 	}
@@ -261,7 +261,7 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 			return nil, fmt.Errorf("all provided jwk values in entity cfg must have unique `kid` claims - %q appears more than once", sKid)
 		}
 		if err := model.ValidateJWKShape(key); err != nil {
-			return nil, fmt.Errorf("the provided jwk value with key ID %q %s", sKid, err.Error())
+			return nil, fmt.Errorf("the provided jwk value with key ID %q %s", model.TruncateForResponse(sKid), err.Error())
 		}
 		seen[sKid] = struct{}{}
 		jwks.Keys = append(jwks.Keys, key)

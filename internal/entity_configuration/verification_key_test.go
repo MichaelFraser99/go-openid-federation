@@ -55,7 +55,7 @@ func TestValidate_TheVerificationKeyComesFromTheExactKeysMember(t *testing.T) {
 			name:      "a key set holding only an unusable key cannot verify",
 			reference: "RFC 7517 5",
 			jwks:      map[string]any{"keys": []any{map[string]any{"kid": "leaf"}}},
-			expectErr: "contains no keys",
+			expectErr: "contains no usable keys",
 		},
 	}
 

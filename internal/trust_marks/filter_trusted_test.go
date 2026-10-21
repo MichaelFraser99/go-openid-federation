@@ -291,7 +291,8 @@ func TestValidate_TrustMarkKeyAlgorithmIsHonoured(t *testing.T) {
 	}{
 		{name: "the algorithm the key is published for", reference: "RFC 7517 4.4", keyAlg: "RS256"},
 		{name: "no published algorithm leaves the key unconstrained", reference: "RFC 7517 4.4", keyAlg: nil},
-		{name: "another algorithm", reference: "RFC 7517 4.4", keyAlg: "PS256", expectErr: "published for another algorithm"},
+		{name: "another algorithm", reference: "RFC 7517 4.4", keyAlg: "PS256", expectErr: "does not match the 'alg' the selected key"},
+		{name: "a malformed algorithm", reference: "RFC 7517 4.4", keyAlg: 5, expectErr: "malformed 'alg' member"},
 	}
 
 	for _, tc := range tests {

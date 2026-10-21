@@ -89,7 +89,7 @@ func SelectKey(jwks josemodel.Jwks, kid string) (map[string]any, error) {
 		return nil, fmt.Errorf("header claim 'kid' must be a non-empty string")
 	}
 	if len(jwks.Keys) == 0 {
-		return nil, fmt.Errorf("the included 'jwks' contains no keys")
+		return nil, fmt.Errorf("the included 'jwks' contains no usable keys, so any entry it carried is not a valid JWK")
 	}
 	keys := map[string]map[string]any{}
 	for _, key := range jwks.Keys {
@@ -108,7 +108,7 @@ func SelectKey(jwks josemodel.Jwks, kid string) (map[string]any, error) {
 	}
 	selectedKey := keys[kid]
 	if selectedKey == nil {
-		return nil, fmt.Errorf("no matching key found in the included 'jwks'")
+		return nil, fmt.Errorf("no usable key with that 'kid' in the included 'jwks', which is also what an entry that is not a valid JWK looks like, since such an entry is left out")
 	}
 	if err := model.ValidateJWKShape(selectedKey); err != nil {
 		return nil, fmt.Errorf("the selected key in the included 'jwks' %s", err.Error())

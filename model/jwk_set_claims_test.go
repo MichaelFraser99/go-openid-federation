@@ -37,7 +37,7 @@ func TestEntityTypes_KeySetClaimsAreCheckedOnEveryTypeThatMayCarryThem(t *testin
 			expectErr: "'jwks' is missing the required 'keys' member",
 		},
 		{
-			name:      "a jwks whose key omits kty is accepted, the key is ignored",
+			name:      "a jwks whose key omits kty is not a reason to refuse the metadata",
 			reference: "RFC 7517 5",
 			metadata:  map[string]any{"jwks": map[string]any{"keys": []any{map[string]any{"kid": "a"}}}},
 		},

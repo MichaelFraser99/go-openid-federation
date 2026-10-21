@@ -298,3 +298,135 @@ func TestTrustMarkOwner_MembersAreReadByTheirExactName(t *testing.T) {
 		})
 	}
 }
+
+func TestTrustMarkOwner_KeysComeFromTheExactMemberAlongsideAFoldedOne(t *testing.T) {
+	jwks := `{"keys":[{"kid":"real","kty":"RSA","n":"AQAB","e":"AQAB"}],"keyſ":[{"kid":"forged","kty":"RSA","n":"AQAB","e":"AQAB"}]}`
+
+	t.Run("decoded on its own", func(t *testing.T) {
+		var owner TrustMarkOwner
+		if err := json.Unmarshal([]byte(`{"sub":"https://owner.example.com","jwks":`+jwks+`}`), &owner); err != nil {
+			t.Fatalf("[RFC 7517 6] expected the owner to be accepted, got %v", err)
+		}
+		if len(owner.JWKs.Keys) != 1 || owner.JWKs.Keys[0]["kid"] != "real" {
+			t.Fatalf("[RFC 7517 6] expected only the key of the exact 'keys' member, got %v", owner.JWKs.Keys)
+		}
+	})
+
+	t.Run("inside a statement's trust_mark_owners", func(t *testing.T) {
+		body := fmt.Sprintf(`{"iss":"https://ta.example.com","sub":"https://ta.example.com","iat":%d,"exp":%d,"jwks":{"keys":[{"kid":"ta","kty":"RSA","n":"AQAB","e":"AQAB"}]},"trust_mark_owners":{"https://tm.example.com/a":{"sub":"https://owner.example.com","jwks":%s}}}`,
+			time.Now().Unix(), time.Now().Add(time.Hour).Unix(), jwks)
+		var statement EntityStatement
+		if err := json.Unmarshal([]byte(body), &statement); err != nil {
+			t.Fatalf("[RFC 7517 6] expected the statement to be accepted, got %v", err)
+		}
+		owner, present := statement.TrustMarkOwners["https://tm.example.com/a"]
+		if !present {
+			t.Fatal("[RFC 7517 6] expected the trust mark owner entry to be parsed")
+		}
+		if len(owner.JWKs.Keys) != 1 || owner.JWKs.Keys[0]["kid"] != "real" {
+			t.Fatalf("[RFC 7517 6] expected only the key of the exact 'keys' member, got %v", owner.JWKs.Keys)
+		}
+	})
+}
+
+func TestTrustMarkHolder_TheMismatchErrorIsBounded(t *testing.T) {
+	long := "https://tm.example.com/" + strings.Repeat("a", 20000)
+	other := "https://tm.example.com/" + strings.Repeat("b", 20000)
+	mark := "e30." + base64RawURL(fmt.Sprintf(`{"trust_mark_type":%q}`, other)) + ".c2ln"
+
+	var holder TrustMarkHolder
+	err := json.Unmarshal([]byte(fmt.Sprintf(`{"trust_mark_type":%q,"trust_mark":%q}`, long, mark)), &holder)
+	if err == nil {
+		t.Fatal("expected the mismatched entry to be refused")
+	}
+	if !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("expected the type mismatch to be named, got %v", err)
+	}
+	if limit := 2*MaxErrorDescriptionBytes + 512; len(err.Error()) > limit {
+		t.Errorf("a peer chooses both values, so the error must stay within %d bytes, got %d", limit, len(err.Error()))
+	}
+}
+
+func TestVerifyJWKSetClaims_ANullKeySetIsTreatedAsAbsent(t *testing.T) {
+	for _, claim := range []string{"jwks", "jwks_uri", "signed_jwks_uri"} {
+		t.Run(claim, func(t *testing.T) {
+			if err := VerifyJWKSetClaims(map[string]any{claim: nil}); err != nil {
+				t.Errorf("a null claim is treated as absent everywhere else in this package, got %v", err)
+			}
+		})
+	}
+}
+
+func TestParseFederationEntityKeys_AppliesTheKeyIdRulesToEveryEntry(t *testing.T) {
+	good := map[string]any{"kid": "leaf", "kty": "RSA", "n": "AQAB", "e": "AQAB"}
+
+	tests := []struct {
+		name      string
+		reference string
+		keys      []any
+		expectErr string
+	}{
+		{
+			name:      "one key with a kid",
+			reference: "3.1.1",
+			keys:      []any{good},
+		},
+		{
+			name:      "an unusable entry sharing the kid of the signing key",
+			reference: "3.1.1",
+			keys:      []any{map[string]any{"kid": "leaf", "x5c": []any{"AQAB"}}, good},
+			expectErr: "same 'kid'",
+		},
+		{
+			name:      "an unusable EC entry sharing the kid",
+			reference: "3.1.1",
+			keys:      []any{map[string]any{"kid": "leaf", "kty": "EC", "x": "AQAB", "y": "AQAB"}, good},
+			expectErr: "same 'kid'",
+		},
+		{
+			name:      "an entry with no kid",
+			reference: "3.1.1",
+			keys:      []any{map[string]any{"kty": "RSA", "n": "AQAB", "e": "AQAB"}, good},
+			expectErr: "no 'kid' member",
+		},
+		{
+			name:      "an entry whose kid is not a string",
+			reference: "3.1.1",
+			keys:      []any{map[string]any{"kid": 7, "kty": "RSA"}, good},
+			expectErr: "malformed 'kid' member",
+		},
+		{
+			name:      "two usable keys with distinct kids",
+			reference: "3.1.1",
+			keys:      []any{good, map[string]any{"kid": "spare", "kty": "RSA", "n": "AQAB", "e": "AQAB"}},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			parsed, err := ParseFederationEntityKeys(map[string]any{"keys": tc.keys})
+			if tc.expectErr == "" {
+				if err != nil {
+					t.Fatalf("[%s] expected the key set to be accepted, got %v", tc.reference, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("[%s] expected the key set to be refused, got %d usable keys", tc.reference, len(parsed.Keys))
+			}
+			if !strings.Contains(err.Error(), tc.expectErr) {
+				t.Fatalf("[%s] expected an error naming %s, got %v", tc.reference, tc.expectErr, err)
+			}
+		})
+	}
+}
+
+func TestParseJWKSet_DoesNotRequireAKeyId(t *testing.T) {
+	parsed, err := ParseJWKSet(map[string]any{"keys": []any{map[string]any{"kty": "RSA", "n": "AQAB", "e": "AQAB"}}})
+	if err != nil {
+		t.Fatalf("[RFC 7517 4.5] 'kid' is optional in a JWK, so a metadata key set without one must be accepted, got %v", err)
+	}
+	if len(parsed.Keys) != 1 {
+		t.Errorf("expected the key to be kept, got %d", len(parsed.Keys))
+	}
+}

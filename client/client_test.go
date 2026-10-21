@@ -194,7 +194,7 @@ func TestClient_ResolveMetadata(t *testing.T) {
 			if err != nil {
 				t.Fatalf("expected no error, got %q", err.Error())
 			}
-			result, err := client.ResolveMetadata(t.Context(), tt.subject, chain)
+			result, err := client.ResolveMetadata(t.Context(), tt.subject, tt.trustAnchor, chain)
 			tt.validate(t, result, err)
 		})
 	}

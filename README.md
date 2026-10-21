@@ -233,6 +233,7 @@ Use `Configure` to mount the endpoints. It wraps every route it registers, so a 
 | `MetadataRetriever` | Source of subordinate data, if not held in memory |
 | `TrustMarkIssuerRetriever` | Populates `trust_mark_issuers` in the entity configuration |
 | `TrustMarkRetriever` | Enables the trust mark endpoints |
+| `TrustAnchors` | Keys held for each trust anchor this deployment trusts. Optional. See [Anchoring a chain a caller supplies](#anchoring-a-chain-a-caller-supplies) |
 
 The signer's public key is added to the published JWKS, keyed by `kid`, if not already present.
 
@@ -514,13 +515,21 @@ A resolved response expires at the earliest expiry in the chain rather than the 
 
 Trust marks in a resolve response are filtered against the trust anchor's `trust_mark_issuers` claim. A trust mark whose type the anchor does not list, or whose issuer it has not authorised, is dropped from the response. Resolution continues.
 
-### Chains supplied by a caller are not anchored
+### Anchoring a chain a caller supplies
 
-`Client.ResolveMetadata` takes a chain the caller supplies, such as one received in a peer's `trust_chain` JWS header. The library does not read that header, so the caller must extract it. It verifies every link in that chain, but it cannot yet check which trust anchor the chain ends in, because trust anchors and their keys are not configurable. A chain that ends in a self-signed entity configuration is therefore accepted, and an attacker who supplies one needs no key material to have their own metadata returned for any subject they name.
+`Client.ResolveMetadata` takes a chain the caller supplies, such as one from a peer's `trust_chain` JWS header. The library does not read that header, so the caller must extract it.
 
-Do not pass a chain from an untrusted source to `Client.ResolveMetadata`. Build the chain yourself with `Client.BuildTrustChain`, naming the trust anchor, and resolve that.
+The last statement in the chain must be the entity configuration of the trust anchor named in the call. Section 10.2 requires that statement to verify against a key of the trust anchor. A chain that ends anywhere else is refused with `invalid_trust_anchor`, so a chain made of the caller's own self-signed entity configuration no longer resolves against another entity's anchor.
 
-`BuildTrustChain` verifies every link as section 10.2 requires: each statement is signed by a key published for it in the statement above. It stops short only of the last step, confirming that the anchor at the top is one you trust, which needs the trust anchor configuration that is not yet available.
+`Configuration.TrustAnchors` holds the keys you have for each trust anchor you trust. Section 4 says those keys reach you out of band, so the library cannot fetch them. When the map holds keys for the named anchor, the anchor's entity configuration must verify against one of them. When the map is set but holds nothing for the named anchor, the anchor is refused.
+
+When the map is empty, the identifier check still applies and the anchor's entity configuration is trusted on its own signature. The two refusals carry different descriptions, so a log tells an unconfigured anchor apart from a wrong key.
+
+Set `TrustAnchors` wherever you hold the keys. Without it, a caller-supplied chain that ends in the right identifier is accepted on its own signature, which is weaker than section 10.2 asks for.
+
+`BuildTrustChain` verifies every link as section 10.2 requires: each statement is signed by a key published for it in the statement above. It applies the same anchor check to the top of the chain it builds.
+
+> **Breaking change.** `Client.ResolveMetadata` takes a `trustAnchor` argument between `subject` and `trustChain`. The trust anchor is a required parameter of the resolve request in section 8.3, and the chain cannot be anchored without it. An empty value is refused with `invalid_request`.
 
 > **Breaking change.** `Client.ResolveMetadata` no longer returns nil metadata. Section 8.3.2 makes the claim required, so a subject that publishes no `metadata` now resolves to an empty `model.Metadata` rather than a nil pointer. A consumer treating nil as "this entity publishes nothing usable" must check the entity types instead.
 
@@ -600,7 +609,6 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | Area | Status | Issue |
 |---|---|---|
 | `constraints` claim | Parsed and carried, never enforced | [#50](https://github.com/MichaelFraser99/go-openid-federation/issues/50) |
-| Configurable trust anchors and their keys | Not supported, so a caller-supplied chain cannot be anchored | [#48](https://github.com/MichaelFraser99/go-openid-federation/issues/48) |
 | Clock skew tolerance | `model.ClockSkewLeeway` is a constant and cannot be configured | [#141](https://github.com/MichaelFraser99/go-openid-federation/issues/141) |
 | Server configuration validation | A bad `ServerConfiguration` is reported when a peer first fetches, not at startup | [#145](https://github.com/MichaelFraser99/go-openid-federation/issues/145) |
 | Extension claims | Dropped on parse and cannot be issued | [#132](https://github.com/MichaelFraser99/go-openid-federation/issues/132) |

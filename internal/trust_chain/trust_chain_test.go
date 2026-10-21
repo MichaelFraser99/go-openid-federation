@@ -338,7 +338,7 @@ func TestResolveMetadata(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			cfg := model.Configuration{}
-			result, err := ResolveMetadata(t.Context(), cfg, tt.issuerID, tt.trustChain, nil)
+			result, err := ResolveMetadata(t.Context(), cfg, tt.issuerID, subjectID, tt.trustChain, nil)
 			tt.validate(t, result, err)
 		})
 	}

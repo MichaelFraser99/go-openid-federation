@@ -26,6 +26,14 @@ Four packages, layered:
 
 All JWS/JWK/JWT signing and verification goes through the sibling library `github.com/MichaelFraser99/go-jose` (`jwk`, `jws`, `jwt`, `model` subpackages). Do not hand-roll crypto — entity statements and trust marks are signed JWTs handled via that dependency.
 
+### Anchoring the top of a chain
+
+`verifyTrustAnchor` in `internal/trust_chain/trust_chain.go` does two things, and the second is optional. It always refuses a chain whose last statement is not issued by the requested anchor, which is what stops a caller-supplied chain from anchoring itself. It then verifies that statement against `Configuration.TrustAnchors[anchor]` when that deployment holds keys for the anchor, as §10.2 asks ("a public key of the Trust Anchor", not a key from the chain). §4 puts the distribution of those keys out of band, so the map is the only way they arrive.
+
+The three states are distinct and each has a test row. No anchors configured at all means the identifier check alone, and the anchor's entity configuration is trusted on its own signature; `model.Configuration.TrustAnchorsConfigured` separates this from the next state. Anchors configured but not this one is a refusal, because the deployment has stated which anchors it trusts. Keys configured for this one is a signature check. `model.Configuration.TrustAnchorKeys` treats an anchor mapped to an empty key set as the second state, not the first, so an operator cannot silently disable the check by configuring an empty set. The two refusals must stay distinguishable by message — a test that asserts only `ErrInvalidTrustAnchor` passes against a mutant that collapses them.
+
+Every call site must pass the anchor the *caller* named, never the issuer of the chain's own last statement, which is the bypass this guards against. A test fixture for a one-entry chain names the subject as the anchor, because that chain's last statement is the subject's own entity configuration.
+
 ### Server configuration drives behavior
 
 `model.ServerConfiguration` (in `model/model.go`) is the central config object. Capabilities are turned on by *presence of config*, not flags:
@@ -47,7 +55,7 @@ The heart of the library is applying OpenID Federation **metadata policies** dow
 - **`MetadataPolicyOperator` interface** (`model/model.go`): each policy operator implements `Resolve` (apply to a metadata value), `Merge` (combine two operators of the same kind when policies from different chain levels stack), `ResolutionHierarchy` (defines the fixed order operators are applied within a claim), `CheckForConflict`, `ToSlice`, and `OperatorValue`.
 - **Operators**, one file + `_test.go` each: `add.go`, `default.go`, `value.go`, `essential.go`, `one_of.go`, `subset_of.go`, `superset_of.go`. Registered/dispatched by key in `policy_operators.go`.
 - **`model/helpers.go`** orchestrates: `MergePolicyOperators` (combine two policy sets for a claim, respecting `ResolutionHierarchy`), `ApplyPolicy` (apply a resolved `MetadataPolicy` to an `EntityStatement`).
-- **`internal/trust_chain/trust_chain.go`** is the entry point: `BuildTrustChain` walks from leaf up to trust anchor; `ResolveMetadata` has three return paths and verifies the resolved metadata on all of them. The multi-entry paths first apply the immediate superior's `metadata` claim, then the accumulated policy where the chain carries one; the single-entry path has neither a superior nor a policy. `CalculateChainExpiration` bounds validity to the earliest-expiring statement.
+- **`internal/trust_chain/trust_chain.go`** is the entry point: `BuildTrustChain` walks from leaf up to trust anchor; `ResolveMetadata` has three return paths and verifies the resolved metadata on all of them. Both pass the top of the chain through `verifyTrustAnchor`, which is the only place a chain's anchor is judged: once in `BuildTrustChain` after the links are verified, and once in each of the two branches `ResolveMetadata` has for the last entry. The multi-entry paths first apply the immediate superior's `metadata` claim, then the accumulated policy where the chain carries one; the single-entry path has neither a superior nor a policy. `CalculateChainExpiration` bounds validity to the earliest-expiring statement.
 
 When adding or changing an operator, keep the three concerns aligned: resolution semantics, merge semantics across chain levels, and `ResolutionHierarchy` ordering. `model/metadata_processing_e2e_test.go` checks policy merging and application against the specification's worked examples. It does not cover the superior's `metadata` claim or resolved-metadata verification; `internal/trust_chain/chain_metadata_test.go` covers the pipeline end to end.
 

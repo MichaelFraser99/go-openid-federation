@@ -43,6 +43,20 @@ type Configuration struct {
 	MaxPeerResponseBytes int64
 
 	MaxTrustMarkIssuers int
+
+	TrustAnchors map[EntityIdentifier]josemodel.Jwks
+}
+
+func (cfg *Configuration) TrustAnchorsConfigured() bool {
+	return len(cfg.TrustAnchors) > 0
+}
+
+func (cfg *Configuration) TrustAnchorKeys(anchor EntityIdentifier) (josemodel.Jwks, bool) {
+	keys, configured := cfg.TrustAnchors[anchor]
+	if !configured || len(keys.Keys) == 0 {
+		return josemodel.Jwks{}, false
+	}
+	return keys, true
 }
 
 const DefaultMaxPeerResponseBytes int64 = 1 << 20

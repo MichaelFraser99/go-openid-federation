@@ -112,7 +112,7 @@ func TestClient_ResolveMetadata_RejectsChainForAnotherSubject(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			metadata, err := c.ResolveMetadata(context.Background(), string(tc.subject), chain)
+			metadata, err := c.ResolveMetadata(context.Background(), string(tc.subject), string(trustAnchor), chain)
 			if tc.expectErr {
 				if err == nil {
 					t.Fatalf("expected chain about %q to be rejected when %q was requested, got metadata %+v", chainSubject, tc.subject, metadata)

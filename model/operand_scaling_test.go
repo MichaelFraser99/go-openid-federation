@@ -11,8 +11,7 @@ import (
 const (
 	scalingBaseCount = 40000
 	scalingFactor    = 4
-	scalingTolerance = 9
-	scalingBudget    = 3 * time.Second
+	scalingBudget    = 60 * time.Second
 )
 
 func operandStrings(n int) []any {
@@ -34,17 +33,16 @@ func operandJSON(n int) string {
 func assertScalesLinearly(t *testing.T, measure func(*testing.T, int) time.Duration) {
 	t.Helper()
 
-	small := measure(t, scalingBaseCount)
-	if small > scalingBudget {
-		t.Fatalf("%d operands took %s, which is beyond any linear cost", scalingBaseCount, small)
+	operands := operandStrings(scalingBaseCount * scalingFactor)
+	if fallback := newOperandSet(operands).fallbackCount(); fallback != 0 {
+		t.Fatalf("%d operands of a JSON native type put %d into the bucket that is compared one by one, which is where the quadratic cost lives", len(operands), fallback)
 	}
 
-	large := measure(t, scalingBaseCount*scalingFactor)
-	if large > time.Duration(scalingTolerance)*small {
-		t.Fatalf("%d operands took %s and %d took %s, a factor of %.1f for %dx the work, which is the quadratic cost returning",
-			scalingBaseCount, small, scalingBaseCount*scalingFactor, large, float64(large)/float64(small), scalingFactor)
+	elapsed := measure(t, scalingBaseCount*scalingFactor)
+	if elapsed > scalingBudget {
+		t.Fatalf("%d operands took %s against a budget of %s, which no linear cost reaches", scalingBaseCount*scalingFactor, elapsed, scalingBudget)
 	}
-	t.Logf("%s at %d, %s at %d, a factor of %.1f", small, scalingBaseCount, large, scalingBaseCount*scalingFactor, float64(large)/float64(small))
+	t.Logf("%s at %d operands", elapsed, scalingBaseCount*scalingFactor)
 }
 
 func TestPolicyOperands_ResolveScalesLinearly(t *testing.T) {

@@ -9,10 +9,10 @@ import (
 )
 
 const (
-	scalingBaseCount = 40000
-	scalingFactor    = 4
-	scalingTolerance = 9
-	scalingBudget    = 3 * time.Second
+	scalingBaseCount     = 2000
+	scalingFactor        = 4
+	scalingWorkTolerance = 5
+	scalingBudget        = 10 * time.Second
 )
 
 func operandStrings(n int) []any {
@@ -31,20 +31,30 @@ func operandJSON(n int) string {
 	return "[" + strings.Join(vals, ",") + "]"
 }
 
+func measureOperandWork(t *testing.T, measure func(*testing.T, int) time.Duration, count int) (int64, time.Duration) {
+	t.Helper()
+	operandWork.Store(0)
+	elapsed := measure(t, count)
+	return operandWork.Load(), elapsed
+}
+
 func assertScalesLinearly(t *testing.T, measure func(*testing.T, int) time.Duration) {
 	t.Helper()
 
-	small := measure(t, scalingBaseCount)
-	if small > scalingBudget {
-		t.Fatalf("%d operands took %s, which is beyond any linear cost", scalingBaseCount, small)
+	small, smallElapsed := measureOperandWork(t, measure, scalingBaseCount)
+	if small == 0 {
+		t.Fatalf("the measured path compared no operands at %d, so this test is not reaching it", scalingBaseCount)
+	}
+	if smallElapsed > scalingBudget {
+		t.Fatalf("%d operands took %s against a budget of %s, which no linear cost reaches", scalingBaseCount, smallElapsed, scalingBudget)
 	}
 
-	large := measure(t, scalingBaseCount*scalingFactor)
-	if large > time.Duration(scalingTolerance)*small {
-		t.Fatalf("%d operands took %s and %d took %s, a factor of %.1f for %dx the work, which is the quadratic cost returning",
+	large, _ := measureOperandWork(t, measure, scalingBaseCount*scalingFactor)
+	if large > scalingWorkTolerance*small {
+		t.Fatalf("%d operands cost %d comparisons and %d cost %d, a factor of %.1f for %dx the work, which is the quadratic cost returning",
 			scalingBaseCount, small, scalingBaseCount*scalingFactor, large, float64(large)/float64(small), scalingFactor)
 	}
-	t.Logf("%s at %d, %s at %d, a factor of %.1f", small, scalingBaseCount, large, scalingBaseCount*scalingFactor, float64(large)/float64(small))
+	t.Logf("%d comparisons at %d operands, %d at %d, a factor of %.1f", small, scalingBaseCount, large, scalingBaseCount*scalingFactor, float64(large)/float64(small))
 }
 
 func TestPolicyOperands_ResolveScalesLinearly(t *testing.T) {
@@ -166,3 +176,42 @@ func benchmarkSubsetResolve(b *testing.B, n int) {
 
 func BenchmarkSubsetOfResolve1000(b *testing.B)  { benchmarkSubsetResolve(b, 1000) }
 func BenchmarkSubsetOfResolve10000(b *testing.B) { benchmarkSubsetResolve(b, 10000) }
+
+const scalingLargeCount = 160000
+const scalingLargeBudget = 20 * time.Second
+
+func TestPolicyOperands_ALargeInputStaysWithinABudget(t *testing.T) {
+	tests := []struct {
+		name     string
+		operator string
+	}{
+		{name: "subset_of", operator: "subset_of"},
+		{name: "superset_of", operator: "superset_of"},
+		{name: "one_of", operator: "one_of"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var parsed PolicyOperators
+			if err := json.Unmarshal([]byte(`{"`+tc.operator+`":`+operandJSON(scalingLargeCount)+`}`), &parsed); err != nil {
+				t.Fatalf("the fixture did not parse: %v", err)
+			}
+
+			metadata := any(operandStrings(scalingLargeCount))
+			if tc.operator == "one_of" {
+				metadata = fmt.Sprintf("value-%d", scalingLargeCount-1)
+			}
+
+			started := time.Now()
+			if _, err := parsed.Metadata[0].Resolve(metadata); err != nil {
+				t.Fatalf("expected the operator to resolve, got %v", err)
+			}
+			elapsed := time.Since(started)
+
+			if elapsed > scalingLargeBudget {
+				t.Errorf("%d operands took %s against a budget of %s, so each comparison costs more than a keyed lookup even though the comparison count is linear", scalingLargeCount, elapsed, scalingLargeBudget)
+			}
+			t.Logf("%s at %d operands", elapsed, scalingLargeCount)
+		})
+	}
+}

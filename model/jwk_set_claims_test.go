@@ -42,6 +42,11 @@ func TestEntityTypes_KeySetClaimsAreCheckedOnEveryTypeThatMayCarryThem(t *testin
 			metadata:  map[string]any{"jwks": map[string]any{"keys": []any{map[string]any{"kid": "a"}}}},
 		},
 		{
+			name:      "a jwks carrying a key type this implementation does not support",
+			reference: "RFC 7517 4.1",
+			metadata:  map[string]any{"jwks": map[string]any{"keys": []any{map[string]any{"kid": "pq", "kty": "AKP", "pub": "AQAB"}}}},
+		},
+		{
 			name:      "a jwks carrying a well formed key",
 			reference: "5.2.1",
 			metadata:  map[string]any{"jwks": map[string]any{"keys": []any{map[string]any{"kid": "a", "kty": "RSA", "n": "AQAB", "e": "AQAB"}}}},

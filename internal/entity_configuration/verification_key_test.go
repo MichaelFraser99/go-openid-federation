@@ -192,3 +192,120 @@ func TestNew_RefusesToPublishAKeyThatIsNotAUsableJWK(t *testing.T) {
 		})
 	}
 }
+
+func TestValidate_AKeyThisImplementationCannotUseDoesNotBlockTheOthers(t *testing.T) {
+	const leaf = model.EntityIdentifier("https://leaf.example.com")
+
+	tests := []struct {
+		name      string
+		reference string
+		spare     map[string]any
+		expectErr string
+	}{
+		{
+			name:      "a key type this implementation does not support",
+			reference: "RFC 7517 4.1",
+			spare:     map[string]any{"kid": "pq", "kty": "AKP", "pub": "AQAB"},
+		},
+		{
+			name:      "an OKP key on a curve this implementation does not support",
+			reference: "RFC 8037 2",
+			spare:     map[string]any{"kid": "ed448", "kty": "OKP", "crv": "Ed448", "x": "AQAB"},
+		},
+		{
+			name:      "an EC key on a curve this implementation does not support",
+			reference: "RFC 7518 6.2.1.1",
+			spare:     map[string]any{"kid": "p521", "kty": "EC", "crv": "P-521", "x": "AQAB", "y": "AQAB"},
+		},
+		{
+			name:      "a symmetric key, which has no place in a published set",
+			reference: "RFC 7518 6.4",
+			spare:     map[string]any{"kid": "oct", "kty": "oct", "k": "AQAB"},
+		},
+		{
+			name:      "a key carrying members this implementation does not know",
+			reference: "RFC 7517 4",
+			spare:     map[string]any{"kid": "future", "kty": "RSA", "n": "AQAB", "e": "AQAB", "unknown_member": map[string]any{"nested": []any{1, 2, 3}}},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("[%s] a key this implementation cannot use panicked the parse: %v", tc.reference, r)
+				}
+			}()
+
+			signingKey := headerJwkKey(t)
+			body := map[string]any{
+				"iss":      string(leaf),
+				"sub":      string(leaf),
+				"iat":      time.Now().Unix(),
+				"exp":      time.Now().Add(time.Hour).Unix(),
+				"jwks":     map[string]any{"keys": []any{tc.spare, headerJwkPublicJwk(t, signingKey.Public(), "leaf")}},
+				"metadata": map[string]any{},
+			}
+			token, err := jwt.New(signingKey, map[string]any{"kid": "leaf", "alg": "RS256", "typ": "entity-statement+jwt"}, body, jwt.Opts{Algorithm: josemodel.RS256})
+			if err != nil {
+				t.Fatalf("failed to sign: %v", err)
+			}
+
+			statement, err := Validate(context.Background(), model.Configuration{}, leaf, *token)
+			if tc.expectErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.expectErr) {
+					t.Fatalf("[%s] expected an error naming %s, got %v", tc.reference, tc.expectErr, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("[%s] a key this implementation cannot use must not refuse the statement its own signing key verifies, got %v", tc.reference, err)
+			}
+			if len(statement.JWKs.Keys) != 2 {
+				t.Errorf("[%s] expected both keys to be carried through, got %d", tc.reference, len(statement.JWKs.Keys))
+			}
+		})
+	}
+}
+
+func TestValidate_AStatementSignedWithAKeyThisImplementationCannotUseIsRefusedCleanly(t *testing.T) {
+	const leaf = model.EntityIdentifier("https://leaf.example.com")
+
+	tests := []struct {
+		name      string
+		reference string
+		signing   map[string]any
+	}{
+		{name: "an unsupported key type", reference: "RFC 7517 4.1", signing: map[string]any{"kid": "leaf", "kty": "AKP", "pub": "AQAB"}},
+		{name: "an unsupported EC curve", reference: "RFC 7518 6.2.1.1", signing: map[string]any{"kid": "leaf", "kty": "EC", "crv": "P-521", "x": "AQAB", "y": "AQAB"}},
+		{name: "a symmetric key", reference: "RFC 7518 6.4", signing: map[string]any{"kid": "leaf", "kty": "oct", "k": "AQAB"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("[%s] a key this implementation cannot use panicked verification: %v", tc.reference, r)
+				}
+			}()
+
+			signingKey := headerJwkKey(t)
+			body := map[string]any{
+				"iss":      string(leaf),
+				"sub":      string(leaf),
+				"iat":      time.Now().Unix(),
+				"exp":      time.Now().Add(time.Hour).Unix(),
+				"jwks":     map[string]any{"keys": []any{tc.signing}},
+				"metadata": map[string]any{},
+			}
+			token, err := jwt.New(signingKey, map[string]any{"kid": "leaf", "alg": "RS256", "typ": "entity-statement+jwt"}, body, jwt.Opts{Algorithm: josemodel.RS256})
+			if err != nil {
+				t.Fatalf("failed to sign: %v", err)
+			}
+
+			if _, err := Validate(context.Background(), model.Configuration{}, leaf, *token); err == nil {
+				t.Fatalf("[%s] a signature this implementation cannot check must be refused", tc.reference)
+			}
+		})
+	}
+}

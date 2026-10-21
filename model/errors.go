@@ -13,6 +13,7 @@ var (
 	ErrInvalidTrustAnchor     = errors.New("")
 	ErrInvalidTrustChain      = errors.New("")
 	ErrInvalidMetadata        = errors.New("")
+	ErrLimitReached           = errors.New("")
 	ErrNotFound               = errors.New("")
 	ErrPageNotFound           = errors.New("")
 	ErrServerError            = errors.New("")
@@ -61,6 +62,10 @@ func NewInvalidTrustChainError(msg string) error {
 
 func NewInvalidMetadataError(msg string) error {
 	return fmt.Errorf("%w%s", ErrInvalidMetadata, msg)
+}
+
+func NewLimitReachedError(msg string) error {
+	return fmt.Errorf("%w%w%s", ErrInvalidTrustAnchor, ErrLimitReached, msg)
 }
 
 func NewNotFoundError(msg string) error {

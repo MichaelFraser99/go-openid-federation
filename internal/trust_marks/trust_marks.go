@@ -171,7 +171,7 @@ func issuerFederationKeys(ctx context.Context, cfg model.Configuration, issuer m
 
 		_, parsedChain, _, err := trust_chain.BuildTrustChain(ctx, cfg, issuer, opts.TrustAnchor, cache)
 		if err != nil {
-			return nil, fmt.Errorf("unable to establish trust in trust mark issuer %s through trust anchor %s: %s", issuer, opts.TrustAnchor, err.Error())
+			return nil, fmt.Errorf("unable to establish trust in trust mark issuer %s through trust anchor %s: %w", issuer, opts.TrustAnchor, err)
 		}
 		jwks := parsedChain[0].JWKs
 		return &jwks, nil
@@ -258,7 +258,12 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 	selectedKey, err := entity_statement.SelectKey(*issuerKeys, kid)
 	if err != nil {
 		cfg.LogError(ctx, "trust mark kid does not match a key published for the issuer", slog.String("kid", kid), slog.String("issuer", string(*parsedIssuer)), slog.String("error", err.Error()))
-		return nil, fmt.Errorf("trust mark 'kid' %q does not match a federation entity key published by issuer %s: %s", kid, *parsedIssuer, err.Error())
+		return nil, fmt.Errorf("trust mark 'kid' %q does not match a federation entity key published by issuer %s: %s", model.TruncateForResponse(kid), *parsedIssuer, err.Error())
+	}
+
+	if err = entity_statement.VerifyKeyAlgorithm(trustMark, selectedKey); err != nil {
+		cfg.LogError(ctx, "trust mark algorithm does not match the key published for the issuer", slog.String("kid", kid), slog.String("issuer", string(*parsedIssuer)), slog.String("error", err.Error()))
+		return nil, fmt.Errorf("the key named by the trust mark 'kid' %q %s", model.TruncateForResponse(kid), err.Error())
 	}
 
 	head, _, err := jwt.Validate(trustMark, func() ([]crypto.PublicKey, error) {

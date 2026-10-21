@@ -178,13 +178,13 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			name:      "jwks with no keys member",
 			step:      "3.2 step 9",
 			claims:    `"jwks":{}`,
-			expectErr: "missing required 'keys' member",
+			expectErr: "is missing the required 'keys' member",
 		},
 		{
 			name:      "jwks with a null keys member",
 			step:      "3.2 step 9",
 			claims:    `"jwks":{"keys":null}`,
-			expectErr: "'keys' must be an array",
+			expectErr: "has a 'keys' member that is not an array",
 		},
 		{
 			name:      "jwks that is not an object",
@@ -418,13 +418,13 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			name:      "trust_mark_owners entry whose jwks has no keys",
 			step:      "3.2 step 22",
 			claims:    `"trust_mark_owners":{"https://tm.example.com/a":{"sub":"https://o.example.com","jwks":{}}}`,
-			expectErr: "no 'keys' array",
+			expectErr: "is missing the required 'keys' member",
 		},
 		{
 			name:      "trust_mark_owners entry whose jwks keys is not an array",
 			step:      "3.2 step 22",
 			claims:    `"trust_mark_owners":{"https://tm.example.com/a":{"sub":"https://o.example.com","jwks":{"keys":"x"}}}`,
-			expectErr: "whose 'keys' is not an array",
+			expectErr: "has a 'keys' member that is not an array",
 		},
 		{
 			name:   "a valid trust_mark_owners entry with extra members is kept",
@@ -501,7 +501,7 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			name:      "trust_mark_owners entry whose jwks is not an object",
 			step:      "3.2 step 22",
 			claims:    `"trust_mark_owners":{"https://tm.example.com/a":{"sub":"https://o.example.com","jwks":"not an object"}}`,
-			expectErr: "malformed 'jwks' member",
+			expectErr: "'jwks' member that must be a JSON object",
 		},
 		{
 			name:      "iat at the representable boundary",
@@ -559,6 +559,65 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			}
 			if tc.expectClass != nil && !errors.Is(err, tc.expectClass) {
 				t.Fatalf("[%s] expected the error to carry the %T class, got %v", tc.step, tc.expectClass, err)
+			}
+		})
+	}
+}
+
+func TestEntityStatement_RepeatedHintsAreReadOnce(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference string
+		claim     string
+		hints     string
+		expect    int
+	}{
+		{
+			name:      "authority_hints repeating one identifier",
+			reference: "3.1",
+			claim:     "authority_hints",
+			hints:     `["https://a.example.com","https://a.example.com","https://a.example.com"]`,
+			expect:    1,
+		},
+		{
+			name:      "authority_hints with distinct identifiers",
+			reference: "3.1",
+			claim:     "authority_hints",
+			hints:     `["https://a.example.com","https://b.example.com"]`,
+			expect:    2,
+		},
+		{
+			name:      "authority_hints repeating one of several",
+			reference: "3.1",
+			claim:     "authority_hints",
+			hints:     `["https://a.example.com","https://b.example.com","https://a.example.com"]`,
+			expect:    2,
+		},
+		{
+			name:      "trust_anchor_hints repeating one identifier",
+			reference: "3.1",
+			claim:     "trust_anchor_hints",
+			hints:     `["https://ta.example.com","https://ta.example.com"]`,
+			expect:    1,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			body := fmt.Sprintf(`{"iss":"https://leaf.example.com","sub":"https://leaf.example.com","iat":%d,"exp":%d,"jwks":{"keys":[{"kid":"a","kty":"RSA","n":"AQAB","e":"AQAB"}]},%q:%s}`,
+				time.Now().Unix(), time.Now().Add(time.Hour).Unix(), tc.claim, tc.hints)
+
+			var statement EntityStatement
+			if err := json.Unmarshal([]byte(body), &statement); err != nil {
+				t.Fatalf("[%s] expected the statement to be accepted, got %v", tc.reference, err)
+			}
+
+			got := len(statement.AuthorityHints)
+			if tc.claim == "trust_anchor_hints" {
+				got = len(statement.TrustAnchorHints)
+			}
+			if got != tc.expect {
+				t.Errorf("[%s] expected %d distinct identifiers, got %d", tc.reference, tc.expect, got)
 			}
 		})
 	}

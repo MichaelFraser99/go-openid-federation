@@ -27,6 +27,11 @@ func Retrieve(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 		return signed, statement, nil
 	}
 
+	if fetched := cache.RecordFetch(); fetched > cfg.EntitiesTraversedLimit() {
+		cfg.LogError(ctx, "reached the maximum number of entity configurations one request may fetch", slog.String("subject", string(entityIdentifier)), slog.Int("fetched", fetched), slog.Int("max_entities", cfg.EntitiesTraversedLimit()))
+		return nil, nil, model.NewLimitReachedError("the resolver reached the maximum number of entity configurations it may fetch for one request")
+	}
+
 	signed, statement, err := fetch(ctx, cfg, entityIdentifier)
 	if err != nil {
 		return nil, nil, err
@@ -134,21 +139,9 @@ func validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 		return nil, fmt.Errorf("missing required body claim 'jwks'")
 	}
 
-	var jwksMap map[string]any
-	jwksMap, ok = jwks.(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("'jwks' is malformed")
-	}
-
-	jwksBytes, err := json.Marshal(jwksMap)
+	parsedJwks, err := model.ParseFederationEntityKeys(jwks)
 	if err != nil {
-		return nil, fmt.Errorf("failed to serialize 'jwks' claim: %s", err.Error())
-	}
-
-	var parsedJwks josemodel.Jwks
-	err = json.Unmarshal(jwksBytes, &parsedJwks)
-	if err != nil {
-		return nil, fmt.Errorf("invalid 'jwks' claim format: %s", err.Error())
+		return nil, fmt.Errorf("the 'jwks' claim %s", err.Error())
 	}
 
 	if err = entity_statement.VerifyAgainstJwks(entityConfigurationJwt, sKid, parsedJwks); err != nil {
@@ -272,6 +265,9 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 		if _, duplicate := seen[sKid]; duplicate {
 			return nil, fmt.Errorf("all provided jwk values in entity cfg must have unique `kid` claims - %q appears more than once", sKid)
 		}
+		if err := model.ValidateJWKShape(key); err != nil {
+			return nil, fmt.Errorf("the provided jwk value with key ID %q %s", model.TruncateForResponse(sKid), err.Error())
+		}
 		seen[sKid] = struct{}{}
 		jwks.Keys = append(jwks.Keys, key)
 	}
@@ -366,7 +362,7 @@ type publicKeyComparer interface {
 }
 
 func publishedKeyUsableForSigning(existing, intended map[string]any, signerPublicKey crypto.PublicKey) error {
-	if err := entity_statement.ValidateJWKShape(existing); err != nil {
+	if err := model.ValidateJWKShape(existing); err != nil {
 		return err
 	}
 

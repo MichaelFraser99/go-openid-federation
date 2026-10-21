@@ -146,7 +146,7 @@ func FilterByTrusted(ctx context.Context, cfg model.Configuration, resolved *mod
 		if errors.Is(err, errTooManyTrustMarkIssuers) {
 			cfg.LogError(ctx, "subject presents trust marks from more distinct issuers than the configured limit", slog.Int("limit", limit), slog.String("subject", string(resolved.Sub)))
 			resolved.TrustMarks = nil
-			return model.NewInvalidSubjectError(fmt.Sprintf("the subject presents trust marks from more than %d distinct issuers, which is more than this resolver will verify", limit))
+			return fmt.Errorf("%w%w%s", model.ErrInvalidSubject, model.ErrLimitReached, fmt.Sprintf("the subject presents trust marks from more than %d distinct issuers, which is more than this resolver will verify", limit))
 		}
 		if err != nil {
 			cfg.LogInfo(ctx, "failed to validate trust mark", slog.String("trust_mark_type", model.TruncateForResponse(tm.TrustMarkType)), slog.String("error", model.TruncateForResponse(err.Error())))
@@ -180,7 +180,7 @@ func issuerFederationKeys(ctx context.Context, cfg model.Configuration, issuer m
 
 // todo: validate the delegation claim against trust_mark_owners
 func Validate(ctx context.Context, cfg model.Configuration, trustMark string, opts ValidateOptions, cache *resolvecache.Cache) (*model.TrustMark, error) {
-	cfg.LogInfo(ctx, "validating trust mark", slog.String("trust_mark", trustMark))
+	cfg.LogInfo(ctx, "validating trust mark", slog.String("trust_mark", model.TruncateForResponse(trustMark)))
 
 	if opts.ExpectedType == "" {
 		return nil, fmt.Errorf("an expected trust mark type must be supplied to validate a trust mark")
@@ -191,13 +191,13 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 
 	parts := strings.Split(trustMark, ".")
 	if len(parts) != 3 {
-		cfg.LogError(ctx, "invalid JWT structure", slog.String("trust_mark", trustMark), slog.Int("parts_count", len(parts)))
+		cfg.LogError(ctx, "invalid JWT structure", slog.String("trust_mark", model.TruncateForResponse(trustMark)), slog.Int("parts_count", len(parts)))
 		return nil, fmt.Errorf("invalid JWT structure")
 	}
 
 	headBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
-		cfg.LogError(ctx, "failed to decode JWT header", slog.String("error", err.Error()), slog.String("trust_mark", trustMark))
+		cfg.LogError(ctx, "failed to decode JWT header", slog.String("error", err.Error()), slog.String("trust_mark", model.TruncateForResponse(trustMark)))
 		return nil, fmt.Errorf("failed to decode JWT header: %v", err)
 	}
 	var headMap map[string]any
@@ -214,7 +214,7 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 
 	bodyBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		cfg.LogError(ctx, "failed to decode JWT body", slog.String("error", err.Error()), slog.String("trust_mark", trustMark))
+		cfg.LogError(ctx, "failed to decode JWT body", slog.String("error", err.Error()), slog.String("trust_mark", model.TruncateForResponse(trustMark)))
 		return nil, fmt.Errorf("failed to decode JWT body: %v", err)
 	}
 	var body model.TrustMark
@@ -224,7 +224,7 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 	}
 
 	if body.Issuer == "" {
-		cfg.LogError(ctx, "trust mark issuer is missing", slog.String("trust_mark", trustMark))
+		cfg.LogError(ctx, "trust mark issuer is missing", slog.String("trust_mark", model.TruncateForResponse(trustMark)))
 		return nil, fmt.Errorf("trust mark issuer is missing")
 	}
 
@@ -277,7 +277,7 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 		UseTokenProvidedKeys: false,
 	})
 	if err != nil {
-		cfg.LogError(ctx, "failed to validate trust mark", slog.String("error", err.Error()), slog.String("trust_mark", trustMark))
+		cfg.LogError(ctx, "failed to validate trust mark", slog.String("error", err.Error()), slog.String("trust_mark", model.TruncateForResponse(trustMark)))
 		return nil, fmt.Errorf("failed to validate trust mark: %v", err)
 	}
 

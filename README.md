@@ -595,11 +595,22 @@ if errors.Is(err, model.ErrInvalidTrustAnchor) {
 | `ErrUnsupportedParameter` | `unsupported_parameter` | 400 |
 | `ErrServerError` | `server_error` | 500 |
 
-`ErrLimitReached` carries no code of its own: it accompanies `ErrInvalidTrustAnchor`, so a walk refused by a configured bound answers 404 `invalid_trust_anchor` and a consumer can still tell the two apart with `errors.Is`.
+`ErrLimitReached` carries no code of its own: it accompanies the class the bound belongs to, so a walk refused by a configured bound answers 404 `invalid_trust_anchor` and a subject presenting more trust mark issuers than the bound answers 404 `invalid_subject`. A consumer tells a bound from the condition it shares a code with using `errors.Is`.
 
 Errors are returned to callers as a JSON object with `error` and `error_description`.
 
-A condition a peer or a caller caused is never a `server_error`. A peer that cannot be reached right now answers `temporarily_unavailable`, so a caller knows the answer may differ on a retry; a statement that was retrieved and then failed validation answers `invalid_trust_chain`, which will not. The description a caller receives carries no text this server was given by a peer: a peer's error, a URL a peer published, or a value from a peer's statement. The detail goes to the log instead, so an operator can still tell one fetch failure from another while a caller cannot read a third party's internals out of a response. `server_error` is left for this server's own faults, such as a signer it cannot use or a retriever that failed for a reason it does not classify.
+**A condition a peer or a caller caused is never a `server_error`.** `server_error` is left for this server's own faults, such as a signer it cannot use or a retriever that failed for a reason it does not classify.
+
+`temporarily_unavailable` means **this** server, and nothing else. Section 8.9 defines it as "The server hosting the federation endpoint is currently unable to handle the request due to temporary overloading or maintenance", and the server hosting the endpoint being requested is this one. So it answers only where this server did not complete its own request — its context deadline or a cancellation. It is deliberately not used for a peer this server could not reach: that peer is not hosting the endpoint the caller asked for.
+
+Everything a peer does wrong on the subordinate statement fetch path therefore answers 400 `invalid_trust_chain` — unreachable, a 503 or a 429 of its own, a truncated body, the wrong content type, an oversized response, or a statement that fails validation. The class says what failed, which is that the chain could not be validated. Section 10.5 notes a retry may still help while a federation's topology is being updated, so this is not a claim that the answer is permanent.
+
+Two exceptions worth knowing, rather than inferring from the above:
+
+- **The entity configuration path classifies by hop, not by fault.** An entity configuration this server cannot fetch answers 404 — `not_found` for the subject, `invalid_trust_anchor` for an entity further up — because at that point the walk has not found the entity rather than failed to validate a statement. So one unreachable peer answers 404 at its entity configuration and 400 at its fetch endpoint.
+- **A transport error that already carries a class keeps it.** A consumer whose `HttpClient` refuses a destination by policy can wrap any federation sentinel, and `model.ClassifiedError` lets that class survive rather than being flattened.
+
+The description a caller receives carries no text this server was given by a peer: a peer's error, a URL a peer published, a value from a peer's statement, or a key a superior registered. The detail goes to the log instead, so an operator can still tell one fetch failure from another while a caller cannot read a third party's internals out of a response. What a peer chooses is bounded before it reaches a log, so a peer cannot turn one request into megabytes of records.
 
 ## Extensions
 

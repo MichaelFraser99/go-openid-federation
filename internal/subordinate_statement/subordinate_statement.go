@@ -43,20 +43,26 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 		}
 	}(), url.QueryEscape(string(subject))), nil)
 	if err != nil {
-		cfg.LogInfo(ctx, "the issuer's federation fetch endpoint is not a usable url", slog.String("issuer", string(issuer.Sub)), slog.String("error", err.Error()))
+		cfg.LogInfo(ctx, "the issuer's federation fetch endpoint is not a usable url", slog.String("issuer", string(issuer.Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
 		return nil, nil, model.NewInvalidTrustChainError("the issuer's federation fetch endpoint is not a usable url")
 	}
 	request.Header.Set("Accept", "application/entity-statement+jwt")
 
 	response, err := cfg.HttpClient.Do(request)
 	if err != nil {
-		cfg.LogInfo(ctx, "failed to reach the issuer's federation fetch endpoint", slog.String("issuer", string(issuer.Sub)), slog.String("error", err.Error()))
-		return nil, nil, model.NewTemporarilyUnavailableError("failed to reach the issuer's federation fetch endpoint")
+		cfg.LogInfo(ctx, "failed to reach the issuer's federation fetch endpoint", slog.String("issuer", string(issuer.Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, nil, fmt.Errorf("%w%s: %w", model.ErrTemporarilyUnavailable, "this server did not complete the request", ctxErr)
+		}
+		if classified := model.ClassifiedError(err); classified != nil {
+			return nil, nil, classified
+		}
+		return nil, nil, model.NewInvalidTrustChainError("failed to reach the issuer's federation fetch endpoint")
 	}
 	defer response.Body.Close() //nolint:errcheck
 
 	if response.StatusCode != http.StatusOK {
-		cfg.LogInfo(ctx, "non-200 response from the issuer's federation fetch endpoint", slog.String("issuer", string(issuer.Sub)), slog.String("status", response.Status))
+		cfg.LogInfo(ctx, "non-200 response from the issuer's federation fetch endpoint", slog.String("issuer", string(issuer.Sub)), slog.String("status", model.TruncateForResponse(response.Status)))
 		return nil, nil, model.NewInvalidTrustChainError("non-200 response from the issuer's federation fetch endpoint")
 	}
 
@@ -68,8 +74,11 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 	limit := cfg.PeerResponseLimit()
 	responseBytes, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
 	if err != nil {
-		cfg.LogInfo(ctx, "failed to read the issuer's federation fetch response body", slog.String("issuer", string(issuer.Sub)), slog.String("error", err.Error()))
-		return nil, nil, model.NewTemporarilyUnavailableError("failed to read the issuer's federation fetch response body")
+		cfg.LogInfo(ctx, "failed to read the issuer's federation fetch response body", slog.String("issuer", string(issuer.Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, nil, fmt.Errorf("%w%s: %w", model.ErrTemporarilyUnavailable, "this server did not complete the request", ctxErr)
+		}
+		return nil, nil, model.NewInvalidTrustChainError("failed to read the issuer's federation fetch response body")
 	}
 	if int64(len(responseBytes)) > limit {
 		cfg.LogInfo(ctx, "the issuer's federation fetch response exceeded the response limit", slog.String("issuer", string(issuer.Sub)), slog.Int64("limit", limit))

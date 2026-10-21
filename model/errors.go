@@ -87,3 +87,17 @@ func NewTemporarilyUnavailableError(msg string) error {
 func NewUnsupportedParameterError(msg string) error {
 	return fmt.Errorf("%w%s", ErrUnsupportedParameter, msg)
 }
+
+func ClassifiedError(err error) error {
+	for _, sentinel := range []error{
+		ErrInvalidRequest, ErrInvalidClient, ErrInvalidIssuer, ErrInvalidSubject,
+		ErrInvalidTrustAnchor, ErrInvalidTrustChain, ErrInvalidMetadata,
+		ErrNotFound, ErrPageNotFound, ErrServerError, ErrTemporarilyUnavailable,
+		ErrUnsupportedParameter,
+	} {
+		if errors.Is(err, sentinel) {
+			return err
+		}
+	}
+	return nil
+}

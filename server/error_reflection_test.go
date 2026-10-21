@@ -243,8 +243,7 @@ func TestServer_Resolve_DoesNotReflectSubordinateStatementFetchDetail(t *testing
 	}{
 		{
 			name:      "a fetch endpoint that refuses the connection",
-			transient: true,
-			reference: "8.9 temporarily_unavailable",
+			reference: "8.9 invalid_trust_chain",
 			metadata: func(string) map[string]any {
 				return federationFetchEndpointMetadata("https://127.0.0.1:1/" + peerFetchMarker)
 			},

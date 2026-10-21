@@ -71,9 +71,9 @@ func TestRetrieve_ClassifiesWhoseFaultTheFailureIs(t *testing.T) {
 			forbidden:  []string{retrieveMarker},
 		},
 		"a fetch endpoint that cannot be reached": {
-			reference:  "8.9 temporarily_unavailable",
+			reference:  "8.9 invalid_trust_chain",
 			endpoint:   func(string) any { return "https://127.0.0.1:1/" + retrieveMarker },
-			expectKind: model.ErrTemporarilyUnavailable,
+			expectKind: model.ErrInvalidTrustChain,
 			forbidden:  []string{retrieveMarker, "127.0.0.1:1", "connection refused"},
 		},
 		"a fetch endpoint that answers a non-200": {
@@ -97,10 +97,10 @@ func TestRetrieve_ClassifiesWhoseFaultTheFailureIs(t *testing.T) {
 				},
 			},
 			expectKind: model.ErrInvalidTrustChain,
-			forbidden:  []string{retrieveMarker},
+			forbidden:  []string{retrieveMarker, "127.0.0.1"},
 		},
 		"a fetch endpoint that cuts the response short": {
-			reference: "8.9 temporarily_unavailable",
+			reference: "8.9 invalid_trust_chain",
 			response: &peerResponse{
 				handler: func(w http.ResponseWriter, _ *http.Request) {
 					w.Header().Set("Content-Type", "application/entity-statement+jwt")
@@ -111,7 +111,7 @@ func TestRetrieve_ClassifiesWhoseFaultTheFailureIs(t *testing.T) {
 					panic(http.ErrAbortHandler)
 				},
 			},
-			expectKind: model.ErrTemporarilyUnavailable,
+			expectKind: model.ErrInvalidTrustChain,
 			forbidden:  []string{retrieveMarker, "unexpected EOF"},
 		},
 		"a fetch endpoint that answers a statement about another subject": {

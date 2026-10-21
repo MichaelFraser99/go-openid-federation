@@ -233,15 +233,13 @@ func TestBuildTrustChain_ALimitRefusalIsNotReportedAsAnUnreachableTrustAnchor(t 
 			if !errors.Is(err, model.ErrLimitReached) {
 				t.Errorf("expected the refusal to say a resolver limit was reached, got %v", err)
 			}
-			if !errors.Is(err, model.ErrTemporarilyUnavailable) {
-				t.Errorf("expected a resolver limit to be reported as a walk that did not complete, got %v", err)
+			if !errors.Is(err, model.ErrInvalidTrustAnchor) {
+				t.Errorf("expected a resolver limit to answer the code for a trust anchor that cannot be used, got %v", err)
 			}
-			if errors.Is(err, model.ErrServerError) {
-				t.Error("a bound refusing a graph the caller named is not a fault of this server")
+			if errors.Is(err, model.ErrServerError) || errors.Is(err, model.ErrTemporarilyUnavailable) {
+				t.Error("a bound refusing a graph the caller named is neither a fault of this server nor a temporary condition")
 			}
-			if errors.Is(err, model.ErrInvalidTrustAnchor) {
-				t.Error("a resolver limit must not be reported as an unrecognised trust anchor")
-			}
+
 		})
 	}
 }
@@ -311,7 +309,7 @@ func TestBuildTrustChain_TheDepthBoundAppliesWithoutConfiguration(t *testing.T) 
 
 func TestBuildTrustChain_TheFetchBoundAppliesWithoutConfiguration(t *testing.T) {
 	var fetches atomic.Int64
-	srv := countingHintGraph(t, sharedDeadEndGraph(300, false), &fetches)
+	srv := countingHintGraph(t, sharedDeadEndGraph(model.DefaultMaxEntitiesTraversed, false), &fetches)
 	cfg := model.Configuration{HttpClient: srv.Client()}
 
 	_, _, _, err := BuildTrustChain(t.Context(), cfg, model.EntityIdentifier(srv.URL+"/subject"), model.EntityIdentifier(srv.URL+"/ta"), resolvecache.New())
@@ -323,5 +321,45 @@ func TestBuildTrustChain_TheFetchBoundAppliesWithoutConfiguration(t *testing.T) 
 	}
 	if got := fetches.Load(); got != int64(model.DefaultMaxEntitiesTraversed) {
 		t.Errorf("expected the default bound to stop the walk after %d fetches, it made %d", model.DefaultMaxEntitiesTraversed, got)
+	}
+}
+
+func cliqueBeforeAValidRoute(size int) map[string][]string {
+	names := make([]string, size)
+	for i := range names {
+		names[i] = fmt.Sprintf("c%d", i)
+	}
+	hints := map[string][]string{"ta": nil, "i": {"ta"}}
+	for _, node := range names {
+		others := []string{"leaf"}
+		for _, other := range names {
+			if other != node {
+				others = append(others, other)
+			}
+		}
+		hints[node] = others
+	}
+	hints["leaf"] = append(append([]string{}, names...), "i")
+	return hints
+}
+
+func TestChainUpOne_ACliqueInFrontOfAValidRouteDoesNotExhaustTheStepBound(t *testing.T) {
+	tests := []int{6, 8, 9}
+
+	for _, size := range tests {
+		t.Run(fmt.Sprintf("a clique of %d before the valid route", size), func(t *testing.T) {
+			var fetches atomic.Int64
+			srv := countingHintGraph(t, cliqueBeforeAValidRoute(size), &fetches)
+			cfg := model.Configuration{HttpClient: srv.Client()}
+			cache := resolvecache.New()
+
+			_, route, _, err := ChainUpOne(t.Context(), cfg, model.EntityIdentifier(srv.URL+"/leaf"), model.EntityIdentifier(srv.URL+"/ta"), nil, nil, nil, cache)
+			if err != nil || len(route) != 3 {
+				t.Fatalf("expected the chain leaf -> i -> ta past the clique, got %d entries, err %v", len(route), err)
+			}
+			if steps := cache.Traversed(); steps > 20*size {
+				t.Errorf("a clique of %d cost %d steps, so its verdicts are not being reused within the walk", size, steps)
+			}
+		})
 	}
 }

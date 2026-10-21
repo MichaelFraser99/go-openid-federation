@@ -56,7 +56,7 @@ const DefaultMaxTrustMarkIssuers = 64
 
 const (
 	DefaultMaxTrustChainDepth   = 10
-	DefaultMaxEntitiesTraversed = 256
+	DefaultMaxEntitiesTraversed = 1024
 )
 
 func (cfg *Configuration) TrustChainDepthLimit() int {
@@ -378,6 +378,7 @@ func parseEntityIdentifierArray(claim string, value any) ([]EntityIdentifier, er
 		return nil, fmt.Errorf("'%s' claim must not be the empty array", claim)
 	}
 	parsed := make([]EntityIdentifier, 0, len(entries))
+	seen := make(map[EntityIdentifier]struct{}, len(entries))
 	for _, entry := range entries {
 		sEntry, ok := entry.(string)
 		if !ok {
@@ -387,6 +388,10 @@ func parseEntityIdentifierArray(claim string, value any) ([]EntityIdentifier, er
 		if err != nil {
 			return nil, fmt.Errorf("'%s' claim contains invalid entity identifier: %s", claim, err.Error())
 		}
+		if _, repeated := seen[*entityIdentifier]; repeated {
+			continue
+		}
+		seen[*entityIdentifier] = struct{}{}
 		parsed = append(parsed, *entityIdentifier)
 	}
 	return parsed, nil

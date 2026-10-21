@@ -65,7 +65,7 @@ func NewInvalidMetadataError(msg string) error {
 }
 
 func NewLimitReachedError(msg string) error {
-	return fmt.Errorf("%w%w%s", ErrTemporarilyUnavailable, ErrLimitReached, msg)
+	return fmt.Errorf("%w%w%s", ErrInvalidTrustAnchor, ErrLimitReached, msg)
 }
 
 func NewNotFoundError(msg string) error {

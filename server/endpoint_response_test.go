@@ -723,8 +723,8 @@ func TestErrorStatusAndCode_AResolverLimitIsNotAServerFault(t *testing.T) {
 		{
 			name:       "a limit the resolver reached while walking",
 			err:        model.NewLimitReachedError("the resolver reached the maximum trust chain depth before a trust anchor"),
-			wantStatus: http.StatusServiceUnavailable,
-			wantCode:   model.TemporarilyUnavailable,
+			wantStatus: http.StatusNotFound,
+			wantCode:   model.InvalidTrustAnchor,
 		},
 		{
 			name:       "an unreachable trust anchor",

@@ -22,7 +22,7 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 		return nil, nil, nil, fmt.Errorf("target leaf entity identifier must not match target trust anchor entity identifier")
 	}
 
-	signedRoute, route, _, err := ChainUpOne(ctx, cfg, targetLeafEntityIdentifier, targetTrustAnchorEntityIdentifier, []model.EntityIdentifier{}, []model.EntityStatement{}, []string{}, cache)
+	signedRoute, route, _, err := chainUpOne(ctx, cfg, targetLeafEntityIdentifier, targetTrustAnchorEntityIdentifier, []model.EntityIdentifier{}, []model.EntityStatement{}, []string{}, cache, newWalkMemo())
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -96,6 +96,38 @@ func deadEndKey(subject, target model.EntityIdentifier) DeadEnd {
 	return DeadEnd{Subject: subject, Target: target}
 }
 
+type walkKey struct {
+	subject   model.EntityIdentifier
+	target    model.EntityIdentifier
+	remaining int
+}
+
+type walkMemo struct {
+	entries map[walkKey]bool
+}
+
+func newWalkMemo() *walkMemo {
+	return &walkMemo{entries: map[walkKey]bool{}}
+}
+
+func (m *walkMemo) lookup(key walkKey) (bool, bool) {
+	if m == nil {
+		return false, false
+	}
+	tainted, known := m.entries[key]
+	return tainted, known
+}
+
+func (m *walkMemo) record(key walkKey, tainted bool) {
+	if m == nil {
+		return
+	}
+	if existing, known := m.entries[key]; known && !existing {
+		return
+	}
+	m.entries[key] = tainted
+}
+
 func visitLimit(cfg model.Configuration) int {
 	depth := cfg.TrustChainDepthLimit()
 	entities := cfg.EntitiesTraversedLimit()
@@ -106,6 +138,10 @@ func visitLimit(cfg model.Configuration) int {
 }
 
 func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target model.EntityIdentifier, checked []model.EntityIdentifier, path []model.EntityStatement, signedPath []string, cache *resolvecache.Cache) ([]string, []model.EntityStatement, bool, error) {
+	return chainUpOne(ctx, cfg, subject, target, checked, path, signedPath, cache, newWalkMemo())
+}
+
+func chainUpOne(ctx context.Context, cfg model.Configuration, subject, target model.EntityIdentifier, checked []model.EntityIdentifier, path []model.EntityStatement, signedPath []string, cache *resolvecache.Cache, walk *walkMemo) ([]string, []model.EntityStatement, bool, error) {
 	cfg.LogInfo(ctx, "walking trust chain", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Any("checked", checked), slog.Any("path", path), slog.Any("signed_path", signedPath))
 
 	if cache == nil {
@@ -128,6 +164,12 @@ func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 		return signedPath, path, false, model.NewInvalidTrustAnchorError("unable to build trust chain from specified 'sub' to specified 'trust_anchor'")
 	}
 
+	subjectWalkKey := walkKey{subject: subject, target: target, remaining: cfg.TrustChainDepthLimit() - len(path)}
+	if tainted, known := walk.lookup(subjectWalkKey); known {
+		cfg.LogInfo(ctx, "skipping entity this walk has already found no route from", slog.String("subject", string(subject)), slog.String("target", string(target)))
+		return signedPath, path, tainted, model.NewInvalidTrustAnchorError("unable to build trust chain from specified 'sub' to specified 'trust_anchor'")
+	}
+
 	if visited := cache.RecordTraversal(); visited > visitLimit(cfg) {
 		cfg.LogError(ctx, "reached the maximum number of entities one request may step into", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Int("visited", visited), slog.Int("max_visits", visitLimit(cfg)))
 		return signedPath, path, true, budgetExhausted(model.NewLimitReachedError("the resolver reached the maximum number of entities it may step into for one request"))
@@ -143,6 +185,7 @@ func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 			return signedPath, path, true, budgetExhausted(err)
 		}
 		cache.RecordDeadEnd(subjectKey)
+		walk.record(subjectWalkKey, false)
 		if errors.Is(err, model.ErrInvalidMetadata) {
 			return signedPath, path, false, model.NewInvalidMetadataError(fmt.Sprintf("entity configuration for %s failed validation", subject))
 		}
@@ -183,7 +226,7 @@ func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 	for _, trustIssuer := range toCheck {
 		cfg.LogInfo(ctx, "checking authority hint", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.String("authority_hint", string(trustIssuer)))
 		var childTainted bool
-		signedPath, path, childTainted, err = ChainUpOne(ctx, cfg, trustIssuer, target, checked, path, signedPath, cache)
+		signedPath, path, childTainted, err = chainUpOne(ctx, cfg, trustIssuer, target, checked, path, signedPath, cache, walk)
 		if err == nil {
 			return signedPath, path, false, nil
 		}
@@ -197,6 +240,7 @@ func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 		tainted = tainted || childTainted
 	}
 	cfg.LogInfo(ctx, "dead end in path traversal", slog.String("subject", string(subject)), slog.String("target", string(target)), slog.Any("checked", checked), slog.Any("path", path), slog.Any("signed_path", signedPath))
+	walk.record(subjectWalkKey, tainted)
 	if !tainted {
 		cache.RecordDeadEnd(subjectKey)
 	}

@@ -243,19 +243,29 @@ When the library resolves a trust chain, it follows federation endpoints derived
 | Limit | Default | Applies to |
 |---|---|---|
 | `Configuration.MaxPeerResponseBytes` | `model.DefaultMaxPeerResponseBytes`, 1 MiB | The body of any response fetched from a peer |
-| `Configuration.MaxTrustChainDepth` | `model.DefaultMaxTrustChainDepth` | Entities on one path from the leaf to a trust anchor |
-| `Configuration.MaxEntitiesTraversed` | `model.DefaultMaxEntitiesTraversed`, 256 | Entity configurations one request may fetch while walking `authority_hints`, across every chain it builds |
+| `Configuration.MaxTrustChainDepth` | `model.DefaultMaxTrustChainDepth`, 10 | Entities on one path from the leaf to a trust anchor |
+| `Configuration.MaxEntitiesTraversed` | `model.DefaultMaxEntitiesTraversed`, 1024 | Entity configurations one request may fetch while walking `authority_hints`, across every chain it builds |
 | `Configuration.MaxTrustMarkIssuers` | `model.DefaultMaxTrustMarkIssuers` | Distinct trust mark issuers resolved for one subject |
 
-> **Breaking change.** `MaxTrustChainDepth` was unlimited by default and described as bounding the entities traversed. It bounds the length of one chain, which is a different thing, and it now defaults to 10. A federation whose legitimate chains are longer than that must raise it, or `/resolve` will refuse every subject whose chain is longer.
+> **Breaking change.** Two bounds that were absent now apply by default, and both `Server` and `Client` are subject to them.
+>
+> - `MaxTrustChainDepth` was unlimited by default and described as bounding the entities traversed. It bounds the length of one chain, which is a different thing, and it now defaults to 10. A federation whose legitimate chains are longer must raise it, or `/resolve` refuses every subject whose chain is longer.
+> - `MaxEntitiesTraversed` is new and defaults to 1024.
+> - Zero no longer means unlimited for either: it selects the default. Set a large value to restore the old behaviour.
+> - A consumer who already set `MaxTrustChainDepth` themselves gets the same 404 as before, but with a description naming the bound rather than one that reads as an unknown trust anchor.
+> - A trust mark whose issuer cannot be walked within the bounds is omitted from the response, as any unverifiable mark is. Section 8.3 requires a response to carry only verified trust marks, so the resolve still succeeds.
 
-A request may also step into at most `MaxTrustChainDepth` × `MaxEntitiesTraversed` entities. One entity is stepped into many times when several paths lead to it, and the step bound is what stops a graph of entities that all hint at each other, where no single verdict can be reused.
+A request may also step into at most `MaxTrustChainDepth` × `MaxEntitiesTraversed` entities. One entity is stepped into many times when several paths lead to it, and the step bound is the backstop for a graph that defeats the memory of dead ends described below.
 
-Reaching any of the three answers 503 `temporarily_unavailable`, with a description naming the limit. That is deliberately not the 404 `invalid_trust_anchor` a genuinely unreachable anchor produces, so an operator can tell their own bound from a federation that does not hold the subject. It is also not a `server_error`: the graph is the caller's choice and walking less of it than asked is not a fault of the server. Consumers can test for it with `errors.Is(err, model.ErrLimitReached)`.
+The default fetch bound is derived from the other two: a request may build one chain for the subject and one for each of `MaxTrustMarkIssuers` issuers, so a federation whose chains run to the full depth needs `(64 + 1) × 10 = 650` fetches before anything is wrong. Raising `MaxTrustChainDepth` or `MaxTrustMarkIssuers` without raising this one can starve the later issuer walks.
 
-The bounds and the memory of dead ends span one resolve. `Server` builds a chain for the subject and another for each distinct trust mark issuer against a single budget, so a shared graph of dead ends is walked once rather than once per issuer. `Client.BuildTrustChain` and `Client.ResolveMetadata` each start their own, so a consumer calling both gets two budgets.
+Reaching any of the three answers 404 `invalid_trust_anchor`, the code section 8.9 defines for a trust anchor that "cannot be found or used", with a description naming the bound. It is deliberately neither a `server_error` nor a `temporarily_unavailable`: the graph is the caller's choice, walking less of it than asked is not a fault of this server, and retrying gives the same answer. Consumers can separate the two cases with `errors.Is(err, model.ErrLimitReached)`. An operator reading a response body sees which bound was reached; a caller reading only the code cannot tell a bound from a genuinely unreachable anchor, which is deliberate, since the resolver does not know what lies past its own bound.
 
-A dead end is only remembered when the verdict holds for any path. Where an entity was refused because a superior it hints at was already on the path being walked, or because a bound cut the walk short, the verdict is discarded rather than reused, since another walk may reach the same entity by a path where neither applies.
+The bounds and the memory of dead ends span one resolve. `Server` builds a chain for the subject and another for each distinct trust mark issuer against a single budget, so one branch of the subject's graph can spend the budget that later issuer walks would have used. `Client.BuildTrustChain` and `Client.ResolveMetadata` each start their own, so a consumer calling both gets two budgets.
+
+An entity proven not to reach the anchor is remembered for the rest of the request only when the verdict holds for any path to it. A verdict that depended on skipping a superior already on the path being walked, or on a bound cutting the walk short, is kept for that one walk and discarded afterwards: within a walk it is sound, because a superior that could reach the anchor would have reached it before the walk gave up, but another walk may arrive by a path where neither obstacle applies. A failure to fetch an entity configuration is remembered for the whole request, so a peer that is briefly unreachable during the subject's walk stays unreachable for the trust mark issuers' walks.
+
+Subordinate statement fetches are outside both bounds. A request makes up to one per link of each chain it completes, so the bounds limit them only indirectly. See [#138](https://github.com/MichaelFraser99/go-openid-federation/issues/138).
 
 ### Retriever interfaces
 

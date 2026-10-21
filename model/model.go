@@ -344,6 +344,19 @@ type TrustMarkOwner struct {
 	AdditionalClaims map[string]any   `json:"-"`
 }
 
+func (t *TrustMarkOwner) UnmarshalJSON(data []byte) error {
+	var entry any
+	if err := json.Unmarshal(data, &entry); err != nil {
+		return err
+	}
+	parsed, err := parseTrustMarkOwners(map[string]any{"": entry})
+	if err != nil {
+		return err
+	}
+	*t = parsed[""]
+	return nil
+}
+
 func (t TrustMarkOwner) MarshalJSON() ([]byte, error) {
 	out := make(map[string]any, len(t.AdditionalClaims)+2)
 	for claim, value := range t.AdditionalClaims {
@@ -426,22 +439,9 @@ func parseTrustMarkOwners(value any) (map[string]TrustMarkOwner, error) {
 		if !present {
 			return nil, fmt.Errorf("'trust_mark_owners' entry for %q is missing the required 'jwks' member", trustMarkType)
 		}
-		jwksObject, ok := jwks.(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("'trust_mark_owners' entry for %q has a malformed 'jwks' member", trustMarkType)
-		}
-		if keys, present := jwksObject["keys"]; !present {
-			return nil, fmt.Errorf("'trust_mark_owners' entry for %q has a 'jwks' member with no 'keys' array", trustMarkType)
-		} else if _, ok := keys.([]any); !ok {
-			return nil, fmt.Errorf("'trust_mark_owners' entry for %q has a 'jwks' member whose 'keys' is not an array", trustMarkType)
-		}
-		jwksBytes, err := json.Marshal(jwksObject)
+		parsedJwks, err := ParseJWKSet(jwks)
 		if err != nil {
-			return nil, fmt.Errorf("'trust_mark_owners' entry for %q has an unserialisable 'jwks' member", trustMarkType)
-		}
-		var parsedJwks josemodel.Jwks
-		if err = json.Unmarshal(jwksBytes, &parsedJwks); err != nil {
-			return nil, fmt.Errorf("'trust_mark_owners' entry for %q has an invalid 'jwks' member: %s", trustMarkType, err.Error())
+			return nil, fmt.Errorf("'trust_mark_owners' entry for %q has a 'jwks' member that %s", trustMarkType, err.Error())
 		}
 
 		additional := map[string]any{}
@@ -570,24 +570,11 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 	if jwks, ok := jsonMap["jwks"]; !ok {
 		return fmt.Errorf("missing required body claim 'jwks'")
 	} else {
-		jwksObject, ok := jwks.(map[string]any)
-		if !ok {
-			return fmt.Errorf("malformed 'jwks' claim: must be a JSON object")
-		}
-		keys, present := jwksObject["keys"]
-		if !present {
-			return fmt.Errorf("malformed 'jwks' claim: missing required 'keys' member")
-		}
-		if _, ok := keys.([]any); !ok {
-			return fmt.Errorf("malformed 'jwks' claim: 'keys' must be an array")
-		}
-		bytes, err := json.Marshal(jwks)
+		parsed, err := ParseFederationEntityKeys(jwks)
 		if err != nil {
-			return fmt.Errorf("malformed 'jwks' claim: invalid JSON")
+			return fmt.Errorf("malformed 'jwks' claim: %s", err.Error())
 		}
-		if err = json.Unmarshal(bytes, &e.JWKs); err != nil {
-			return fmt.Errorf("invalid 'jwks' claim: %s", err.Error())
-		}
+		e.JWKs = parsed
 	}
 
 	if entityMetadata, ok := jsonMap["metadata"]; ok {
@@ -733,21 +720,20 @@ type TrustMarkHolder struct {
 }
 
 func (t *TrustMarkHolder) UnmarshalJSON(data []byte) error {
-	var holder struct {
-		TrustMarkType *string `json:"trust_mark_type"`
-		TrustMark     *string `json:"trust_mark"`
-	}
+	var holder map[string]any
 	if err := json.Unmarshal(data, &holder); err != nil {
 		return err
 	}
-	if holder.TrustMarkType == nil || *holder.TrustMarkType == "" {
+	trustMarkType, ok := holder["trust_mark_type"].(string)
+	if !ok || trustMarkType == "" {
 		return fmt.Errorf("each entry in 'trust_marks' requires a non-empty 'trust_mark_type' member")
 	}
-	if holder.TrustMark == nil || *holder.TrustMark == "" {
+	trustMark, ok := holder["trust_mark"].(string)
+	if !ok || trustMark == "" {
 		return fmt.Errorf("each entry in 'trust_marks' requires a non-empty 'trust_mark' member")
 	}
 
-	parts := strings.SplitN(*holder.TrustMark, ".", 4)
+	parts := strings.SplitN(trustMark, ".", 4)
 	if len(parts) != 3 {
 		return fmt.Errorf("the 'trust_mark' member of a 'trust_marks' entry must be a signed JWT")
 	}
@@ -755,21 +741,24 @@ func (t *TrustMarkHolder) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("the 'trust_mark' member of a 'trust_marks' entry is not a decodable JWT: %s", err.Error())
 	}
-	var claims struct {
-		TrustMarkType *string `json:"trust_mark_type"`
-	}
+	var claims map[string]any
 	if err = json.Unmarshal(body, &claims); err != nil {
 		return fmt.Errorf("the 'trust_mark' member of a 'trust_marks' entry has an unparseable body: %s", err.Error())
 	}
-	if claims.TrustMarkType == nil {
+	claimed, present := claims["trust_mark_type"]
+	if !present {
 		return fmt.Errorf("the 'trust_mark' member of a 'trust_marks' entry has no 'trust_mark_type' claim")
 	}
-	if *claims.TrustMarkType != *holder.TrustMarkType {
-		return fmt.Errorf("the 'trust_mark_type' member %q does not match the 'trust_mark_type' claim %q in the trust mark itself", *holder.TrustMarkType, *claims.TrustMarkType)
+	sClaimed, ok := claimed.(string)
+	if !ok {
+		return fmt.Errorf("the 'trust_mark' member of a 'trust_marks' entry has a malformed 'trust_mark_type' claim")
+	}
+	if sClaimed != trustMarkType {
+		return fmt.Errorf("the 'trust_mark_type' member %q does not match the 'trust_mark_type' claim %q in the trust mark itself", TruncateForResponse(trustMarkType), TruncateForResponse(sClaimed))
 	}
 
-	t.TrustMarkType = *holder.TrustMarkType
-	t.TrustMark = *holder.TrustMark
+	t.TrustMarkType = trustMarkType
+	t.TrustMark = trustMark
 	return nil
 }
 

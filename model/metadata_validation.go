@@ -138,6 +138,20 @@ func VerifyAlgValuesClaim(m map[string]any, key string, allowNone bool) error {
 	return nil
 }
 
+func VerifyJWKSetClaims(m map[string]any) error {
+	if jwks, present := m["jwks"]; present && jwks != nil {
+		if _, err := ParseJWKSet(jwks); err != nil {
+			return fmt.Errorf("'jwks' %s", err.Error())
+		}
+	}
+	for _, key := range []string{"jwks_uri", "signed_jwks_uri"} {
+		if err := VerifyHTTPSURLClaim(m, key, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func hasKeyMechanism(m map[string]any) bool {
 	for _, key := range []string{"jwks", "jwks_uri", "signed_jwks_uri"} {
 		if _, ok := m[key]; ok {

@@ -178,13 +178,13 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			name:      "jwks with no keys member",
 			step:      "3.2 step 9",
 			claims:    `"jwks":{}`,
-			expectErr: "missing required 'keys' member",
+			expectErr: "is missing the required 'keys' member",
 		},
 		{
 			name:      "jwks with a null keys member",
 			step:      "3.2 step 9",
 			claims:    `"jwks":{"keys":null}`,
-			expectErr: "'keys' must be an array",
+			expectErr: "has a 'keys' member that is not an array",
 		},
 		{
 			name:      "jwks that is not an object",
@@ -418,13 +418,13 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			name:      "trust_mark_owners entry whose jwks has no keys",
 			step:      "3.2 step 22",
 			claims:    `"trust_mark_owners":{"https://tm.example.com/a":{"sub":"https://o.example.com","jwks":{}}}`,
-			expectErr: "no 'keys' array",
+			expectErr: "is missing the required 'keys' member",
 		},
 		{
 			name:      "trust_mark_owners entry whose jwks keys is not an array",
 			step:      "3.2 step 22",
 			claims:    `"trust_mark_owners":{"https://tm.example.com/a":{"sub":"https://o.example.com","jwks":{"keys":"x"}}}`,
-			expectErr: "whose 'keys' is not an array",
+			expectErr: "has a 'keys' member that is not an array",
 		},
 		{
 			name:   "a valid trust_mark_owners entry with extra members is kept",
@@ -501,7 +501,7 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			name:      "trust_mark_owners entry whose jwks is not an object",
 			step:      "3.2 step 22",
 			claims:    `"trust_mark_owners":{"https://tm.example.com/a":{"sub":"https://o.example.com","jwks":"not an object"}}`,
-			expectErr: "malformed 'jwks' member",
+			expectErr: "'jwks' member that must be a JSON object",
 		},
 		{
 			name:      "iat at the representable boundary",

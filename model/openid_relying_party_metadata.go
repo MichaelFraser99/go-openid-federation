@@ -39,16 +39,7 @@ func (m OpenIDRelyingPartyMetadata) VerifyMetadata() error {
 	if err := m.verifyKeyParameterPair(); err != nil {
 		return err
 	}
-	if err := VerifyObjectClaim(m, "jwks"); err != nil {
-		return err
-	}
-	if err := VerifyHTTPSURLClaim(m, "jwks_uri", true); err != nil {
-		return err
-	}
-	if err := VerifyHTTPSURLClaim(m, "signed_jwks_uri", true); err != nil {
-		return err
-	}
-	return nil
+	return VerifyJWKSetClaims(m)
 }
 
 func (m OpenIDRelyingPartyMetadata) VerifyResolvedMetadata() error {

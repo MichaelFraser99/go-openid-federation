@@ -25,25 +25,25 @@ func TestPublishedKeyUsableForSigning_KeyShape(t *testing.T) {
 			name:      "a kty that is a number",
 			reference: "RFC 7517 4.1",
 			existing:  map[string]any{"kid": "a", "kty": 7},
-			expectErr: "'kty' claim",
+			expectErr: "'kty' member",
 		},
 		{
 			name:      "a kty that is absent",
 			reference: "RFC 7517 4.1",
 			existing:  map[string]any{"kid": "a"},
-			expectErr: "'kty' claim",
+			expectErr: "'kty' member",
 		},
 		{
 			name:      "an EC key with no crv",
 			reference: "RFC 7518 6.2.1.1",
 			existing:  map[string]any{"kid": "a", "kty": "EC", "x": "AQAB", "y": "AQAB"},
-			expectErr: "'crv' claim",
+			expectErr: "'crv' member",
 		},
 		{
 			name:      "an EC key with a numeric crv",
 			reference: "RFC 7518 6.2.1.1",
 			existing:  map[string]any{"kid": "a", "kty": "EC", "crv": 7, "x": "AQAB", "y": "AQAB"},
-			expectErr: "'crv' claim",
+			expectErr: "'crv' member",
 		},
 	}
 

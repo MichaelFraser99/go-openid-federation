@@ -332,3 +332,80 @@ func TestFilterByTrusted_AnIssuerBeyondTheDepthBoundDoesNotRefuseTheResolve(t *t
 		t.Errorf("expected the mark issued by the trust anchor itself to survive, got %d marks", len(resolved.TrustMarks))
 	}
 }
+
+func TestValidate_TrustMarkKeyAlgorithmIsHonoured(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference string
+		keyAlg    any
+		expectErr string
+	}{
+		{name: "the algorithm the key is published for", reference: "RFC 7517 4.4", keyAlg: "RS256"},
+		{name: "no published algorithm leaves the key unconstrained", reference: "RFC 7517 4.4", keyAlg: nil},
+		{name: "another algorithm", reference: "RFC 7517 4.4", keyAlg: "PS256", expectErr: "does not match the 'alg' the selected key"},
+		{name: "a malformed algorithm", reference: "RFC 7517 4.4", keyAlg: 5, expectErr: "malformed 'alg' member"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newRvFed(t, map[string]string{})
+			ta := f.taConfig(t, map[string][]model.EntityIdentifier{rvType: {model.EntityIdentifier(f.id("ta"))}})
+			for _, key := range ta.JWKs.Keys {
+				if tc.keyAlg == nil {
+					delete(key, "alg")
+					continue
+				}
+				key["alg"] = tc.keyAlg
+			}
+
+			tm := federationTrustMark(t, f.ecKey["ta"], "test-key", f.id("ta"), rvType, rvSub)
+			_, err := Validate(t.Context(), model.Configuration{HttpClient: f.server.Client()}, tm, ValidateOptions{
+				ExpectedType:             rvType,
+				ExpectedSubject:          rvSub,
+				AuthorizedIssuers:        []model.EntityIdentifier{model.EntityIdentifier(f.id("ta"))},
+				TrustAnchor:              ta.Sub,
+				TrustAnchorConfiguration: ta,
+			}, nil)
+
+			if tc.expectErr == "" {
+				if err != nil {
+					t.Fatalf("[%s] expected the mark to be validated, got %v", tc.reference, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("[%s] expected the mark to be refused", tc.reference)
+			}
+			if !strings.Contains(err.Error(), tc.expectErr) {
+				t.Fatalf("[%s] expected an error naming %s, got %v", tc.reference, tc.expectErr, err)
+			}
+		})
+	}
+}
+
+func TestValidate_TheKeyAlgorithmRefusalIsBounded(t *testing.T) {
+	longKid := strings.Repeat("k", 20000)
+
+	f := newRvFed(t, map[string]string{})
+	ta := f.taConfig(t, map[string][]model.EntityIdentifier{rvType: {model.EntityIdentifier(f.id("ta"))}})
+	for _, key := range ta.JWKs.Keys {
+		key["alg"] = "PS256"
+		key["kid"] = longKid
+	}
+
+	tm := federationTrustMark(t, f.ecKey["ta"], longKid, f.id("ta"), rvType, rvSub)
+	_, err := Validate(t.Context(), model.Configuration{HttpClient: f.server.Client()}, tm, ValidateOptions{
+		ExpectedType:             rvType,
+		ExpectedSubject:          rvSub,
+		AuthorizedIssuers:        []model.EntityIdentifier{model.EntityIdentifier(f.id("ta"))},
+		TrustAnchor:              ta.Sub,
+		TrustAnchorConfiguration: ta,
+	}, nil)
+
+	if err == nil {
+		t.Fatal("a key published for another algorithm must be refused")
+	}
+	if limit := model.MaxErrorDescriptionBytes + 512; len(err.Error()) > limit {
+		t.Errorf("a peer chooses the 'kid', so the refusal must stay within %d bytes, got %d", limit, len(err.Error()))
+	}
+}

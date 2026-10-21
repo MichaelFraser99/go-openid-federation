@@ -20,8 +20,6 @@ func (m OpenIDConnectOpenIDProviderMetadata) VerifyMetadata() error {
 	for _, key := range []string{
 		"authorization_endpoint",
 		"token_endpoint",
-		"jwks_uri",
-		"signed_jwks_uri",
 		"userinfo_endpoint",
 		"registration_endpoint",
 		"federation_registration_endpoint",
@@ -30,7 +28,7 @@ func (m OpenIDConnectOpenIDProviderMetadata) VerifyMetadata() error {
 			return err
 		}
 	}
-	if err := VerifyObjectClaim(m, "jwks"); err != nil {
+	if err := VerifyJWKSetClaims(m); err != nil {
 		return err
 	}
 	if err := VerifyAlgValuesClaim(m, "id_token_signing_alg_values_supported", true); err != nil {

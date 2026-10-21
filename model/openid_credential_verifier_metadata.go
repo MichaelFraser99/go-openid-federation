@@ -22,7 +22,7 @@ func (m OpenIDCredentialVerifierMetadata) VerifyMetadata() error {
 			return err
 		}
 	}
-	if err := VerifyObjectClaim(m, "jwks"); err != nil {
+	if err := VerifyJWKSetClaims(m); err != nil {
 		return err
 	}
 	return nil

@@ -325,7 +325,17 @@ A `SubordinateConfiguration` may carry its own `SignerConfiguration`. When prese
 
 ## Entity statements and metadata
 
-`model.EntityStatement` covers both entity configurations and subordinate statements. Its `UnmarshalJSON` enforces the required claims `iss`, `sub`, `iat`, `exp` and `jwks`, and validates entity identifiers.
+`model.EntityStatement` covers both entity configurations and subordinate statements. Its `UnmarshalJSON` enforces the required claims `iss`, `sub`, `iat`, `exp` and `jwks`, validates entity identifiers, and reads `jwks` as a JWK Set.
+
+> **Breaking change.** Statements that earlier releases accepted are now refused.
+>
+> - A `jwks` **metadata parameter** must be a JWK Set: the `keys` member is required. Four entity types checked nothing there and accepted any JSON value; `"jwks": {}` is now refused everywhere. The `jwks` **claim** already required `keys`.
+> - A key within a set that is not a usable JWK — no `kty`, or an EC key with no `crv` — is left out rather than refusing the statement, so a set carrying one retired entry still verifies through its good keys. "Usable" is only that much: `ValidateJWKShape` does not check the members RFC 7518 section 6 defines per key type, so an RSA key with no `n` is kept and fails later at verification.
+> - Every key in a `jwks` **claim** must carry a unique, non-empty, string `kid`, which section 3.1.1 requires. A set that breaks this is refused rather than having the offending entry left out, because the rule is a Federation MUST about the whole set, not RFC 7517's advice about one key. A metadata `jwks` is unaffected: RFC 7517 section 4.5 keeps `kid` optional there.
+> - A statement signed with a key that its publisher declares an `alg` for must use that `alg`. RFC 8725 section 3.1 requires a key to be used with exactly one algorithm and the check to be made where the operation happens. The comparison is exact, so a key published for `rs256` no longer verifies an `RS256` signature. **In a trust chain the key is the copy a superior published in its subordinate statement, so a superior's registration binds which algorithm its subordinate may sign with.** A trust anchor configured by hand with a subordinate's key and an `alg` the subordinate does not sign with refuses that subordinate with 400 `invalid_trust_chain`, where it previously resolved. A key with no `alg` is unconstrained.
+> - `jwks_uri` and `signed_jwks_uri` must use https on every entity type that may carry them. Section 5.2.1 defines both, and forbids all three key parameters in `federation_entity` metadata. Six types gained the `signed_jwks_uri` check and three the `jwks_uri` check. Both go through the same URL check as the other claims, so a fragment or a userinfo component is refused too, which is what the relying party and provider types already did.
+>
+> A `kid` naming a key that was left out reads as no usable key with that `kid`, which is the same message as a `kid` that was never published. The library cannot say more, because the entry is gone by the time a key is selected.
 
 Parsing applies the claim rules from section 3.2 of the specification. Three of these reject statements that earlier releases accepted.
 
@@ -438,6 +448,9 @@ The validators the built-in types use are exported for custom types to reuse.
 | `VerifyHTTPSURLClaim(m, key, allowQuery)` | The claim, if present, is an HTTPS URL with no fragment and no userinfo component |
 | `VerifyAlgValuesClaim(m, key, allowNone)` | The claim, if present, is an array of algorithm names. Rejects `none` unless `allowNone` is set |
 | `VerifyAlgClaim(m, key, allowNone)` | The claim, if present, is a single algorithm name. Rejects `none` unless `allowNone` is set |
+| `VerifyJWKSetClaims(m)` | `jwks`, if present, is a JWK Set, and `jwks_uri` and `signed_jwks_uri`, if present, are HTTPS URLs. Call it from a custom type that may carry keys. It does not enforce section 5.2.1's prohibition on these parameters in `federation_entity` metadata, which `FederationMetadata` carries |
+
+`ParseJWKSet(v)` reads a JWK Set from a decoded JSON value. Use it rather than unmarshalling into a `jwks` struct field: Go matches struct fields with Unicode simple folding, so a member named `keyſ` decodes as `keys` and the keys a conforming parser reads are not the keys you get. It takes the keys from the exact `keys` member and leaves out an entry that `ValidateJWKShape` finds unusable, which RFC 7517 section 5 asks of an implementation. `ParseFederationEntityKeys(v)` is the stricter reading for a `jwks` claim: it adds section 3.1.1's rule that every key in the set carry a unique `kid`.
 
 `MetadataStringSlice(v)` returns a `[]string` from either a `[]string` or a `[]any`. JSON unmarshalling produces the latter and Go-constructed metadata the former, so a validator handling only one will reject valid input.
 
@@ -495,7 +508,7 @@ type MetadataPolicyOperator interface {
 
 ## Trust chains
 
-`/resolve` builds a chain from the subject up to the requested trust anchor by walking `authority_hints` depth first, backtracking on dead ends and skipping entities already checked. The walk is bounded (see [Limits](#limits)) and is refused with a `temporarily_unavailable` naming the bound when one is reached. Each step is verified: signatures against the issuer's published keys, `iss` and `sub` against the expected entities, and the subject's signing key against the JWKS in the subordinate statement above it.
+`/resolve` builds a chain from the subject up to the requested trust anchor by walking `authority_hints` depth first, backtracking on dead ends and skipping entities already checked. The walk is bounded (see [Limits](#limits)) and is refused with a 404 `invalid_trust_anchor` naming the bound when one is reached. Each step is verified: signatures against the issuer's published keys, `iss` and `sub` against the expected entities, and the subject's signing key against the JWKS in the subordinate statement above it.
 
 A resolved response expires at the earliest expiry in the chain rather than the subject's own. Where a trust mark expires sooner, the response expiry is reduced to match.
 
@@ -589,13 +602,10 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | `constraints` claim | Parsed and carried, never enforced | [#50](https://github.com/MichaelFraser99/go-openid-federation/issues/50) |
 | Configurable trust anchors and their keys | Not supported, so a caller-supplied chain cannot be anchored | [#48](https://github.com/MichaelFraser99/go-openid-federation/issues/48) |
 | Clock skew tolerance | `model.ClockSkewLeeway` is a constant and cannot be configured | [#141](https://github.com/MichaelFraser99/go-openid-federation/issues/141) |
-| JWS `alg` against the signing key | The `alg` header is not compared to the `alg` member of the selected JWK | [#142](https://github.com/MichaelFraser99/go-openid-federation/issues/142) |
 | Server configuration validation | A bad `ServerConfiguration` is reported when a peer first fetches, not at startup | [#145](https://github.com/MichaelFraser99/go-openid-federation/issues/145) |
 | Extension claims | Dropped on parse and cannot be issued | [#132](https://github.com/MichaelFraser99/go-openid-federation/issues/132) |
 | `trust_chain` and `peer_trust_chain` JOSE headers | Not read or written | [#139](https://github.com/MichaelFraser99/go-openid-federation/issues/139) |
-| Trust mark type identifiers as object member names | Values are validated, member names are not | [#140](https://github.com/MichaelFraser99/go-openid-federation/issues/140) |
-| JWK sets whose keys omit `kty` | Accepted on read, so the fault surfaces at verification | [#146](https://github.com/MichaelFraser99/go-openid-federation/issues/146) |
-| A `jwks` member name that case-folds to `keys` | Supplies the verification keys through Go's case-insensitive decode | [#147](https://github.com/MichaelFraser99/go-openid-federation/issues/147) |
+| Trust mark type identifiers as object member names | Member names in `trust_mark_issuers` and `trust_mark_owners` are not checked against a syntax, because §7.1 makes a URL RECOMMENDED rather than required and the one MUST, collision resistance, is not checkable | [#140](https://github.com/MichaelFraser99/go-openid-federation/issues/140) |
 | Error classes on the fetch path | A peer's fault is reported as a server error | [#148](https://github.com/MichaelFraser99/go-openid-federation/issues/148) |
 | `subordinate_statement` on an unlistable entity | Table 4 of the extended listing draft makes the attribute a MUST when requested, and an entity the subordinate store does not hold is returned without it | [#126](https://github.com/MichaelFraser99/go-openid-federation/issues/126) |
 | Shape rules after a policy is applied | Required claims and the relying party key pair are checked on the resolved metadata, the remaining claim shape rules are not, so a policy can set a value the parser would refuse | [#144](https://github.com/MichaelFraser99/go-openid-federation/issues/144) |

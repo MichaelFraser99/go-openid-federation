@@ -568,13 +568,10 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | `constraints` claim | Parsed and carried, never enforced | [#50](https://github.com/MichaelFraser99/go-openid-federation/issues/50) |
 | Configurable trust anchors and their keys | Not supported, so a caller-supplied chain cannot be anchored | [#48](https://github.com/MichaelFraser99/go-openid-federation/issues/48) |
 | Clock skew tolerance | `model.ClockSkewLeeway` is a constant and cannot be configured | [#141](https://github.com/MichaelFraser99/go-openid-federation/issues/141) |
-| JWS `alg` against the signing key | The `alg` header is not compared to the `alg` member of the selected JWK | [#142](https://github.com/MichaelFraser99/go-openid-federation/issues/142) |
 | Server configuration validation | A bad `ServerConfiguration` is reported when a peer first fetches, not at startup | [#145](https://github.com/MichaelFraser99/go-openid-federation/issues/145) |
 | Extension claims | Dropped on parse and cannot be issued | [#132](https://github.com/MichaelFraser99/go-openid-federation/issues/132) |
 | `trust_chain` and `peer_trust_chain` JOSE headers | Not read or written | [#139](https://github.com/MichaelFraser99/go-openid-federation/issues/139) |
-| Trust mark type identifiers as object member names | Values are validated, member names are not | [#140](https://github.com/MichaelFraser99/go-openid-federation/issues/140) |
-| JWK sets whose keys omit `kty` | Accepted on read, so the fault surfaces at verification | [#146](https://github.com/MichaelFraser99/go-openid-federation/issues/146) |
-| A `jwks` member name that case-folds to `keys` | Supplies the verification keys through Go's case-insensitive decode | [#147](https://github.com/MichaelFraser99/go-openid-federation/issues/147) |
+| Trust mark type identifiers as object member names | Member names in `trust_mark_issuers` and `trust_mark_owners` are not checked against a syntax, because §7.1 makes a URL RECOMMENDED rather than required and the one MUST, collision resistance, is not checkable | [#140](https://github.com/MichaelFraser99/go-openid-federation/issues/140) |
 | Error classes on the fetch path | A peer's fault is reported as a server error | [#148](https://github.com/MichaelFraser99/go-openid-federation/issues/148) |
 | `subordinate_statement` on an unlistable entity | Table 4 of the extended listing draft makes the attribute a MUST when requested, and an entity the subordinate store does not hold is returned without it | [#126](https://github.com/MichaelFraser99/go-openid-federation/issues/126) |
 | Shape rules after a policy is applied | Required claims and the relying party key pair are checked on the resolved metadata, the remaining claim shape rules are not, so a policy can set a value the parser would refuse | [#144](https://github.com/MichaelFraser99/go-openid-federation/issues/144) |

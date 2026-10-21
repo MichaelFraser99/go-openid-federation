@@ -31,7 +31,7 @@ func (m OpenIDCredentialIssuerMetadata) VerifyMetadata() error {
 	if err := VerifyStringArrayClaim(m, "authorization_servers"); err != nil {
 		return err
 	}
-	return nil
+	return VerifyJWKSetClaims(m)
 }
 
 func (m OpenIDCredentialIssuerMetadata) VerifyResolvedMetadata() error {

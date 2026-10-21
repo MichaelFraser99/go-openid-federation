@@ -55,6 +55,8 @@ Each federation entity type has its own file implementing `EntityTypeIdentifier`
 
 `EntityStatement`, `Metadata`, and `PolicyOperators` have hand-written `UnmarshalJSON` methods that reject malformed/expired statements at parse time. `EntityStatement` validates its own required claims there; `Metadata` validates claim shape only, because a statement's metadata may be completed by a superior, so the required claims of an entity type are judged at the end of resolution instead. When touching these types, preserve the custom (un)marshalling — the JSON shape is spec-defined and validated on the way in.
 
+Spec-defined member names must be read by their exact name. Go's `encoding/json` matches struct fields with Unicode simple folding, so a struct decode reads `keyſ` or `TRUST_MARK` as `keys` or `trust_mark`, which a conforming parser would not: anywhere a raw map check and a struct decode run over the same object, the two can disagree about what the statement says. `model.ParseJWKSet` is the one way to read a `jwks` claim — it takes the keys from the exact `keys` member and validates every entry as a JWK, and `model.ValidateJWKShape` is the per-key check it shares with `entity_statement.SelectKey`. `model.VerifyJWKSetClaims` is the matching check for the `jwks`, `jwks_uri` and `signed_jwks_uri` metadata parameters, which §5.2.1 requires of every Entity Type except `federation_entity`, where they must not appear at all.
+
 ## Conventions
 
 - `//todo:` comments mark known incomplete areas across the client, server and model packages (the unimplemented `constraints` claim, trust mark delegation, content-type matching, error-type revisits, and handler duplication). They are intentional signposts, not stray notes.

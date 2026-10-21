@@ -18,7 +18,7 @@ func selfCheckRetriever(t *testing.T) func() (*model.SubordinateConfiguration, *
 	}
 	return func() (*model.SubordinateConfiguration, *model.SignerConfiguration, error) {
 		return &model.SubordinateConfiguration{
-			JWKs: josemodel.Jwks{Keys: []map[string]any{{"kid": "leaf", "kty": "EC"}}},
+			JWKs: josemodel.Jwks{Keys: []map[string]any{{"kid": "leaf", "kty": "EC", "crv": "P-256", "x": "AQAB", "y": "AQAB"}}},
 		}, &model.SignerConfiguration{
 			Signer:    signer,
 			KeyID:     "ta",

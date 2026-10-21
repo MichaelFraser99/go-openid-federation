@@ -13,7 +13,7 @@ func (m OAuthResourceMetadata) VerifyMetadata() error {
 	if err := VerifyHTTPSURLClaim(m, "resource", true); err != nil {
 		return err
 	}
-	if err := VerifyHTTPSURLClaim(m, "jwks_uri", true); err != nil {
+	if err := VerifyJWKSetClaims(m); err != nil {
 		return err
 	}
 	if err := VerifyAlgValuesClaim(m, "resource_signing_alg_values_supported", false); err != nil {

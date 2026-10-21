@@ -10,6 +10,7 @@ import (
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jws"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
+	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
 const maxQuotedHeaderBytes = 64
@@ -83,19 +84,6 @@ func VerifyIssuedSignature(token, kid, alg string, signer crypto.Signer) error {
 	return VerifyAgainstJwks(token, kid, josemodel.Jwks{Keys: []map[string]any{*publicJWK}})
 }
 
-func ValidateJWKShape(key map[string]any) error {
-	kty, ok := key["kty"].(string)
-	if !ok || kty == "" {
-		return fmt.Errorf("has a missing or malformed 'kty' claim")
-	}
-	if kty == "EC" {
-		if crv, ok := key["crv"].(string); !ok || crv == "" {
-			return fmt.Errorf("has a missing or malformed 'crv' claim, which RFC 7518 requires for an EC key")
-		}
-	}
-	return nil
-}
-
 func SelectKey(jwks josemodel.Jwks, kid string) (map[string]any, error) {
 	if kid == "" {
 		return nil, fmt.Errorf("header claim 'kid' must be a non-empty string")
@@ -122,16 +110,50 @@ func SelectKey(jwks josemodel.Jwks, kid string) (map[string]any, error) {
 	if selectedKey == nil {
 		return nil, fmt.Errorf("no matching key found in the included 'jwks'")
 	}
-	if err := ValidateJWKShape(selectedKey); err != nil {
+	if err := model.ValidateJWKShape(selectedKey); err != nil {
 		return nil, fmt.Errorf("the selected key in the included 'jwks' %s", err.Error())
 	}
 	return selectedKey, nil
+}
+
+func verifyKeyAlgorithm(token string, key map[string]any) error {
+	declared, present := key["alg"]
+	if !present || declared == nil {
+		return nil
+	}
+	sDeclared, ok := declared.(string)
+	if !ok || sDeclared == "" {
+		return fmt.Errorf("the selected key in the included 'jwks' has a malformed 'alg' member")
+	}
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return fmt.Errorf("invalid JWT structure")
+	}
+	head, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return fmt.Errorf("failed to decode JWT head: %s", err.Error())
+	}
+	var headMap map[string]any
+	if err = json.Unmarshal(head, &headMap); err != nil {
+		return fmt.Errorf("failed to unmarshal JWT head to json: %s", err.Error())
+	}
+	header, ok := headMap["alg"].(string)
+	if !ok {
+		return fmt.Errorf("missing or malformed header claim 'alg'")
+	}
+	if header != sDeclared {
+		return fmt.Errorf("the 'alg' header does not match the 'alg' the selected key in the included 'jwks' is published for")
+	}
+	return nil
 }
 
 func VerifyAgainstJwks(token, kid string, jwks josemodel.Jwks) error {
 	if _, _, err := jws.VerifyCompactSerialization(token, func() ([]crypto.PublicKey, error) {
 		selectedKey, err := SelectKey(jwks, kid)
 		if err != nil {
+			return nil, err
+		}
+		if err = verifyKeyAlgorithm(token, selectedKey); err != nil {
 			return nil, err
 		}
 		pubKey, err := jwk.PublicFromJwk(selectedKey)

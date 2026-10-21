@@ -16,7 +16,7 @@ func (m OpenIDWalletProviderMetadata) VerifyMetadata() error {
 	if err := VerifyNonEmptyStringArrayClaim(m, "client_id_prefixes_supported"); err != nil {
 		return err
 	}
-	return nil
+	return VerifyJWKSetClaims(m)
 }
 
 func (m OpenIDWalletProviderMetadata) VerifyResolvedMetadata() error {

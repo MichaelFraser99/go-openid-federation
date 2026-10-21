@@ -178,3 +178,51 @@ func TestVerifyAgainstJwks(t *testing.T) {
 		})
 	}
 }
+
+func TestVerifyAgainstJwks_HonoursTheAlgorithmThePublishedKeyIsFor(t *testing.T) {
+	key := selectorKey(t)
+	body := map[string]any{"iss": "https://leaf.example.com", "sub": "https://leaf.example.com"}
+
+	tests := []struct {
+		name      string
+		reference string
+		keyAlg    any
+		expectErr string
+	}{
+		{name: "a key published for the algorithm that signed", reference: "RFC 7517 4.4", keyAlg: "RS256"},
+		{name: "a key published for no algorithm is unconstrained", reference: "RFC 7517 4.4", keyAlg: nil},
+		{name: "a key published for another algorithm", reference: "RFC 7517 4.4", keyAlg: "PS256", expectErr: "does not match the 'alg' the selected key"},
+		{name: "a key whose alg is not a string", reference: "RFC 7517 4.4", keyAlg: 7, expectErr: "malformed 'alg' member"},
+		{name: "a key whose alg is empty", reference: "RFC 7517 4.4", keyAlg: "", expectErr: "malformed 'alg' member"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			publishedKey := selectorJwk(t, key.Public(), "a")
+			if tc.keyAlg == nil {
+				delete(publishedKey, "alg")
+			} else {
+				publishedKey["alg"] = tc.keyAlg
+			}
+
+			token, err := jwt.New(key, map[string]any{"kid": "a", "alg": "RS256"}, body, jwt.Opts{Algorithm: josemodel.RS256})
+			if err != nil {
+				t.Fatalf("failed to sign: %v", err)
+			}
+
+			err = VerifyAgainstJwks(*token, "a", josemodel.Jwks{Keys: []map[string]any{publishedKey}})
+			if tc.expectErr == "" {
+				if err != nil {
+					t.Fatalf("[%s] expected verification to succeed, got %v", tc.reference, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("[%s] expected verification to be refused", tc.reference)
+			}
+			if !strings.Contains(err.Error(), tc.expectErr) {
+				t.Fatalf("[%s] expected an error naming %s, got %v", tc.reference, tc.expectErr, err)
+			}
+		})
+	}
+}

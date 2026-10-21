@@ -31,11 +31,5 @@ func (m OAuthClientMetadata) VerifyMetadata() error {
 	if err := VerifyAlgClaim(m, "token_endpoint_auth_signing_alg", false); err != nil {
 		return err
 	}
-	if err := VerifyObjectClaim(m, "jwks"); err != nil {
-		return err
-	}
-	if err := VerifyHTTPSURLClaim(m, "jwks_uri", true); err != nil {
-		return err
-	}
-	return nil
+	return VerifyJWKSetClaims(m)
 }

@@ -25,7 +25,7 @@ func (m OAuthAuthorizationServerMetadata) VerifyMetadata() error {
 			return err
 		}
 	}
-	if err := VerifyHTTPSURLClaim(m, "jwks_uri", true); err != nil {
+	if err := VerifyJWKSetClaims(m); err != nil {
 		return err
 	}
 	for _, key := range []string{

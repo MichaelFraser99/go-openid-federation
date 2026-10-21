@@ -563,3 +563,62 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 		})
 	}
 }
+
+func TestEntityStatement_RepeatedHintsAreReadOnce(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference string
+		claim     string
+		hints     string
+		expect    int
+	}{
+		{
+			name:      "authority_hints repeating one identifier",
+			reference: "3.1",
+			claim:     "authority_hints",
+			hints:     `["https://a.example.com","https://a.example.com","https://a.example.com"]`,
+			expect:    1,
+		},
+		{
+			name:      "authority_hints with distinct identifiers",
+			reference: "3.1",
+			claim:     "authority_hints",
+			hints:     `["https://a.example.com","https://b.example.com"]`,
+			expect:    2,
+		},
+		{
+			name:      "authority_hints repeating one of several",
+			reference: "3.1",
+			claim:     "authority_hints",
+			hints:     `["https://a.example.com","https://b.example.com","https://a.example.com"]`,
+			expect:    2,
+		},
+		{
+			name:      "trust_anchor_hints repeating one identifier",
+			reference: "3.1",
+			claim:     "trust_anchor_hints",
+			hints:     `["https://ta.example.com","https://ta.example.com"]`,
+			expect:    1,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			body := fmt.Sprintf(`{"iss":"https://leaf.example.com","sub":"https://leaf.example.com","iat":%d,"exp":%d,"jwks":{"keys":[{"kid":"a","kty":"RSA","n":"AQAB","e":"AQAB"}]},%q:%s}`,
+				time.Now().Unix(), time.Now().Add(time.Hour).Unix(), tc.claim, tc.hints)
+
+			var statement EntityStatement
+			if err := json.Unmarshal([]byte(body), &statement); err != nil {
+				t.Fatalf("[%s] expected the statement to be accepted, got %v", tc.reference, err)
+			}
+
+			got := len(statement.AuthorityHints)
+			if tc.claim == "trust_anchor_hints" {
+				got = len(statement.TrustAnchorHints)
+			}
+			if got != tc.expect {
+				t.Errorf("[%s] expected %d distinct identifiers, got %d", tc.reference, tc.expect, got)
+			}
+		})
+	}
+}

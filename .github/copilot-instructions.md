@@ -26,7 +26,7 @@ This is a security library: entity statements and trust marks are attacker-contr
 
 - **Self-review the full diff** before opening the PR. Read it as a reviewer, not the author. Explain in the PR description what changed, why, and how it was verified.
 - **Never weaken existing validation.** The custom `UnmarshalJSON` guards and spec-shape checks are security controls — preserve them, and prefer tightening over loosening.
-- **Think adversarially about untrusted input:** malformed/expired/oversized statements, cyclic or hostile trust chains, chain amplification and unbounded traversal (respect `MaxTrustChainDepth` and dead-end tracking), unexpected JSON shapes. Add tests for the abuse case, not just the happy path.
+- **Think adversarially about untrusted input:** malformed/expired/oversized statements, cyclic or hostile trust chains, chain amplification and unbounded traversal (respect `MaxTrustChainDepth`, `MaxEntitiesTraversed` and dead-end tracking), unexpected JSON shapes. Add tests for the abuse case, not just the happy path.
 - **Confirm spec compliance.** Cite the relevant clause of the current OpenID Federation spec in the PR when behaviour is spec-driven.
 - **Cover behaviour with table-driven tests**, including error and boundary cases. A change without a failing-then-passing test is incomplete.
 - **Keep the change scoped** to the issue. Flag anything out-of-scope you notice rather than silently expanding the diff.

@@ -155,3 +155,28 @@ func TestConfiguration_TrustMarkIssuerLimit(t *testing.T) {
 		}
 	})
 }
+
+func TestConfiguration_WalkLimits(t *testing.T) {
+	tests := []struct {
+		name       string
+		configured int
+		depth      int
+		entities   int
+	}{
+		{name: "zero applies the defaults", configured: 0, depth: DefaultMaxTrustChainDepth, entities: DefaultMaxEntitiesTraversed},
+		{name: "negative applies the defaults", configured: -1, depth: DefaultMaxTrustChainDepth, entities: DefaultMaxEntitiesTraversed},
+		{name: "an explicit value is honoured", configured: 3, depth: 3, entities: 3},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := Configuration{MaxTrustChainDepth: tc.configured, MaxEntitiesTraversed: tc.configured}
+			if got := cfg.TrustChainDepthLimit(); got != tc.depth {
+				t.Errorf("expected a depth limit of %d, got %d", tc.depth, got)
+			}
+			if got := cfg.EntitiesTraversedLimit(); got != tc.entities {
+				t.Errorf("expected an entity limit of %d, got %d", tc.entities, got)
+			}
+		})
+	}
+}

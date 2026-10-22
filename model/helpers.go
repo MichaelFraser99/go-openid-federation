@@ -289,7 +289,7 @@ func applyPolicyToMetadata(metadata map[string]any, policy map[string]PolicyOper
 					if !isString {
 						return fmt.Errorf("scope must be a string")
 					}
-					existing = ConvertStringsToAnySlice(strings.Split(existingString, " "))
+					existing = ConvertStringsToAnySlice(strings.Fields(existingString))
 				}
 				operator = operator.ToSlice(k)
 			}

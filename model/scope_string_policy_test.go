@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 )
 
@@ -62,7 +63,7 @@ func TestMergePolicyOperators_AStringScopeIsSplitWhateverOperatorFacesIt(t *test
 			expect:    "openid offline_access",
 		},
 		{
-			name:      "a string default under a superior subset_of",
+			name:      "a string default under a superior subset_of, which resolve-time conversion already handled",
 			reference: "6.1.3.1.8",
 			superior:  `{"subset_of":["openid","offline_access","profile"]}`,
 			authority: `{"default":"openid offline_access"}`,
@@ -76,7 +77,7 @@ func TestMergePolicyOperators_AStringScopeIsSplitWhateverOperatorFacesIt(t *test
 			expect:    "openid offline_access",
 		},
 		{
-			name:      "a string subset_of, which is not an array operator value",
+			name:      "two array operators, which need no conversion",
 			reference: "6.1.3.1.5",
 			superior:  `{"subset_of":["openid","offline_access","profile"]}`,
 			authority: `{"superset_of":["openid"]}`,
@@ -190,6 +191,143 @@ func TestProcessAndExtractPolicy_AStringScopeIsSplitWithinOneStatement(t *testin
 			got, _ := (*applied.Metadata.OAuthClientMetadata)["scope"].(string)
 			if got != tc.expect {
 				t.Errorf("[%s] expected scope %q, got %q", tc.reference, tc.expect, got)
+			}
+		})
+	}
+}
+
+func TestMergePolicyOperators_AScopeStringIsTokenisedTheSameWayEverywhere(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference string
+		superior  string
+		authority string
+		subject   string
+		expect    string
+	}{
+		{
+			name:      "a trailing space in an operator value",
+			reference: "RFC 7591 2",
+			superior:  `{"subset_of":["openid","profile"]}`,
+			authority: `{"value":"openid profile "}`,
+			subject:   "openid profile",
+			expect:    "openid profile",
+		},
+		{
+			name:      "a leading space in an operator value",
+			reference: "RFC 7591 2",
+			superior:  `{"subset_of":["openid","profile"]}`,
+			authority: `{"value":" openid profile"}`,
+			subject:   "openid profile",
+			expect:    "openid profile",
+		},
+		{
+			name:      "a double space in an operator value",
+			reference: "RFC 7591 2",
+			superior:  `{"subset_of":["openid","profile"]}`,
+			authority: `{"value":"openid  profile"}`,
+			subject:   "openid profile",
+			expect:    "openid profile",
+		},
+		{
+			name:      "irregular whitespace in the subject's own scope",
+			reference: "RFC 7591 2",
+			superior:  `{"subset_of":["openid","profile"]}`,
+			authority: `{"value":"openid profile"}`,
+			subject:   "openid  profile ",
+			expect:    "openid profile",
+		},
+		{
+			name:      "two values that differ only in whitespace",
+			reference: "6.1.3.1.1",
+			superior:  `{"value":"openid profile"}`,
+			authority: `{"value":"openid profile "}`,
+			subject:   "openid profile",
+			expect:    "openid profile",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			leaf := scopeSubject(t, tc.subject)
+
+			merged, err := ProcessAndExtractPolicy([]EntityStatement{
+				leaf,
+				scopePolicyStatement(t, tc.authority),
+				scopePolicyStatement(t, tc.superior),
+			})
+			if err != nil {
+				t.Fatalf("[%s] a scope string is a list of space-separated values, so irregular whitespace must not make a chain unresolvable: %v", tc.reference, err)
+			}
+
+			applied, err := ApplyPolicy(leaf, *merged)
+			if err != nil {
+				t.Fatalf("[%s] expected the merged policy to apply, got %v", tc.reference, err)
+			}
+			got, _ := (*applied.Metadata.OAuthClientMetadata)["scope"].(string)
+			if got != tc.expect {
+				t.Errorf("[%s] expected scope %q, got %q", tc.reference, tc.expect, got)
+			}
+		})
+	}
+}
+
+func TestToSlice_ReturnsAValueTypeAndToleratesANilOperand(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference string
+		operator  MetadataPolicyOperator
+	}{
+		{name: "a value with a nil operand", reference: "6.1.3.1.1", operator: Value{}},
+		{name: "a default with a nil operand", reference: "6.1.3.1.3", operator: Default{}},
+		{name: "an add", reference: "6.1.3.1.2", operator: Add{}},
+		{name: "a one_of", reference: "6.1.3.1.4", operator: OneOf{}},
+		{name: "a subset_of", reference: "6.1.3.1.5", operator: SubsetOf{}},
+		{name: "a superset_of", reference: "6.1.3.1.6", operator: SupersetOf{}},
+		{name: "an essential", reference: "6.1.3.1.7", operator: Essential{}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					t.Fatalf("[%s] converting an operator with no operand panicked: %v", tc.reference, recovered)
+				}
+			}()
+
+			converted := tc.operator.ToSlice("scope")
+			if reflect.TypeOf(converted).Kind() == reflect.Pointer {
+				t.Errorf("[%s] a converted operator must keep the receiver shape the others use, or a reflect.TypeOf lookup in metadataPolicySetContains misses it and a consumer's type assertion panics, got %T", tc.reference, converted)
+			}
+			if _, found := metadataPolicySetContains([]MetadataPolicyOperator{converted}, reflect.TypeOf(tc.operator)); !found {
+				t.Errorf("[%s] a converted operator must still be found by a lookup for its own type, got %T", tc.reference, converted)
+			}
+		})
+	}
+}
+
+func TestToSlice_ConvertsAStringOperandForEveryOperatorThatHoldsOne(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference string
+		operator  MetadataPolicyOperator
+		expect    []any
+	}{
+		{name: "a value holding a scope string", reference: "6.1.3.1.8", operator: Value{operatorValue: "openid profile"}, expect: []any{"openid", "profile"}},
+		{name: "a default holding a scope string", reference: "6.1.3.1.8", operator: Default{operatorValue: "openid profile"}, expect: []any{"openid", "profile"}},
+		{name: "a value holding irregular whitespace", reference: "RFC 7591 2", operator: Value{operatorValue: " openid  profile "}, expect: []any{"openid", "profile"}},
+		{name: "a value already holding an array", reference: "6.1.3.1.8", operator: Value{operatorValue: []any{"openid", "profile"}}, expect: []any{"openid", "profile"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			converted := tc.operator.ToSlice("scope")
+			got, ok := converted.OperatorValue().([]any)
+			if !ok {
+				t.Fatalf("[%s] expected a slice operand, got %T", tc.reference, converted.OperatorValue())
+			}
+			if !reflect.DeepEqual(got, tc.expect) {
+				t.Errorf("[%s] expected %v, got %v", tc.reference, tc.expect, got)
 			}
 		})
 	}

@@ -107,12 +107,18 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 		serialised, err := json.Marshal(subordinateEntity)
 		if err != nil {
 			s.cfg.LogError(ctx, "error serialising a subordinate entity", slog.String("error", err.Error()))
-			return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(extendedListingUnavailableError))
+			return s.RespondWithError(ctx, w, model.NewServerError(extendedListingUnavailableError))
 		}
 		var entity map[string]any
 		if err := json.Unmarshal(serialised, &entity); err != nil {
 			s.cfg.LogError(ctx, "error reading back a serialised subordinate entity", slog.String("error", err.Error()))
-			return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(extendedListingUnavailableError))
+			return s.RespondWithError(ctx, w, model.NewServerError(extendedListingUnavailableError))
+		}
+
+		if model.NestsDeeperThanTheKeyScan(entity) {
+			identifier, _ := entity["id"].(string)
+			s.cfg.LogError(ctx, "a subordinate listing entry nests deeper than the key scan reaches, so it cannot be checked for private key material", slog.String("sub", model.TruncateForResponse(identifier)))
+			return s.RespondWithError(ctx, w, model.NewServerError(extendedListingUnavailableError))
 		}
 
 		var dropped []string

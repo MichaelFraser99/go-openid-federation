@@ -177,6 +177,10 @@ func StripUnpublishableKeys(statement map[string]any, depth int, dropped *[]stri
 	}
 }
 
+func NestsDeeperThanTheKeyScan(statement map[string]any) bool {
+	return statementNestsDeeperThan(statement, 0)
+}
+
 func VerifyPublishableStatementKeys(statement map[string]any) error {
 	if statementNestsDeeperThan(statement, 0) {
 		return fmt.Errorf("the statement nests deeper than %d levels, so it cannot be scanned for private key material", maxPublishableScanDepth)

@@ -105,7 +105,14 @@ func sortAndValidatePolicy(policy *MetadataPolicy) error {
 					}
 				}
 			}
-			if err := validatePoliciesCanCombine(sortByPriority(operators.Metadata)); err != nil {
+			candidates := operators.Metadata
+			if parameter == "scope" {
+				candidates = make([]MetadataPolicyOperator, 0, len(operators.Metadata))
+				for _, operator := range operators.Metadata {
+					candidates = append(candidates, operator.ToSlice(parameter))
+				}
+			}
+			if err := validatePoliciesCanCombine(sortByPriority(candidates)); err != nil {
 				return err
 			}
 		}

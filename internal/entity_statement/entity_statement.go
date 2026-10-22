@@ -117,7 +117,35 @@ func SelectKey(jwks josemodel.Jwks, kid string) (map[string]any, error) {
 	return selectedKey, nil
 }
 
+func headerAlgorithm(token string) (string, error) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return "", fmt.Errorf("invalid JWT structure")
+	}
+	head, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return "", fmt.Errorf("failed to decode JWT head: %s", err.Error())
+	}
+	var headMap map[string]any
+	if err = json.Unmarshal(head, &headMap); err != nil {
+		return "", fmt.Errorf("failed to unmarshal JWT head to json: %s", err.Error())
+	}
+	header, ok := headMap["alg"].(string)
+	if !ok {
+		return "", fmt.Errorf("missing or malformed header claim 'alg'")
+	}
+	return header, nil
+}
+
 func VerifyKeyAlgorithm(token string, key map[string]any) error {
+	header, err := headerAlgorithm(token)
+	if err != nil {
+		return err
+	}
+	return verifyKeyAlgorithm(header, key)
+}
+
+func verifyKeyAlgorithm(header string, key map[string]any) error {
 	declared, present := key["alg"]
 	if !present || declared == nil {
 		return nil
@@ -126,24 +154,40 @@ func VerifyKeyAlgorithm(token string, key map[string]any) error {
 	if !ok || sDeclared == "" {
 		return fmt.Errorf("the selected key in the included 'jwks' has a malformed 'alg' member")
 	}
-	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
-		return fmt.Errorf("invalid JWT structure")
-	}
-	head, err := base64.RawURLEncoding.DecodeString(parts[0])
-	if err != nil {
-		return fmt.Errorf("failed to decode JWT head: %s", err.Error())
-	}
-	var headMap map[string]any
-	if err = json.Unmarshal(head, &headMap); err != nil {
-		return fmt.Errorf("failed to unmarshal JWT head to json: %s", err.Error())
-	}
-	header, ok := headMap["alg"].(string)
-	if !ok {
-		return fmt.Errorf("missing or malformed header claim 'alg'")
-	}
 	if header != sDeclared {
 		return fmt.Errorf("the 'alg' header does not match the 'alg' the selected key in the included 'jwks' is published for")
+	}
+	return nil
+}
+
+func VerifyKeyUse(key map[string]any) error {
+	use, present := key["use"]
+	if !present || use == nil {
+		return nil
+	}
+	sUse, ok := use.(string)
+	if !ok || sUse == "" {
+		return fmt.Errorf("the selected key in the included 'jwks' has a malformed 'use' member")
+	}
+	if sUse != "sig" {
+		return fmt.Errorf("the selected key in the included 'jwks' declares a 'use' of %q, which RFC 7517 section 4.2 makes the intended use of that key, and it is not verifying a signature", model.TruncateForResponse(sUse))
+	}
+	return nil
+}
+
+func VerifySelectedKey(token string, key map[string]any) error {
+	header, err := headerAlgorithm(token)
+	if err != nil {
+		return err
+	}
+	if err := verifyKeyAlgorithm(header, key); err != nil {
+		return err
+	}
+	if err := VerifyKeyUse(key); err != nil {
+		return err
+	}
+	if err := model.VerifyKeyStrength(key, header); err != nil {
+		return fmt.Errorf("the selected key in the included 'jwks' %s", err.Error())
 	}
 	return nil
 }
@@ -156,6 +200,9 @@ var verificationAlgorithms = []josemodel.Algorithm{
 
 func KeyCanVerify(key map[string]any) bool {
 	if model.ValidateJWKShape(key) != nil {
+		return false
+	}
+	if VerifyKeyUse(key) != nil {
 		return false
 	}
 	pubKey, err := jwk.PublicFromJwk(key)
@@ -181,6 +228,9 @@ func KeyCanVerify(key map[string]any) bool {
 		if _, err := jws.GetValidator(algorithm, pubKey); err != nil {
 			continue
 		}
+		if model.VerifyKeyStrength(key, algorithm.String()) != nil {
+			continue
+		}
 		return true
 	}
 	return false
@@ -202,7 +252,7 @@ func VerifyAgainstAnyKey(token string, jwks josemodel.Jwks) error {
 		if !KeyCanVerify(key) {
 			continue
 		}
-		if VerifyKeyAlgorithm(token, key) != nil {
+		if VerifySelectedKey(token, key) != nil {
 			continue
 		}
 		pubKey, err := jwk.PublicFromJwk(key)
@@ -225,7 +275,7 @@ func VerifyAgainstAnyKey(token string, jwks josemodel.Jwks) error {
 func VerifyAgainstJwks(token, kid string, jwks josemodel.Jwks) error {
 	selectedKey, selectErr := SelectKey(jwks, kid)
 	if selectErr == nil {
-		if err := VerifyKeyAlgorithm(token, selectedKey); err != nil {
+		if err := VerifySelectedKey(token, selectedKey); err != nil {
 			return err
 		}
 	}

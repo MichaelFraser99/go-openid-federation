@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -65,7 +66,7 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 		return nil, nil, fmt.Errorf("%q's federation fetch response exceeded the %d byte response limit", issuer.Sub, limit)
 	}
 
-	subordinateStatement, err := Validate(cfg, issuer, string(responseBytes))
+	subordinateStatement, err := Validate(ctx, cfg, issuer, string(responseBytes))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -74,11 +75,13 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 		return nil, nil, fmt.Errorf("'sub' claim does not match the requested subject entity identifier")
 	}
 
+	model.LogPrivateKeyMembersInRawSet(ctx, &cfg, subordinateStatement.Iss, subordinateStatement.Sub, rawJWKSClaim(string(responseBytes)))
+
 	return josemodel.Pointer(string(responseBytes)), subordinateStatement, nil
 }
 
-func Validate(cfg model.Configuration, issuer model.EntityStatement, subordinateStatementJwt string) (*model.EntityStatement, error) {
-	subordinateStatement, err := validate(cfg, issuer, subordinateStatementJwt)
+func Validate(ctx context.Context, cfg model.Configuration, issuer model.EntityStatement, subordinateStatementJwt string) (*model.EntityStatement, error) {
+	subordinateStatement, err := validate(ctx, cfg, issuer, subordinateStatementJwt)
 	if err != nil {
 		if errors.Is(err, model.ErrInvalidMetadata) || errors.Is(err, model.ErrInvalidTrustChain) {
 			return nil, err
@@ -88,7 +91,7 @@ func Validate(cfg model.Configuration, issuer model.EntityStatement, subordinate
 	return subordinateStatement, nil
 }
 
-func validate(cfg model.Configuration, issuer model.EntityStatement, subordinateStatementJwt string) (*model.EntityStatement, error) {
+func validate(ctx context.Context, cfg model.Configuration, issuer model.EntityStatement, subordinateStatementJwt string) (*model.EntityStatement, error) {
 	parts := strings.Split(subordinateStatementJwt, ".")
 	if len(parts) != 3 {
 		return nil, fmt.Errorf("invalid JWT structure")
@@ -188,6 +191,7 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 	}
 
 	seen := map[string]struct{}{}
+	publishable := josemodel.Jwks{Keys: make([]map[string]any, 0, len(subjectSubordinateConfiguration.JWKs.Keys))}
 	for _, k := range subjectSubordinateConfiguration.JWKs.Keys {
 		kid, ok := k["kid"]
 		if !ok {
@@ -201,6 +205,22 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 			return nil, fmt.Errorf("all provided subordinate configuration JWKs must have unique 'kid' values - %q appears more than once", sKid)
 		}
 		seen[sKid] = struct{}{}
+
+		if err := model.VerifyPublishableJWK(k); err != nil {
+			configuration.LogError(ctx, "dropping a registered key from a subordinate statement because it carries private key material", slog.String("subject", string(subjectIdentifier)), slog.String("kid", model.TruncateForResponse(sKid)), slog.String("error", err.Error()))
+			continue
+		}
+		if declared, ok := k["alg"].(string); ok {
+			if err := model.VerifyKeyStrength(k, declared); err != nil {
+				configuration.LogError(ctx, "dropping a registered key from a subordinate statement because RFC 7518 requires a larger modulus for the algorithm it is registered for", slog.String("subject", string(subjectIdentifier)), slog.String("kid", model.TruncateForResponse(sKid)), slog.String("error", err.Error()))
+				continue
+			}
+		}
+		publishable.Keys = append(publishable.Keys, k)
+	}
+
+	if len(publishable.Keys) == 0 {
+		return nil, model.NewInvalidSubjectError("every key registered for this subject is unpublishable, so no usable subordinate statement can be issued for it")
 	}
 
 	subordinateStatementLifetime, err := model.ResolveStatementLifetime("SubordinateStatementLifetime", configuration.IntermediateConfiguration.SubordinateStatementLifetime, model.DefaultSubordinateStatementLifetime)
@@ -217,7 +237,7 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		Iss:  configuration.EntityIdentifier,
 		Iat:  time.Now().UTC().Unix(),
 		Exp:  time.Now().Add(subordinateStatementLifetime).UTC().Unix(),
-		JWKs: subjectSubordinateConfiguration.JWKs,
+		JWKs: publishable,
 	}
 
 	if policy := subjectSubordinateConfiguration.Policies; policy.HasParameterPolicies() {
@@ -237,6 +257,10 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 	err = json.Unmarshal(subordinateStatementBytes, &subordinateStatementMap)
 	if err != nil {
 		return nil, fmt.Errorf("failed to deserialize entity configuration: %s", err.Error())
+	}
+
+	if err = model.VerifyPublishableStatementKeys(subordinateStatementMap); err != nil {
+		return nil, fmt.Errorf("refusing to publish this subordinate statement because %s", err.Error())
 	}
 
 	if err = model.VerifyIssuedStatement(subordinateStatementBytes, configuration.EntityTypes); err != nil {
@@ -261,4 +285,20 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 	}
 
 	return token, nil
+}
+
+func rawJWKSClaim(statement string) any {
+	parts := strings.Split(statement, ".")
+	if len(parts) != 3 {
+		return nil
+	}
+	body, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil
+	}
+	var bodyMap map[string]any
+	if json.Unmarshal(body, &bodyMap) != nil {
+		return nil
+	}
+	return bodyMap["jwks"]
 }

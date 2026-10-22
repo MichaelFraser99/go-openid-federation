@@ -102,6 +102,29 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 		}
 	}
 
+	publishable := make([]map[string]any, 0, len(response.ImmediateSubordinateEntities))
+	for _, subordinateEntity := range response.ImmediateSubordinateEntities {
+		serialised, err := json.Marshal(subordinateEntity)
+		if err != nil {
+			s.cfg.LogError(ctx, "error serialising a subordinate entity", slog.String("error", err.Error()))
+			return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(extendedListingUnavailableError))
+		}
+		var entity map[string]any
+		if err := json.Unmarshal(serialised, &entity); err != nil {
+			s.cfg.LogError(ctx, "error reading back a serialised subordinate entity", slog.String("error", err.Error()))
+			return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(extendedListingUnavailableError))
+		}
+
+		var dropped []string
+		model.StripUnpublishableKeys(entity, 0, &dropped)
+		if len(dropped) > 0 {
+			identifier, _ := entity["id"].(string)
+			s.cfg.LogError(ctx, "dropping keys carrying private key material from an extended listing entry", slog.String("sub", model.TruncateForResponse(identifier)), slog.Any("key_ids", dropped))
+		}
+		publishable = append(publishable, entity)
+	}
+	response.ImmediateSubordinateEntities = publishable
+
 	entitiesJSON, err := json.Marshal(response)
 	if err != nil {
 		s.cfg.LogError(ctx, "error marshalling subordinate entities", slog.String("error", err.Error()))

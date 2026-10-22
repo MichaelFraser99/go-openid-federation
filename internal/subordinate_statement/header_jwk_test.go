@@ -122,7 +122,7 @@ func TestValidate_RejectsSignaturesNotMadeByTheIssuersPublishedKey(t *testing.T)
 			issuer := testIssuerStatement(t, trustAnchor, publishedKeys...)
 			statement := testSign(t, tc.signer, tc.head, body())
 
-			result, err := Validate(model.Configuration{}, issuer, statement)
+			result, err := Validate(t.Context(), model.Configuration{}, issuer, statement)
 			if tc.expectErr {
 				if err == nil {
 					t.Fatalf("expected statement to be rejected, got accepted result for sub %q", result.Sub)

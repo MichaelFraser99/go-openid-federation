@@ -405,7 +405,7 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 		previousStatement := processedChain[len(trustChain)-(i+2)]
 
 		cfg.LogInfo(ctx, "validating chain step", slog.Int("step", i), slog.String("issuer", string(previousStatement.Iss)))
-		nextStep, err := subordinate_statement.Validate(cfg, previousStatement, trustChain[i])
+		nextStep, err := subordinate_statement.Validate(ctx, cfg, previousStatement, trustChain[i])
 		if err != nil {
 			cfg.LogInfo(ctx, "failed to validate chain step", slog.Int("step", i), slog.String("error", err.Error()))
 			return nil, fmt.Errorf("%w%s: %w", model.ErrInvalidTrustChain, "error validating step in provided trust chain", err)

@@ -490,6 +490,8 @@ Before any policy runs, the metadata parameters the subject's immediate superior
 
 Resolving by hand, rather than through `ResolveMetadata`, means four steps in this order: `model.ApplySuperiorMetadata` to apply the immediate superior's `metadata` claim over the subject's own, `model.ProcessAndExtractPolicy` to merge the chain's policy, `model.ApplyPolicy` to apply it, and `Metadata.VerifyResolved` to judge the result. Skipping the first drops a superior's pinned parameters; skipping the last accepts resolved metadata that no entity type would.
 
+**`model.ApplyPolicy` validates nothing.** `model.ProcessAndExtractPolicy` is where a policy is checked, and it is what enforces section 6.1.3.1's rules on which operators may be combined — that the values of `add` are a subset of the values of `value`, that `value` is a subset of `subset_of`, and the rest. Calling `ApplyPolicy` on a policy that has not been through `ProcessAndExtractPolicy` applies it as written, including combinations the specification makes a policy error. A test harness that skips the merge step because its chain has only one level will therefore see an invalid policy applied with no error.
+
 `scope` is handled as a special case. It travels as a space delimited string but is operated on as a list, so operators are converted to their slice form before resolution and the result is rejoined afterwards.
 
 To implement an operator outside this set, satisfy `model.MetadataPolicyOperator`:

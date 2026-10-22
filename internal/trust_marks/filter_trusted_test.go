@@ -181,7 +181,7 @@ func TestFilterByTrusted_IntermediateWellKnownTakeoverForgesIssuerKey(t *testing
 	if err != nil {
 		t.Logf("build: %v", err)
 	} else {
-		_, resolveErr := trust_chain.ResolveMetadata(t.Context(), model.Configuration{HttpClient: f.server.Client()}, "https://resolver.example.com", chain, nil)
+		_, resolveErr := trust_chain.ResolveMetadata(t.Context(), model.Configuration{HttpClient: f.server.Client()}, "https://resolver.example.com", model.EntityIdentifier(f.id("ta")), chain, nil)
 		t.Logf("ResolveMetadata on the same issuer chain: err=%v", resolveErr)
 	}
 	if len(got) != 0 {

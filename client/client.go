@@ -37,13 +37,24 @@ func (c *Client) BuildTrustChain(ctx context.Context, targetLeafEntityIdentifier
 	return trust_chain.BuildTrustChain(ctx, c.cfg.Configuration, *parsedLeafEntityIdentifier, *parsedTargetEntityIdentifier, resolvecache.New())
 }
 
-func (c *Client) ResolveMetadata(ctx context.Context, subject string, trustChain []string) (*model.Metadata, error) {
+func (c *Client) ResolveMetadata(ctx context.Context, subject, trustAnchor string, trustChain []string) (*model.Metadata, error) {
 	parsedSubject, err := model.ValidateEntityIdentifier(subject)
 	if err != nil {
 		return nil, fmt.Errorf("invalid subject entity identifier: %s", err.Error())
 	}
+	if trustAnchor == "" {
+		return nil, model.NewInvalidRequestError("a trust anchor must be named to resolve a trust chain")
+	}
+	parsedTrustAnchor, err := model.ValidateEntityIdentifier(trustAnchor)
+	if err != nil {
+		return nil, model.NewInvalidRequestError(fmt.Sprintf("invalid trust anchor entity identifier: %s", err.Error()))
+	}
 
-	resolved, err := trust_chain.ResolveMetadata(ctx, c.cfg.Configuration, *parsedSubject, trustChain, resolvecache.New())
+	if *parsedSubject == *parsedTrustAnchor {
+		return nil, model.NewInvalidRequestError("the subject must not be the trust anchor it is resolved against")
+	}
+
+	resolved, err := trust_chain.ResolveMetadata(ctx, c.cfg.Configuration, *parsedSubject, *parsedTrustAnchor, trustChain, resolvecache.New())
 	if err != nil {
 		return nil, err
 	}

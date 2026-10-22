@@ -58,7 +58,7 @@ func TestResolveMetadata_AppliesImmediateSuperiorMetadata(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			chain := chainWithClaims(t, test.subjectMetadata, test.subordinateExtra)
-			result, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chain, nil)
+			result, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chain, nil)
 			if err != nil {
 				t.Fatalf("no error expected resolving, got: %v", err)
 			}
@@ -77,7 +77,7 @@ func TestResolveMetadata_SuperiorMetadataOnlyAffectsTypesTheSubjectPublishes(t *
 		},
 	})
 
-	result, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chain, nil)
+	result, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chain, nil)
 	if err != nil {
 		t.Fatalf("no error expected resolving, got: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestResolveMetadata_CompletenessIsJudgedOnTheResolvedMetadata(t *testing.T)
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			chain := chainWithClaims(t, test.subjectMetadata, test.subordinateExtra)
-			_, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chain, nil)
+			_, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chain, nil)
 			if test.resolves {
 				if err != nil {
 					t.Errorf("expected the chain to resolve, got error: %v", err)
@@ -219,7 +219,7 @@ func TestResolveMetadata_OnlyTheImmediateSuperiorSuppliesMetadata(t *testing.T) 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			chain := chainThroughIntermediate(t, test.immediateExtra, test.grandparentExtra)
-			result, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chain, nil)
+			result, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chain, nil)
 			if err != nil {
 				t.Fatalf("no error expected resolving, got: %v", err)
 			}
@@ -239,7 +239,7 @@ func TestResolveMetadata_PolicyFromEveryLevelStillMerges(t *testing.T) {
 			"federation_entity": map[string]any{"contacts": map[string]any{"add": []any{"from-anchor@example.com"}}},
 		}})
 
-	result, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chain, nil)
+	result, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chain, nil)
 	if err != nil {
 		t.Fatalf("no error expected resolving, got: %v", err)
 	}
@@ -275,7 +275,7 @@ func TestResolveMetadata_SingleEntryChainIsJudgedOnItsOwnMetadata(t *testing.T) 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			chain := chainWithClaims(t, test.metadata, nil)
-			_, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chain[:1], nil)
+			_, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chainSubject, chain[:1], nil)
 			if test.resolves {
 				if err != nil {
 					t.Errorf("expected the entity configuration to resolve, got: %v", err)
@@ -299,7 +299,7 @@ func TestResolveMetadata_SuperiorCannotCreateAnInvalidCombination(t *testing.T) 
 			"jwks_uri": "https://ta.example.com/leaf/jwks",
 		}}})
 
-	_, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chain, nil)
+	_, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chain, nil)
 	if err == nil {
 		t.Fatal("a superior must not be able to produce resolved metadata holding both key parameters")
 	}
@@ -330,7 +330,7 @@ func TestResolveMetadata_MetadataFaultsOnASingleEntryChainAreTypedAsInvalidMetad
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			chain := chainWithClaims(t, test.metadata, nil)
-			_, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chain[:1], nil)
+			_, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chainSubject, chain[:1], nil)
 			if err == nil {
 				t.Fatal("expected the entity configuration to be refused")
 			}
@@ -363,11 +363,13 @@ func TestResolveMetadata_TheRegistryIsConsultedOnEveryResolutionPath(t *testing.
 	}
 
 	tests := []struct {
-		name  string
-		chain func(*testing.T) []string
+		name   string
+		chain  func(*testing.T) []string
+		anchor model.EntityIdentifier
 	}{
 		{
-			name: "a chain of one",
+			name:   "a chain of one",
+			anchor: chainSubject,
 			chain: func(t *testing.T) []string {
 				return chainWithClaims(t, nil, nil)[:1]
 			},
@@ -393,7 +395,11 @@ func TestResolveMetadata_TheRegistryIsConsultedOnEveryResolutionPath(t *testing.
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			cfg := model.Configuration{EntityTypes: registry}
-			_, err := ResolveMetadata(t.Context(), cfg, chainAnchor, test.chain(t), nil)
+			anchor := test.anchor
+			if anchor == "" {
+				anchor = chainAnchor
+			}
+			_, err := ResolveMetadata(t.Context(), cfg, chainAnchor, anchor, test.chain(t), nil)
 			if err == nil {
 				t.Fatal("expected the registered requirement to be applied")
 			}
@@ -425,7 +431,7 @@ func TestResolveMetadata_IncompleteMetadataIsInvalidMetadataOnEveryPath(t *testi
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			chain := chainWithClaims(t, partial, test.subordinateExtra)
-			_, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chain, nil)
+			_, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chain, nil)
 			if err == nil {
 				t.Fatal("expected the incomplete resolved metadata to be refused")
 			}
@@ -456,7 +462,7 @@ func TestResolveMetadata_RefusesAChainWithNoStatementAboutTheSubject(t *testing.
 	}
 	signed := chainSignStatement(t, anchorKey, selfListing)
 
-	_, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, []string{signed, signed}, nil)
+	_, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chainAnchor, []string{signed, signed}, nil)
 	if err == nil {
 		t.Fatal("a chain holding no subordinate statement establishes no trust and must be refused")
 	}
@@ -467,11 +473,13 @@ func TestResolveMetadata_RefusesAChainWithNoStatementAboutTheSubject(t *testing.
 
 func TestResolveMetadata_AlwaysCarriesAMetadataObject(t *testing.T) {
 	tests := []struct {
-		name  string
-		chain func(*testing.T) []string
+		name   string
+		chain  func(*testing.T) []string
+		anchor model.EntityIdentifier
 	}{
 		{
-			name: "a chain of one whose subject carries no metadata claim",
+			name:   "a chain of one whose subject carries no metadata claim",
+			anchor: chainSubject,
 			chain: func(t *testing.T) []string {
 				return chainWithoutSubjectMetadata(t, nil)[:1]
 			},
@@ -502,7 +510,11 @@ func TestResolveMetadata_AlwaysCarriesAMetadataObject(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			result, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, test.chain(t), nil)
+			anchor := test.anchor
+			if anchor == "" {
+				anchor = chainAnchor
+			}
+			result, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, anchor, test.chain(t), nil)
 			if err != nil {
 				t.Fatalf("no error expected resolving, got: %v", err)
 			}

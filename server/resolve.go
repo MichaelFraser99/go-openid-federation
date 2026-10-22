@@ -52,7 +52,7 @@ func (s *Server) Resolve(w http.ResponseWriter, r *http.Request) ResponseFunc {
 		return s.RespondWithError(ctx, w, err)
 	}
 
-	resolved, err := trust_chain.ResolveMetadata(ctx, s.cfg.Configuration, s.cfg.EntityIdentifier, trustChain, cache)
+	resolved, err := trust_chain.ResolveMetadata(ctx, s.cfg.Configuration, s.cfg.EntityIdentifier, *parsedTrustAnchor, trustChain, cache)
 	if err != nil {
 		s.cfg.LogInfo(ctx, "error resolving trust chain", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, err)

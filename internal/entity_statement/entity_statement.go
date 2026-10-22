@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/MichaelFraser99/go-jose/jwk"
@@ -145,6 +146,80 @@ func VerifyKeyAlgorithm(token string, key map[string]any) error {
 		return fmt.Errorf("the 'alg' header does not match the 'alg' the selected key in the included 'jwks' is published for")
 	}
 	return nil
+}
+
+var verificationAlgorithms = []josemodel.Algorithm{
+	josemodel.ES256, josemodel.ES384, josemodel.ES512,
+	josemodel.RS256, josemodel.RS384, josemodel.RS512,
+	josemodel.PS256, josemodel.PS384, josemodel.PS512,
+}
+
+func KeyCanVerify(key map[string]any) bool {
+	if model.ValidateJWKShape(key) != nil {
+		return false
+	}
+	pubKey, err := jwk.PublicFromJwk(key)
+	if err != nil {
+		return false
+	}
+
+	candidates := verificationAlgorithms
+	if declared, present := key["alg"]; present {
+		named, ok := declared.(string)
+		if !ok {
+			return false
+		}
+		if !slices.ContainsFunc(verificationAlgorithms, func(algorithm josemodel.Algorithm) bool {
+			return algorithm.String() == named
+		}) {
+			return false
+		}
+		candidates = []josemodel.Algorithm{josemodel.GetAlgorithm(named)}
+	}
+
+	for _, algorithm := range candidates {
+		if _, err := jws.GetValidator(algorithm, pubKey); err != nil {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func UsableVerificationKeys(jwks josemodel.Jwks) josemodel.Jwks {
+	usable := josemodel.Jwks{Keys: make([]map[string]any, 0, len(jwks.Keys))}
+	for _, key := range jwks.Keys {
+		if KeyCanVerify(key) {
+			usable.Keys = append(usable.Keys, key)
+		}
+	}
+	return usable
+}
+
+func VerifyAgainstAnyKey(token string, jwks josemodel.Jwks) error {
+	tried := 0
+	for _, key := range jwks.Keys {
+		if !KeyCanVerify(key) {
+			continue
+		}
+		if VerifyKeyAlgorithm(token, key) != nil {
+			continue
+		}
+		pubKey, err := jwk.PublicFromJwk(key)
+		if err != nil {
+			continue
+		}
+		tried++
+		if _, _, err := jws.VerifyCompactSerialization(token, func() ([]crypto.PublicKey, error) {
+			return []crypto.PublicKey{pubKey}, nil
+		}, &josemodel.JoseOptions{UseTokenProvidedKeys: false}); err == nil {
+			return nil
+		}
+	}
+	if tried == 0 {
+		return fmt.Errorf("no key in the key set can verify a signature made with this token's 'alg'")
+	}
+	return fmt.Errorf("no key in the key set verifies the signature")
 }
 
 func VerifyAgainstJwks(token, kid string, jwks josemodel.Jwks) error {

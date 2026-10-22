@@ -75,7 +75,7 @@ func TestResolveMetadata_MultiEntryChainIsGatedOnExpiry(t *testing.T) {
 				criticalOperatorSign(t, anchorKey, subordinate),
 			}
 
-			result, err := ResolveMetadata(t.Context(), model.Configuration{}, criticalOperatorAnchor, chain, cache)
+			result, err := ResolveMetadata(t.Context(), model.Configuration{}, criticalOperatorAnchor, criticalOperatorAnchor, chain, cache)
 
 			if tc.expectErr == "" {
 				if err != nil {

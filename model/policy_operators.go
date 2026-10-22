@@ -13,7 +13,7 @@ import (
 
 func scopeOperatorSlice(value any) []any {
 	if s, ok := value.(string); ok {
-		return ConvertStringsToAnySlice(strings.Split(s, " "))
+		return ConvertStringsToAnySlice(strings.Fields(s))
 	}
 	return []any{value}
 }

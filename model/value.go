@@ -41,11 +41,11 @@ func (v Value) ToSlice(key string) MetadataPolicyOperator {
 	}
 	if reflect.TypeOf(v.operatorValue).Kind() != reflect.Slice {
 		if key == "scope" {
-			return &Value{
+			return Value{
 				operatorValue: scopeOperatorSlice(v.operatorValue),
 			}
 		}
-		return &Value{
+		return Value{
 			operatorValue: []any{v.operatorValue},
 		}
 	}

@@ -40,13 +40,16 @@ func (d Default) OperatorValue() any {
 }
 
 func (d Default) ToSlice(key string) MetadataPolicyOperator {
+	if d.operatorValue == nil {
+		return d
+	}
 	if reflect.TypeOf(d.operatorValue).Kind() != reflect.Slice {
 		if key == "scope" {
-			return &Default{
+			return Default{
 				operatorValue: scopeOperatorSlice(d.operatorValue),
 			}
 		}
-		return &Default{
+		return Default{
 			operatorValue: []any{d.operatorValue},
 		}
 	}

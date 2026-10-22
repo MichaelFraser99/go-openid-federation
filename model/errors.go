@@ -87,3 +87,39 @@ func NewTemporarilyUnavailableError(msg string) error {
 func NewUnsupportedParameterError(msg string) error {
 	return fmt.Errorf("%w%s", ErrUnsupportedParameter, msg)
 }
+
+var classifiedErrorBuilders = []struct {
+	sentinel error
+	build    func(string) error
+}{
+	{ErrInvalidRequest, NewInvalidRequestError},
+	{ErrInvalidClient, NewInvalidClientError},
+	{ErrInvalidIssuer, NewInvalidIssuerError},
+	{ErrInvalidSubject, NewInvalidSubjectError},
+	{ErrInvalidTrustAnchor, NewInvalidTrustAnchorError},
+	{ErrInvalidTrustChain, NewInvalidTrustChainError},
+	{ErrInvalidMetadata, NewInvalidMetadataError},
+	{ErrNotFound, NewNotFoundError},
+	{ErrPageNotFound, NewPageNotFoundError},
+	{ErrServerError, NewServerError},
+	{ErrTemporarilyUnavailable, NewTemporarilyUnavailableError},
+	{ErrUnsupportedParameter, NewUnsupportedParameterError},
+}
+
+func ReclassifyWithDescription(err error, description string) error {
+	for _, candidate := range classifiedErrorBuilders {
+		if errors.Is(err, candidate.sentinel) {
+			return candidate.build(description)
+		}
+	}
+	return nil
+}
+
+func ClassifiedError(err error) error {
+	for _, candidate := range classifiedErrorBuilders {
+		if errors.Is(err, candidate.sentinel) {
+			return err
+		}
+	}
+	return nil
+}

@@ -75,7 +75,7 @@ func (d Default) Merge(valueToMerge any) (MetadataPolicyOperator, error) {
 	if operandsEqual(d.operatorValue, valueToMerge) {
 		return d, nil
 	}
-	return nil, fmt.Errorf("merging %v and %v not possible", d.operatorValue, valueToMerge)
+	return nil, fmt.Errorf("two levels of the trust chain set a different 'default', which cannot be merged")
 }
 
 func (d Default) CheckForConflict(containsFunc func(policyType reflect.Type) (MetadataPolicyOperator, bool)) error {

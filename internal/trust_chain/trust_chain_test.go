@@ -151,6 +151,12 @@ func TestBuildTrustChain(t *testing.T) {
 				if !errors.Is(err, model.ErrInvalidRequest) {
 					t.Fatalf("[8.9] a subject named as its own trust anchor is the caller's mistake, so it must be invalid_request rather than a server fault, got '%s'", err.Error())
 				}
+				if !errors.Is(err, model.ErrInvalidRequest) {
+					t.Fatalf("expected a request naming one entity as both leaf and trust anchor to be refused as an invalid request, got %v", err)
+				}
+				if errors.Is(err, model.ErrServerError) {
+					t.Fatalf("expected the caller's own request not to be reported as this server's fault, got %v", err)
+				}
 			},
 		},
 		"builds simple two-hop chain": {

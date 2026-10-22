@@ -82,7 +82,7 @@ func (v Value) Merge(valueToMerge any) (MetadataPolicyOperator, error) {
 	if operandsEqual(v.operatorValue, valueToMerge) {
 		return v, nil
 	}
-	return nil, fmt.Errorf("merging %v and %v not possible", v.operatorValue, valueToMerge)
+	return nil, fmt.Errorf("two levels of the trust chain set a different 'value', which cannot be merged")
 }
 
 func (v Value) CheckForConflict(containsFunc func(policyType reflect.Type) (MetadataPolicyOperator, bool)) error {

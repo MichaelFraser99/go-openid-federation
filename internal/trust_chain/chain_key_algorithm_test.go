@@ -1,8 +1,11 @@
 package trust_chain
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -79,13 +82,22 @@ func TestVerifyChainLinks_TheAlgorithmASuperiorPublishesBindsItsSubordinate(t *t
 				parsed = append(parsed, statement)
 			}
 
-			err := verifyChainLinks(t.Context(), model.Configuration{}, signed, parsed)
+			var logs bytes.Buffer
+			cfg := model.Configuration{Logger: slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))}
+
+			err := verifyChainLinks(t.Context(), cfg, signed, parsed)
 			if tc.expectErr {
 				if err == nil {
 					t.Fatalf("[%s] expected the link to be refused", tc.reference)
 				}
-				if !strings.Contains(err.Error(), "does not match the 'alg' the selected key") {
-					t.Errorf("[%s] expected the mismatch to be named, got %v", tc.reference, err)
+				if !errors.Is(err, model.ErrInvalidTrustChain) {
+					t.Errorf("[%s] expected the refusal to name the trust chain, got %v", tc.reference, err)
+				}
+				if strings.Contains(err.Error(), "'alg'") {
+					t.Errorf("[%s] the description must not carry text this server was given by a peer, got %v", tc.reference, err)
+				}
+				if !strings.Contains(logs.String(), "does not match the 'alg' the selected key") {
+					t.Errorf("[%s] the operator must still be able to see the mismatch in the log, got %s", tc.reference, logs.String())
 				}
 				return
 			}

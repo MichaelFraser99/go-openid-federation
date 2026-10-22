@@ -59,12 +59,12 @@ func fetch(ctx context.Context, cfg model.Configuration, entityIdentifier model.
 	defer response.Body.Close() //nolint:errcheck
 
 	if response.StatusCode != http.StatusOK {
-		return nil, nil, fmt.Errorf("non-200 response from %q's entity configuration: %s", entityIdentifier, response.Status)
+		return nil, nil, fmt.Errorf("non-200 response from %q's entity configuration: %s", entityIdentifier, model.TruncateForResponse(response.Status))
 	}
 	cfg.LogInfo(ctx, "entity configuration retrieved", slog.String("subject", string(entityIdentifier)))
 
 	if !strings.Contains(response.Header.Get("Content-Type"), "application/entity-statement+jwt") { //todo: check on this - not sure if it has to be an exact match or not...
-		return nil, nil, fmt.Errorf("invalid Content-Type response from %q's entity configuration: %s", entityIdentifier, response.Header.Get("Content-Type"))
+		return nil, nil, fmt.Errorf("invalid Content-Type response from %q's entity configuration: %s", entityIdentifier, model.TruncateForResponse(response.Header.Get("Content-Type")))
 	}
 
 	limit := cfg.PeerResponseLimit()

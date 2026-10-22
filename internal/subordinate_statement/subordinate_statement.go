@@ -21,17 +21,21 @@ import (
 
 func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityStatement, subject model.EntityIdentifier) (*string, *model.EntityStatement, error) {
 	if cfg.HttpClient == nil {
-		return nil, nil, fmt.Errorf("no http client present")
+		return nil, nil, model.NewServerError("no http client present")
 	}
 	if issuer.Iss != issuer.Sub {
-		return nil, nil, fmt.Errorf("the value of 'issuer' must be an entity configuration")
+		return nil, nil, model.NewServerError("the value of 'issuer' must be an entity configuration")
 	}
-	if issuer.Metadata == nil || issuer.Metadata.FederationMetadata == nil || (*issuer.Metadata.FederationMetadata)["federation_fetch_endpoint"] == nil {
-		return nil, nil, fmt.Errorf("issuer entity statement does not list a federation fetch endpoint within it's federation metadata")
+	if issuer.Metadata == nil || issuer.Metadata.FederationMetadata == nil {
+		return nil, nil, model.NewInvalidTrustChainError("issuer entity statement does not list a federation fetch endpoint within it's federation metadata")
+	}
+	fetchEndpoint, ok := (*issuer.Metadata.FederationMetadata)["federation_fetch_endpoint"].(string)
+	if !ok || fetchEndpoint == "" {
+		return nil, nil, model.NewInvalidTrustChainError("issuer entity statement does not list a federation fetch endpoint within it's federation metadata")
 	}
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%ssub=%s", func() string {
-		trimmedString := strings.TrimSuffix((*issuer.Metadata.FederationMetadata)["federation_fetch_endpoint"].(string), "/")
+		trimmedString := strings.TrimSuffix(fetchEndpoint, "/")
 		if strings.Contains(trimmedString, "?") {
 			return trimmedString + "&"
 		} else {
@@ -39,31 +43,46 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 		}
 	}(), url.QueryEscape(string(subject))), nil)
 	if err != nil {
-		return nil, nil, err
+		cfg.LogInfo(ctx, "the issuer's federation fetch endpoint is not a usable url", slog.String("issuer", string(issuer.Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
+		return nil, nil, model.NewInvalidTrustChainError("the issuer's federation fetch endpoint is not a usable url")
 	}
 	request.Header.Set("Accept", "application/entity-statement+jwt")
 
 	response, err := cfg.HttpClient.Do(request)
 	if err != nil {
-		return nil, nil, err
+		cfg.LogInfo(ctx, "failed to reach the issuer's federation fetch endpoint", slog.String("issuer", string(issuer.Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, nil, fmt.Errorf("%w%s: %w", model.ErrTemporarilyUnavailable, "this server did not complete the request", ctxErr)
+		}
+		if classified := model.ReclassifyWithDescription(err, "failed to reach the issuer's federation fetch endpoint"); classified != nil {
+			return nil, nil, classified
+		}
+		return nil, nil, model.NewInvalidTrustChainError("failed to reach the issuer's federation fetch endpoint")
 	}
 	defer response.Body.Close() //nolint:errcheck
 
 	if response.StatusCode != http.StatusOK {
-		return nil, nil, fmt.Errorf("non-200 response from %q's federation fetch endpoint: %s", issuer.Sub, response.Status)
+		cfg.LogInfo(ctx, "non-200 response from the issuer's federation fetch endpoint", slog.String("issuer", string(issuer.Sub)), slog.String("status", model.TruncateForResponse(response.Status)))
+		return nil, nil, model.NewInvalidTrustChainError("non-200 response from the issuer's federation fetch endpoint")
 	}
 
 	if !strings.Contains(response.Header.Get("Content-Type"), "application/entity-statement+jwt") { //todo: check on this - not sure if it has to be an exact match or not...
-		return nil, nil, fmt.Errorf("invalid Content-Type response from %q's federation fetch response: %s", issuer.Sub, response.Header.Get("Content-Type"))
+		cfg.LogInfo(ctx, "invalid Content-Type response from the issuer's federation fetch response", slog.String("issuer", string(issuer.Sub)), slog.String("content_type", model.TruncateForResponse(response.Header.Get("Content-Type"))))
+		return nil, nil, model.NewInvalidTrustChainError("invalid Content-Type response from the issuer's federation fetch response")
 	}
 
 	limit := cfg.PeerResponseLimit()
 	responseBytes, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read %q's federation fetch response body: %s", issuer.Sub, err.Error())
+		cfg.LogInfo(ctx, "failed to read the issuer's federation fetch response body", slog.String("issuer", string(issuer.Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, nil, fmt.Errorf("%w%s: %w", model.ErrTemporarilyUnavailable, "this server did not complete the request", ctxErr)
+		}
+		return nil, nil, model.NewInvalidTrustChainError("failed to read the issuer's federation fetch response body")
 	}
 	if int64(len(responseBytes)) > limit {
-		return nil, nil, fmt.Errorf("%q's federation fetch response exceeded the %d byte response limit", issuer.Sub, limit)
+		cfg.LogInfo(ctx, "the issuer's federation fetch response exceeded the response limit", slog.String("issuer", string(issuer.Sub)), slog.Int64("limit", limit))
+		return nil, nil, model.NewInvalidTrustChainError(fmt.Sprintf("the issuer's federation fetch response exceeded the %d byte response limit", limit))
 	}
 
 	subordinateStatement, err := Validate(ctx, cfg, issuer, string(responseBytes))
@@ -72,7 +91,7 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 	}
 
 	if subordinateStatement.Sub != subject {
-		return nil, nil, fmt.Errorf("'sub' claim does not match the requested subject entity identifier")
+		return nil, nil, model.NewInvalidTrustChainError("'sub' claim does not match the requested subject entity identifier")
 	}
 
 	model.LogPrivateKeyMembersInRawSet(ctx, &cfg, subordinateStatement.Iss, subordinateStatement.Sub, rawJWKSClaim(string(responseBytes)))

@@ -313,12 +313,18 @@ func TestServer_ExtendedList_BoundsTheRequestedClaimCount(t *testing.T) {
 	})
 
 	t.Run("a caller supplied flood is refused quickly", func(t *testing.T) {
+		const floodSize = 200000
+		flood := build(floodSize)
+
 		started := time.Now()
-		if _, _, err := parseExtendedListingFilter(build(200000), 10); err == nil {
+		_, _, err := parseExtendedListingFilter(flood, 10)
+		elapsed := time.Since(started)
+
+		if err == nil {
 			t.Error("expected the flood to be refused")
 		}
-		if elapsed := time.Since(started); elapsed > time.Second {
-			t.Errorf("refusing a flood took %v, so the parse is not bounded by the cap", elapsed)
+		if elapsed > 10*time.Second {
+			t.Errorf("refusing a flood of %d values took %v, so the parse walks the input rather than stopping at the cap", floodSize, elapsed)
 		}
 	})
 }

@@ -271,7 +271,7 @@ func TestServer_Resolve_ExtensionEntityTypes(t *testing.T) {
 				},
 			},
 			validate: func(t *testing.T, response *http.Response, err error) {
-				validateErrorResponse(t, response, err, http.StatusBadRequest, "invalid_metadata", "failed to retrieve subordinate statement: invalid openid_verifier_provider metadata policy: 'client_id_prefixes_supported' may not be set by policy")
+				validateErrorResponse(t, response, err, http.StatusBadRequest, "invalid_metadata", subordinateStatementRejectedDescription)
 			},
 		},
 		"an unregistered extension entity type skips policy validation": {

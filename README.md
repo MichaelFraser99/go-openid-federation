@@ -169,6 +169,8 @@ Resolving metadata makes outbound HTTP requests for the caller-supplied `sub` an
 | `trust_marked` | no | `true` or `false`, as on `/list` |
 | `intermediate` | no | `true` or `false`, as on `/list` |
 
+An entry this server cannot check is left out of the listing rather than refusing it: one that cannot be serialised, one that cannot be read back once serialised, or one nested deeper than the private-key scan reaches. Each omission is logged at error level with the subject it concerned. One subordinate's own data does not take the listing down for the others.
+
 The endpoint takes the `/list` filters as well as its own, which [Extended Subordinate Listing 1.0](https://openid.net/specs/openid-federation-extended-listing-1_0.html) section 3.2 requires. Supplying `updated_after`, `updated_before` or `audit_timestamps` returns `unsupported_parameter`.
 
 `claims` names at most 64 distinct claims, across every form combined; duplicates and empty items do not count towards it. `entity_type` and `trust_mark_type` are each accepted at most 64 times. More than that answers `invalid_request`, because these parameters are otherwise bounded only by the request size and every value reaches your retriever.
@@ -595,7 +597,22 @@ if errors.Is(err, model.ErrInvalidTrustAnchor) {
 | `ErrUnsupportedParameter` | `unsupported_parameter` | 400 |
 | `ErrServerError` | `server_error` | 500 |
 
+`ErrLimitReached` carries no code of its own: it accompanies the class the bound belongs to, so a walk refused by a configured bound answers 404 `invalid_trust_anchor` and a subject presenting more trust mark issuers than the bound answers 404 `invalid_subject`. A consumer tells a bound from the condition it shares a code with using `errors.Is`.
+
 Errors are returned to callers as a JSON object with `error` and `error_description`.
+
+**A condition a peer or a caller caused is never a `server_error`.** `server_error` is left for this server's own faults, such as a signer it cannot use or a retriever that failed for a reason it does not classify.
+
+`temporarily_unavailable` means **this** server, and nothing else. Section 8.9 defines it as "The server hosting the federation endpoint is currently unable to handle the request due to temporary overloading or maintenance", and the server hosting the endpoint being requested is this one. So it answers only where this server did not complete its own request — its context deadline or a cancellation. It is deliberately not used for a peer this server could not reach: that peer is not hosting the endpoint the caller asked for.
+
+Everything a peer does wrong on the subordinate statement fetch path therefore answers 400 `invalid_trust_chain` — unreachable, a 503 or a 429 of its own, a truncated body, the wrong content type, an oversized response, or a statement that fails validation. The class says what failed, which is that the chain could not be validated. Section 10.5 notes a retry may still help while a federation's topology is being updated, so this is not a claim that the answer is permanent.
+
+Two exceptions worth knowing, rather than inferring from the above:
+
+- **The entity configuration path classifies by hop, not by fault.** An entity configuration this server cannot fetch answers 404 — `not_found` for the subject, `invalid_trust_anchor` for an entity further up — because at that point the walk has not found the entity rather than failed to validate a statement. So one unreachable peer answers 404 at its entity configuration and 400 at its fetch endpoint.
+- **A transport error that already carries a class keeps it, all the way to the response.** A consumer whose `HttpClient` refuses a destination by policy can wrap any of the twelve federation sentinels, and that class is what the caller receives — `model.ReclassifyWithDescription` keeps it while replacing the description with this library's own, because the transport's text names the endpoint the peer published. The lookup runs in a fixed order, so an error carrying more than one sentinel always resolves to the same class.
+
+The description a caller receives carries no text this server was given by a peer: a peer's error, a URL a peer published, a value from a peer's statement, or a key a superior registered. The detail goes to the log instead, so an operator can still tell one fetch failure from another while a caller cannot read a third party's internals out of a response. What a peer chooses is bounded before it reaches a log, so a peer cannot turn one request into megabytes of records.
 
 ## Extensions
 
@@ -650,7 +667,7 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | Extension claims | Dropped on parse and cannot be issued | [#132](https://github.com/MichaelFraser99/go-openid-federation/issues/132) |
 | `trust_chain` and `peer_trust_chain` JOSE headers | Not read or written | [#139](https://github.com/MichaelFraser99/go-openid-federation/issues/139) |
 | Trust mark type identifiers as object member names | Member names in `trust_mark_issuers` and `trust_mark_owners` are not checked against a syntax, because §7.1 makes a URL RECOMMENDED rather than required and the one MUST, collision resistance, is not checkable | [#140](https://github.com/MichaelFraser99/go-openid-federation/issues/140) |
-| Error classes on the fetch path | A peer's fault is reported as a server error | [#148](https://github.com/MichaelFraser99/go-openid-federation/issues/148) |
+| Statement validation text on the resolve path | `ResolveMetadata` revalidates a chain `BuildTrustChain` already validated, and those three paths still carry the parser's text, which names peer claims. Reachable through `Client.ResolveMetadata`, and through `/resolve` only where a statement expires between the two passes | [#184](https://github.com/MichaelFraser99/go-openid-federation/issues/184) |
 | `subordinate_statement` on an unlistable entity | Table 4 of the extended listing draft makes the attribute a MUST when requested, and an entity the subordinate store does not hold is returned without it | [#126](https://github.com/MichaelFraser99/go-openid-federation/issues/126) |
 | Shape rules after a policy is applied | Required claims and the relying party key pair are checked on the resolved metadata, the remaining claim shape rules are not, so a policy can set a value the parser would refuse | [#144](https://github.com/MichaelFraser99/go-openid-federation/issues/144) |
 | Policy merge against trust chain length | Cost grows faster than the chain. `MaxTrustChainDepth` now bounds the chain, which bounds the cost, but the merge still re-keys the whole accumulated array on every level | [#153](https://github.com/MichaelFraser99/go-openid-federation/issues/153) |

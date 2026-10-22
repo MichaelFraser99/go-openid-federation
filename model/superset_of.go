@@ -140,7 +140,7 @@ func (s SupersetOf) combineArray(metadataParameterValue any) (any, error) {
 				result = reflect.Append(result, reflect.ValueOf(elem))
 			}
 		} else {
-			return nil, fmt.Errorf("invalid element type in sliceA: %v", elem)
+			return nil, fmt.Errorf("an operand of the first operator has a type that cannot be compared")
 		}
 	}
 
@@ -151,7 +151,7 @@ func (s SupersetOf) combineArray(metadataParameterValue any) (any, error) {
 				result = reflect.Append(result, reflect.ValueOf(elem))
 			}
 		} else {
-			return nil, fmt.Errorf("invalid element type in sliceB: %v", elem)
+			return nil, fmt.Errorf("an operand of the second operator has a type that cannot be compared")
 		}
 	}
 

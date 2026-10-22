@@ -120,7 +120,7 @@ const (
 
 func subordinateStatementFailure(err error) error {
 	if errors.Is(err, model.ErrServerError) {
-		return err
+		return model.NewServerError(subordinateStatementUnusable)
 	}
 	if errors.Is(err, model.ErrTemporarilyUnavailable) {
 		return model.NewTemporarilyUnavailableError(subordinateStatementUnreachable)

@@ -88,6 +88,28 @@ func NewUnsupportedParameterError(msg string) error {
 	return fmt.Errorf("%w%s", ErrUnsupportedParameter, msg)
 }
 
+func ReclassifyWithDescription(err error, description string) error {
+	for sentinel, build := range map[error]func(string) error{
+		ErrInvalidRequest:         NewInvalidRequestError,
+		ErrInvalidClient:          NewInvalidClientError,
+		ErrInvalidIssuer:          NewInvalidIssuerError,
+		ErrInvalidSubject:         NewInvalidSubjectError,
+		ErrInvalidTrustAnchor:     NewInvalidTrustAnchorError,
+		ErrInvalidTrustChain:      NewInvalidTrustChainError,
+		ErrInvalidMetadata:        NewInvalidMetadataError,
+		ErrNotFound:               NewNotFoundError,
+		ErrPageNotFound:           NewPageNotFoundError,
+		ErrServerError:            NewServerError,
+		ErrTemporarilyUnavailable: NewTemporarilyUnavailableError,
+		ErrUnsupportedParameter:   NewUnsupportedParameterError,
+	} {
+		if errors.Is(err, sentinel) {
+			return build(description)
+		}
+	}
+	return nil
+}
+
 func ClassifiedError(err error) error {
 	for _, sentinel := range []error{
 		ErrInvalidRequest, ErrInvalidClient, ErrInvalidIssuer, ErrInvalidSubject,

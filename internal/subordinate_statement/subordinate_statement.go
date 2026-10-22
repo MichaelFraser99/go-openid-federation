@@ -54,7 +54,7 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, nil, fmt.Errorf("%w%s: %w", model.ErrTemporarilyUnavailable, "this server did not complete the request", ctxErr)
 		}
-		if classified := model.ClassifiedError(err); classified != nil {
+		if classified := model.ReclassifyWithDescription(err, "failed to reach the issuer's federation fetch endpoint"); classified != nil {
 			return nil, nil, classified
 		}
 		return nil, nil, model.NewInvalidTrustChainError("failed to reach the issuer's federation fetch endpoint")

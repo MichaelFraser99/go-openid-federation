@@ -53,7 +53,7 @@ func TestResolveMetadata_AFinalEntryTheCallerSuppliedIsNotAServerFault(t *testin
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, err := ResolveMetadata(t.Context(), model.Configuration{}, "https://resolver.example.com", []string{unsignedStatement(t, tc.claims)}, resolvecache.New())
+			_, err := ResolveMetadata(t.Context(), model.Configuration{}, "https://resolver.example.com", "https://ta.example.com", []string{unsignedStatement(t, tc.claims)}, resolvecache.New())
 			if err == nil {
 				t.Fatalf("[%s] expected the chain to be refused", tc.reference)
 			}
@@ -76,12 +76,20 @@ func TestSubordinateStatementFailure_KeepsTheClassAndDropsThePeersText(t *testin
 		err         error
 		expectKind  error
 		description string
+		forbidden   []string
 	}{
 		"a failure of this server's own": {
 			reference:   "8.9 server_error",
 			err:         model.NewServerError("no http client present"),
 			expectKind:  model.ErrServerError,
-			description: "no http client present",
+			description: subordinateStatementUnusable,
+		},
+		"a failure a consumer's transport classified as this server's own": {
+			reference:   "8.9 server_error",
+			err:         model.NewServerError(`Get "https://peer.example.com/blocked/fetch?sub=x": refused by policy`),
+			expectKind:  model.ErrServerError,
+			description: subordinateStatementUnusable,
+			forbidden:   []string{"peer.example.com", "blocked", "refused by policy"},
 		},
 		"metadata the superior published": {
 			reference:   "8.9 invalid_metadata",
@@ -114,6 +122,11 @@ func TestSubordinateStatementFailure_KeepsTheClassAndDropsThePeersText(t *testin
 			got := subordinateStatementFailure(tc.err)
 			if !errors.Is(got, tc.expectKind) {
 				t.Fatalf("[%s] expected the class the spec defines for this fault, got %v", tc.reference, got)
+			}
+			for _, absent := range tc.forbidden {
+				if strings.Contains(got.Error(), absent) {
+					t.Errorf("[%s] a consumer's transport can classify a refusal as this server's own, so the text it chose must not reach the description: %q", tc.reference, got.Error())
+				}
 			}
 			if got.Error() != tc.description {
 				t.Fatalf("[%s] expected the description %q, got %q", tc.reference, tc.description, got.Error())

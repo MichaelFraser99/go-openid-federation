@@ -8,7 +8,7 @@ A Go library implementing the [OpenID Federation](https://openid.net/specs/openi
 
 ## Commands
 
-- **Test:** `go test ./...` (also `make test`). CI runs `go test -v ./...`.
+- **Test:** `go test ./...` (also `make test`). CI runs `go test -v ./...` **and then a second `go test -race ./...` pass**, so a change must be clean under the race detector as well. The race pass is the one that catches a wall-clock assertion written with too little headroom: a GitHub runner is two cores, so a budget that holds here can fail there.
 - **Single test:** `go test ./model -run TestMetadataProcessingE2E` (add `-v` for verbose).
 - **Lint:** `golangci-lint run` (version pinned to v2.13.1 in CI and pre-commit; match it locally). Run `pre-commit run --all-files` to reproduce the full pre-commit gate (end-of-file/trailing-whitespace fixers, yaml check, `no-commit-to-branch`, and `golangci-lint-full`).
 - **Go version:** 1.26 (see `go.mod`).
@@ -116,6 +116,7 @@ The read-path checks apply to the **selected** key only — the one the `kid` he
 - `//todo:` comments mark known incomplete areas across the client, server and model packages (the unimplemented `constraints` claim, trust mark delegation, content-type matching, error-type revisits, and handler duplication). They are intentional signposts, not stray notes.
 - Logging is optional and nil-safe: `Configuration.LogInfo`/`LogError` no-op when no `*slog.Logger` is set. Use them rather than a package logger.
 - Tests live alongside code as `_test.go`; `model_test/` and `server_test/` hold shared test helpers/fixtures (e.g. `server_test/testserver.go`).
+- A wall-clock assertion must time only the thing it is about. `build(200000)` as an argument to the call being timed put the construction of a 200,000-entry fixture inside the budget, which is what the budget then measured — 1.19s of fixture against a 1s limit, on a loaded machine. Build the fixture first, time the call alone, and keep the budget as a hang detector rather than a measurement: the cap's own semantics belong in a correctness assertion, which is what actually kills a mutant that removes the bound.
 - No test in `model` may call `t.Parallel()`. `model/operand_scaling_test.go` reads the package-level `operandWork` counter, which every policy operand comparison increments, so a test running beside it would be counted into its measurement and the assertion would fail intermittently.
 - Comments are not to be added by agents. Code is self-documenting and the comments are not welcome
 - Commits, if made, must not be co-authored

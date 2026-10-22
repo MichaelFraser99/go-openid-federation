@@ -94,6 +94,7 @@ Keys the library publishes are held to more than keys it reads. `entity_configur
 - `//todo:` comments mark known incomplete areas across the client, server and model packages (the unimplemented `constraints` claim, trust mark delegation, content-type matching, error-type revisits, and handler duplication). They are intentional signposts, not stray notes.
 - Logging is optional and nil-safe: `Configuration.LogInfo`/`LogError` no-op when no `*slog.Logger` is set. Use them rather than a package logger.
 - Tests live alongside code as `_test.go`; `model_test/` and `server_test/` hold shared test helpers/fixtures (e.g. `server_test/testserver.go`).
+- No test in `model` may call `t.Parallel()`. `model/operand_scaling_test.go` reads the package-level `operandWork` counter, which every policy operand comparison increments, so a test running beside it would be counted into its measurement and the assertion would fail intermittently.
 - Comments are not to be added by agents. Code is self-documenting and the comments are not welcome
 - Commits, if made, must not be co-authored
 - When adding a change, tests MUST be written and MUST pass. Data-driven / table-driven tests are much preferred over single-case where possible.

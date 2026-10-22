@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"unicode/utf8"
 )
 
@@ -81,7 +82,10 @@ func normaliseOperand(value any) (any, bool) {
 	return nil, false
 }
 
+var operandWork atomic.Int64
+
 func canonicalOperandKey(value any) (string, bool) {
+	operandWork.Add(1)
 	normalised, ok := normaliseOperand(value)
 	if !ok {
 		return "", false
@@ -182,6 +186,7 @@ func (s operandSet) contains(value any) bool {
 		return false
 	}
 	return slices.ContainsFunc(s.unkeyed, func(candidate any) bool {
+		operandWork.Add(1)
 		return reflect.DeepEqual(candidate, value)
 	})
 }
@@ -204,6 +209,7 @@ func operandsContain(values reflect.Value, value any) bool {
 		return false
 	}
 	for i := range values.Len() {
+		operandWork.Add(1)
 		candidate := values.Index(i).Interface()
 		if key, ok := canonicalOperandKey(candidate); ok {
 			if keyedNeedle && key == needle {

@@ -306,3 +306,39 @@ func TestVerifyPublishableStatementKeys(t *testing.T) {
 		})
 	}
 }
+
+func TestVerifyPublishableStatementKeys_RefusesAStatementTooDeepToScan(t *testing.T) {
+	nest := func(depth int, leaf any) any {
+		value := leaf
+		for range depth {
+			value = map[string]any{"wrapper": value}
+		}
+		return value
+	}
+	leaked := map[string]any{"jwks": map[string]any{"keys": []any{map[string]any{"kid": "leak", "kty": "oct", "k": "AQAB"}}}}
+
+	tests := []struct {
+		name      string
+		reference string
+		depth     int
+		expectErr string
+	}{
+		{name: "a key set the statement nests shallowly", reference: "3.1.1", depth: 4, expectErr: "private key members"},
+		{name: "a key set the statement nests well within the scan depth", reference: "3.1.1", depth: maxPublishableScanDepth / 2, expectErr: "private key members"},
+		{name: "a key set the statement nests beyond the scan depth", reference: "3.1.1", depth: maxPublishableScanDepth + 4, expectErr: "nests deeper than"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			statement := map[string]any{"metadata": nest(tc.depth, leaked)}
+
+			err := VerifyPublishableStatementKeys(statement)
+			if err == nil {
+				t.Fatalf("[%s] a scan that stops without saying so publishes the key it did not reach", tc.reference)
+			}
+			if !strings.Contains(err.Error(), tc.expectErr) {
+				t.Errorf("[%s] expected the refusal to say %q, got %v", tc.reference, tc.expectErr, err)
+			}
+		})
+	}
+}

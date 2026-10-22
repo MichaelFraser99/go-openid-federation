@@ -49,6 +49,27 @@ func rawJWKSetEntries(raw any) []map[string]any {
 
 const maxPublishableScanDepth = 32
 
+func statementNestsDeeperThan(value any, depth int) bool {
+	if depth > maxPublishableScanDepth {
+		return true
+	}
+	switch typed := value.(type) {
+	case map[string]any:
+		for _, held := range typed {
+			if statementNestsDeeperThan(held, depth+1) {
+				return true
+			}
+		}
+	case []any:
+		for _, held := range typed {
+			if statementNestsDeeperThan(held, depth+1) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 type locatedJWK struct {
 	key  map[string]any
 	path string
@@ -114,7 +135,9 @@ func stripJWKSetEntries(value any, depth int, dropped *[]string) any {
 				}
 				kept = append(kept, entry)
 			}
-			typed["keys"] = kept
+			if len(kept) != len(entries) {
+				typed["keys"] = kept
+			}
 		}
 		for member, held := range typed {
 			if member == "keys" {
@@ -155,6 +178,10 @@ func StripUnpublishableKeys(statement map[string]any, depth int, dropped *[]stri
 }
 
 func VerifyPublishableStatementKeys(statement map[string]any) error {
+	if statementNestsDeeperThan(statement, 0) {
+		return fmt.Errorf("the statement nests deeper than %d levels, so it cannot be scanned for private key material", maxPublishableScanDepth)
+	}
+
 	var keys []locatedJWK
 	findPublishableKeySets(statement, "", 0, &keys)
 	for _, located := range keys {

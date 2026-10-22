@@ -192,6 +192,17 @@ func MergePolicyOperators(claimName string, policySetA, policySetB PolicyOperato
 		structuredA := structureAsMap(policySetA.Metadata)
 		structuredB := structureAsMap(policySetB.Metadata)
 
+		if claimName == "scope" {
+			for _, structured := range []map[int]MetadataPolicyOperator{structuredA, structuredB} {
+				for hierarchy, operator := range structured {
+					if operator == nil {
+						continue
+					}
+					structured[hierarchy] = operator.ToSlice(claimName)
+				}
+			}
+		}
+
 		var mergedPolicies []MetadataPolicyOperator
 
 		for _, next := range []MetadataPolicyOperator{Value{}, Add{}, Default{}, OneOf{}, SubsetOf{}, SupersetOf{}, Essential{}} {
@@ -204,11 +215,6 @@ func MergePolicyOperators(claimName string, policySetA, policySetB PolicyOperato
 				mergedPolicies = append(mergedPolicies, structuredA[next.ResolutionHierarchy()])
 				continue
 			} else {
-				if claimName == "scope" {
-					structuredA[next.ResolutionHierarchy()] = structuredA[next.ResolutionHierarchy()].ToSlice(claimName)
-					structuredB[next.ResolutionHierarchy()] = structuredB[next.ResolutionHierarchy()].ToSlice(claimName)
-				}
-
 				m, err := structuredA[next.ResolutionHierarchy()].Merge(structuredB[next.ResolutionHierarchy()].OperatorValue())
 				if err != nil {
 					return nil, err

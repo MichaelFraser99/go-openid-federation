@@ -119,14 +119,14 @@ const (
 )
 
 func subordinateStatementFailure(err error) error {
-	if errors.Is(err, model.ErrServerError) {
-		return model.NewServerError(subordinateStatementUnusable)
-	}
 	if errors.Is(err, model.ErrTemporarilyUnavailable) {
 		return model.NewTemporarilyUnavailableError(subordinateStatementUnreachable)
 	}
 	if errors.Is(err, model.ErrInvalidMetadata) {
 		return model.NewInvalidMetadataError(subordinateStatementUnacceptable)
+	}
+	if classified := model.ReclassifyWithDescription(err, subordinateStatementUnusable); classified != nil {
+		return classified
 	}
 	return model.NewInvalidTrustChainError(subordinateStatementUnusable)
 }

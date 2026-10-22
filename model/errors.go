@@ -88,36 +88,36 @@ func NewUnsupportedParameterError(msg string) error {
 	return fmt.Errorf("%w%s", ErrUnsupportedParameter, msg)
 }
 
+var classifiedErrorBuilders = []struct {
+	sentinel error
+	build    func(string) error
+}{
+	{ErrInvalidRequest, NewInvalidRequestError},
+	{ErrInvalidClient, NewInvalidClientError},
+	{ErrInvalidIssuer, NewInvalidIssuerError},
+	{ErrInvalidSubject, NewInvalidSubjectError},
+	{ErrInvalidTrustAnchor, NewInvalidTrustAnchorError},
+	{ErrInvalidTrustChain, NewInvalidTrustChainError},
+	{ErrInvalidMetadata, NewInvalidMetadataError},
+	{ErrNotFound, NewNotFoundError},
+	{ErrPageNotFound, NewPageNotFoundError},
+	{ErrServerError, NewServerError},
+	{ErrTemporarilyUnavailable, NewTemporarilyUnavailableError},
+	{ErrUnsupportedParameter, NewUnsupportedParameterError},
+}
+
 func ReclassifyWithDescription(err error, description string) error {
-	for sentinel, build := range map[error]func(string) error{
-		ErrInvalidRequest:         NewInvalidRequestError,
-		ErrInvalidClient:          NewInvalidClientError,
-		ErrInvalidIssuer:          NewInvalidIssuerError,
-		ErrInvalidSubject:         NewInvalidSubjectError,
-		ErrInvalidTrustAnchor:     NewInvalidTrustAnchorError,
-		ErrInvalidTrustChain:      NewInvalidTrustChainError,
-		ErrInvalidMetadata:        NewInvalidMetadataError,
-		ErrNotFound:               NewNotFoundError,
-		ErrPageNotFound:           NewPageNotFoundError,
-		ErrServerError:            NewServerError,
-		ErrTemporarilyUnavailable: NewTemporarilyUnavailableError,
-		ErrUnsupportedParameter:   NewUnsupportedParameterError,
-	} {
-		if errors.Is(err, sentinel) {
-			return build(description)
+	for _, candidate := range classifiedErrorBuilders {
+		if errors.Is(err, candidate.sentinel) {
+			return candidate.build(description)
 		}
 	}
 	return nil
 }
 
 func ClassifiedError(err error) error {
-	for _, sentinel := range []error{
-		ErrInvalidRequest, ErrInvalidClient, ErrInvalidIssuer, ErrInvalidSubject,
-		ErrInvalidTrustAnchor, ErrInvalidTrustChain, ErrInvalidMetadata,
-		ErrNotFound, ErrPageNotFound, ErrServerError, ErrTemporarilyUnavailable,
-		ErrUnsupportedParameter,
-	} {
-		if errors.Is(err, sentinel) {
+	for _, candidate := range classifiedErrorBuilders {
+		if errors.Is(err, candidate.sentinel) {
 			return err
 		}
 	}

@@ -162,6 +162,8 @@ Resolving metadata makes outbound HTTP requests for the caller-supplied `sub` an
 | Parameter | Required | Notes |
 | --- | --- | --- |
 | `from` | no | Opaque pagination cursor, taken from a previous response's `next` |
+
+An entry this server cannot check is left out of the listing rather than refusing it: one that cannot be serialised, one that cannot be read back once serialised, or one nested deeper than the private-key scan reaches. Each omission is logged at error level with the subject it concerned. One subordinate's own data does not take the listing down for the others.
 | `limit` | no | Defaults to `Extensions.ExtendedListing.SizeLimit` |
 | `claims` | no | Comma separated, repeatable, or both. The value `subordinate_statement` issues a signed subordinate statement per entity |
 | `entity_type` | no | Repeatable, as on `/list` |

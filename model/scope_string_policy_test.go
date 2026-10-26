@@ -238,6 +238,14 @@ func TestMergePolicyOperators_AScopeStringIsTokenisedTheSameWayEverywhere(t *tes
 			expect:    "openid profile",
 		},
 		{
+			name:      "irregular whitespace in a subject's scope an operator reads",
+			reference: "RFC 7591 2",
+			superior:  `{"subset_of":["openid","profile"]}`,
+			authority: `{"subset_of":["openid","profile"]}`,
+			subject:   "openid  profile ",
+			expect:    "openid profile",
+		},
+		{
 			name:      "two values that differ only in whitespace",
 			reference: "6.1.3.1.1",
 			superior:  `{"value":"openid profile"}`,
@@ -328,6 +336,12 @@ func TestToSlice_ConvertsAStringOperandForEveryOperatorThatHoldsOne(t *testing.T
 			}
 			if !reflect.DeepEqual(got, tc.expect) {
 				t.Errorf("[%s] expected %v, got %v", tc.reference, tc.expect, got)
+			}
+			if reflect.TypeOf(converted).Kind() == reflect.Pointer {
+				t.Errorf("[%s] converting a string operand must keep the receiver shape the others use, or a reflect.TypeOf lookup in metadataPolicySetContains misses it and a consumer's type assertion panics, got %T", tc.reference, converted)
+			}
+			if _, found := metadataPolicySetContains([]MetadataPolicyOperator{converted}, reflect.TypeOf(tc.operator)); !found {
+				t.Errorf("[%s] a converted operator must still be found by a lookup for its own type, got %T", tc.reference, converted)
 			}
 		})
 	}

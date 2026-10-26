@@ -27,7 +27,7 @@ func scopeSubject(t *testing.T, scope string) EntityStatement {
 	return statement
 }
 
-func TestMergePolicyOperators_AStringScopeIsSplitWhateverOperatorFacesIt(t *testing.T) {
+func TestProcessAndExtractPolicy_AStringScopeIsSplitWhateverOperatorFacesIt(t *testing.T) {
 	tests := []struct {
 		name      string
 		reference string
@@ -197,7 +197,7 @@ func TestProcessAndExtractPolicy_AStringScopeIsSplitWithinOneStatement(t *testin
 	}
 }
 
-func TestMergePolicyOperators_AScopeStringIsTokenisedTheSameWayEverywhere(t *testing.T) {
+func TestProcessAndExtractPolicy_AScopeStringIsTokenisedTheSameWayEverywhere(t *testing.T) {
 	tests := []struct {
 		name      string
 		reference string
@@ -442,6 +442,42 @@ func TestProcessAndExtractPolicy_AnEmptyScopeValueIsRefusedAsThePolicysFault(t *
 				if !strings.Contains(err.Error(), "scope value must hold at least one character") {
 					t.Errorf("[%s] the refusal must name the operand that cannot be satisfied rather than the subject's metadata, got %v", tc.reference, err)
 				}
+			}
+		})
+	}
+}
+
+func TestApplyPolicy_TheResolvedScopeHoldsWhatThePolicySaid(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference string
+		policy    string
+		subject   string
+		expect    string
+	}{
+		{name: "an array value holding a no-break space", reference: "RFC 6749 3.3", policy: `{"value":["openid profile"]}`, subject: "openid", expect: "openid profile"},
+		{name: "a string value holding a no-break space", reference: "RFC 6749 3.3", policy: `{"value":"openid profile"}`, subject: "openid", expect: "openid profile"},
+		{name: "an add holding a no-break space", reference: "6.1.3.1.2", policy: `{"add":["openid profile"]}`, subject: "openid", expect: "openid openid profile"},
+		{name: "an array value holding a scope set", reference: "6.1.3.1.1", policy: `{"value":["openid","openid accounts"]}`, subject: "openid", expect: "openid accounts"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			leaf := scopeSubject(t, tc.subject)
+
+			merged, err := ProcessAndExtractPolicy([]EntityStatement{leaf, scopePolicyStatement(t, tc.policy)})
+			if err != nil {
+				t.Fatalf("[%s] expected the policy to merge, got %v", tc.reference, err)
+			}
+
+			applied, err := ApplyPolicy(leaf, *merged)
+			if err != nil {
+				t.Fatalf("[%s] expected the merged policy to apply, got %v", tc.reference, err)
+			}
+
+			got, _ := (*applied.Metadata.OAuthClientMetadata)["scope"].(string)
+			if got != tc.expect {
+				t.Errorf("[%s] the value an operator supplied must reach the resolved scope as the policy wrote it, not re-split on a character that does not separate scope values: expected %q, got %q", tc.reference, tc.expect, got)
 			}
 		})
 	}

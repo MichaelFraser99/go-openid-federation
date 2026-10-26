@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jws"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
@@ -42,7 +43,7 @@ func TestNew_RefusesToPublishAPolicyOperandCarryingPrivateMembers(t *testing.T) 
 				t.Fatalf("failed to parse the fixture policy: %v", err)
 			}
 
-			signer, err := jws.GetSigner(josemodel.ES256, nil)
+			signer, err := jws.GetSigner(jwa.ES256, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jws"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
@@ -172,7 +173,7 @@ func TestNew(t *testing.T) {
 		t.Fatalf("expected no error creating subject entity identifier, got %q", err.Error())
 	}
 
-	signer, err := jws.GetSigner(josemodel.ES256, nil)
+	signer, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("expected no error creating signer, got %q", err.Error())
 	}
@@ -182,7 +183,7 @@ func TestNew(t *testing.T) {
 	}
 	(*signerPublicJWK)["alg"] = "ES256"
 
-	leafSigner, err := jws.GetSigner(josemodel.ES256, nil)
+	leafSigner, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("expected no error creating leaf signer, got %q", err.Error())
 	}

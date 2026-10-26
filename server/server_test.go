@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jws"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
@@ -151,7 +152,7 @@ func TestServer_HandleWellKnown(t *testing.T) {
 		t.Fatalf("expected no error creating authority hint entity identifier two, got %q", err.Error())
 	}
 
-	signer, err := jws.GetSigner(josemodel.ES256, nil)
+	signer, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("expected no error creating signer, got %q", err.Error())
 	}
@@ -499,7 +500,7 @@ func TestServer_ExtendedList(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected no error, got %q", err.Error())
 		}
-		signer, err := jws.GetSigner(josemodel.ES256, nil)
+		signer, err := jws.GetSigner(jwa.ES256, nil)
 		if err != nil {
 			t.Fatalf("expected no error creating signer, got %q", err.Error())
 		}
@@ -507,7 +508,7 @@ func TestServer_ExtendedList(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected no error creating public JWK, got %q", err.Error())
 		}
-		leafSigner, err := jws.GetSigner(josemodel.ES256, nil)
+		leafSigner, err := jws.GetSigner(jwa.ES256, nil)
 		if err != nil {
 			t.Fatalf("expected no error creating leaf signer, got %q", err.Error())
 		}
@@ -666,7 +667,7 @@ func TestServer_SubordinateStatus(t *testing.T) {
 	}
 
 	for name, tt := range tests {
-		signer, err := jws.GetSigner(josemodel.ES256, nil)
+		signer, err := jws.GetSigner(jwa.ES256, nil)
 		if err != nil {
 			t.Fatalf("expected no error creating signer, got %q", err.Error())
 		}

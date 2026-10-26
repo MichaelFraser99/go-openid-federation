@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
@@ -357,7 +358,7 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 		return nil, fmt.Errorf("refusing to publish an entity configuration this implementation would reject: %s", err.Error())
 	}
 
-	if josemodel.GetAlgorithm(cfg.SignerConfiguration.Algorithm) == josemodel.Unknown {
+	if jwa.GetAlgorithm(cfg.SignerConfiguration.Algorithm) == jwa.Unknown {
 		return nil, fmt.Errorf("refusing to publish an entity configuration this implementation would reject: %q is not a supported signing algorithm", cfg.SignerConfiguration.Algorithm)
 	}
 
@@ -365,7 +366,7 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 		"kid": cfg.SignerConfiguration.KeyID,
 		"typ": "entity-statement+jwt",
 		"alg": cfg.SignerConfiguration.Algorithm,
-	}, entityConfigurationMap, jwt.Opts{Algorithm: josemodel.GetAlgorithm(cfg.SignerConfiguration.Algorithm)})
+	}, entityConfigurationMap, jwt.Opts{Algorithm: jwa.GetAlgorithm(cfg.SignerConfiguration.Algorithm)})
 	if err != nil {
 		return nil, err
 	}

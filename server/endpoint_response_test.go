@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jws"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
@@ -622,7 +623,7 @@ func (c *cachedListingRetriever) GetExtendedSubordinates(context.Context, model.
 func TestServer_ExtendedList_DoesNotWriteIntoTheRetrieversEntities(t *testing.T) {
 	const leaf = model.EntityIdentifier("https://leaf.example.com")
 
-	leafSigner, err := jws.GetSigner(josemodel.ES256, nil)
+	leafSigner, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("failed to build the leaf signer: %v", err)
 	}

@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jws"
 	"github.com/MichaelFraser99/go-jose/jwt"
@@ -67,7 +68,7 @@ func metadataKeys(metadata map[string]any) []string {
 }
 
 func TestServer_Resolve(t *testing.T) {
-	signer, err := jws.GetSigner(josemodel.ES256, nil)
+	signer, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("expected no error creating signer, got %q", err.Error())
 	}
@@ -76,7 +77,7 @@ func TestServer_Resolve(t *testing.T) {
 		t.Fatalf("expected no error creating public JWK, got %q", err.Error())
 	}
 
-	trustAnchorSigner, err := jws.GetSigner(josemodel.ES256, nil)
+	trustAnchorSigner, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("expected no error creating trust anchor signer, got %q", err.Error())
 	}
@@ -85,7 +86,7 @@ func TestServer_Resolve(t *testing.T) {
 		t.Fatalf("expected no error creating trust anchor public JWK, got %q", err.Error())
 	}
 
-	directChildSigner, err := jws.GetSigner(josemodel.ES256, nil)
+	directChildSigner, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("expected no error creating direct child signer, got %q", err.Error())
 	}
@@ -94,7 +95,7 @@ func TestServer_Resolve(t *testing.T) {
 		t.Fatalf("expected no error creating direct child public JWK, got %q", err.Error())
 	}
 
-	walletSigner, err := jws.GetSigner(josemodel.ES256, nil)
+	walletSigner, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("expected no error creating wallet signer, got %q", err.Error())
 	}
@@ -103,7 +104,7 @@ func TestServer_Resolve(t *testing.T) {
 		t.Fatalf("expected no error creating wallet public JWK, got %q", err.Error())
 	}
 
-	invalidMetadataSigner, err := jws.GetSigner(josemodel.ES256, nil)
+	invalidMetadataSigner, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("expected no error creating invalid metadata signer, got %q", err.Error())
 	}
@@ -211,7 +212,7 @@ func TestServer_Resolve(t *testing.T) {
 			"metadata": map[string]any{
 				"openid_relying_party": map[string]any{"redirect_uris": "not-an-array"},
 			},
-		}, jwt.Opts{Algorithm: josemodel.ES256})
+		}, jwt.Opts{Algorithm: jwa.ES256})
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -236,7 +237,7 @@ func TestServer_Resolve(t *testing.T) {
 			"exp":             time.Now().Add(10 * time.Minute).UTC().Unix(),
 			"jwks":            map[string]any{"keys": []any{*invalidMetadataPublicJWK}},
 			"source_endpoint": "https://ta.example.com/fetch",
-		}, jwt.Opts{Algorithm: josemodel.ES256})
+		}, jwt.Opts{Algorithm: jwa.ES256})
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return

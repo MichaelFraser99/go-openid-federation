@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jws"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
@@ -105,7 +106,7 @@ func TestServer_Fetch_RetrieverFailureKeepsItsErrorClass(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			signer, err := jws.GetSigner(josemodel.ES256, nil)
+			signer, err := jws.GetSigner(jwa.ES256, nil)
 			if err != nil {
 				t.Fatalf("failed to build the signer: %v", err)
 			}
@@ -150,7 +151,7 @@ func TestServer_Fetch_DoesNotReflectIssuanceFailureDetail(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			working, err := jws.GetSigner(josemodel.ES256, nil)
+			working, err := jws.GetSigner(jwa.ES256, nil)
 			if err != nil {
 				t.Fatalf("failed to build the signer: %v", err)
 			}

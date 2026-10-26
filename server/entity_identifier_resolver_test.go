@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jws"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
@@ -38,7 +39,7 @@ func (r *mappingResolver) ResolveEntityIdentifier(ctx context.Context, param mod
 func TestServer_Fetch_EntityIdentifierResolver(t *testing.T) {
 	const realSubordinate = "https://some-federation.com/some-path"
 
-	subordinateSigner, err := jws.GetSigner(josemodel.ES256, nil)
+	subordinateSigner, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("expected no error creating subordinate signer, got %q", err.Error())
 	}
@@ -80,7 +81,7 @@ func TestServer_Fetch_EntityIdentifierResolver(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			signer, err := jws.GetSigner(josemodel.ES256, nil)
+			signer, err := jws.GetSigner(jwa.ES256, nil)
 			if err != nil {
 				t.Fatalf("expected no error creating signer, got %q", err.Error())
 			}

@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jws"
 	"github.com/MichaelFraser99/go-jose/jwt"
-	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -30,7 +30,7 @@ func TestServer_Resolve_MalformedPeerKeyDoesNotPanic(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			peerSigner, err := jws.GetSigner(josemodel.ES256, nil)
+			peerSigner, err := jws.GetSigner(jwa.ES256, nil)
 			if err != nil {
 				t.Fatalf("failed to build the peer signer: %v", err)
 			}
@@ -55,7 +55,7 @@ func TestServer_Resolve_MalformedPeerKeyDoesNotPanic(t *testing.T) {
 					"iat":  time.Now().Add(-time.Minute).UTC().Unix(),
 					"exp":  time.Now().Add(10 * time.Minute).UTC().Unix(),
 					"jwks": map[string]any{"keys": []any{published}},
-				}, jwt.Opts{Algorithm: josemodel.ES256})
+				}, jwt.Opts{Algorithm: jwa.ES256})
 				if signErr != nil {
 					w.WriteHeader(http.StatusInternalServerError)
 					return
@@ -67,7 +67,7 @@ func TestServer_Resolve_MalformedPeerKeyDoesNotPanic(t *testing.T) {
 			defer peer.Close()
 			peerIdentifier = peer.URL
 
-			anchorSigner, err := jws.GetSigner(josemodel.ES256, nil)
+			anchorSigner, err := jws.GetSigner(jwa.ES256, nil)
 			if err != nil {
 				t.Fatalf("failed to build the anchor signer: %v", err)
 			}

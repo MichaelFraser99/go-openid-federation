@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jws"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
@@ -12,7 +13,7 @@ import (
 
 func selfCheckRetriever(t *testing.T) func() (*model.SubordinateConfiguration, *model.SignerConfiguration, error) {
 	t.Helper()
-	signer, err := jws.GetSigner(josemodel.ES256, nil)
+	signer, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("failed to build signer: %v", err)
 	}

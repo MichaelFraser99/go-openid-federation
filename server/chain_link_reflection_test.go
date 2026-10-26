@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jws"
 	"github.com/MichaelFraser99/go-jose/jwt"
@@ -42,7 +43,7 @@ func TestServer_Resolve_RefusesASuperiorsUnusableRegisteredKeyWithoutReflectingI
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			leafSigner, err := jws.GetSigner(josemodel.ES256, nil)
+			leafSigner, err := jws.GetSigner(jwa.ES256, nil)
 			if err != nil {
 				t.Fatalf("failed to build leaf signer: %v", err)
 			}
@@ -52,7 +53,7 @@ func TestServer_Resolve_RefusesASuperiorsUnusableRegisteredKeyWithoutReflectingI
 			}
 			(*leafJWK)["kid"] = "peer"
 
-			anchorSigner, err := jws.GetSigner(josemodel.ES256, nil)
+			anchorSigner, err := jws.GetSigner(jwa.ES256, nil)
 			if err != nil {
 				t.Fatalf("failed to build anchor signer: %v", err)
 			}
@@ -86,7 +87,7 @@ func TestServer_Resolve_RefusesASuperiorsUnusableRegisteredKeyWithoutReflectingI
 					"jwks":            map[string]any{"keys": []any{*leafJWK}},
 					"authority_hints": []any{anchorServer.URL},
 					"metadata":        map[string]any{},
-				}, jwt.Opts{Algorithm: josemodel.ES256})
+				}, jwt.Opts{Algorithm: jwa.ES256})
 				if tokenErr != nil {
 					w.WriteHeader(http.StatusInternalServerError)
 					return

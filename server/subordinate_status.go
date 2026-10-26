@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwt"
-	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -85,7 +85,7 @@ func (s *Server) SubordinateStatus(w http.ResponseWriter, r *http.Request) Respo
 		"kid": s.cfg.SignerConfiguration.KeyID,
 		"typ": "entity-events-statement+jwt",
 		"alg": s.cfg.SignerConfiguration.Algorithm,
-	}, statusMap, jwt.Opts{Algorithm: josemodel.GetAlgorithm(s.cfg.SignerConfiguration.Algorithm)})
+	}, statusMap, jwt.Opts{Algorithm: jwa.GetAlgorithm(s.cfg.SignerConfiguration.Algorithm)})
 	if err != nil {
 		s.cfg.LogInfo(ctx, "error creating resolve response", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(subordinateStatusUnavailableError))

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jws"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
@@ -33,7 +34,7 @@ func (r concurrentRetriever) GetSubordinateSigners(context.Context) ([]model.Sig
 func concurrencyServer(t *testing.T) *Server {
 	t.Helper()
 
-	signer, err := jws.GetSigner(josemodel.ES256, nil)
+	signer, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("failed to create signer: %v", err)
 	}
@@ -43,7 +44,7 @@ func concurrencyServer(t *testing.T) *Server {
 	}
 	(*publicJWK)["alg"] = "ES256"
 
-	subjectSigner, err := jws.GetSigner(josemodel.ES256, nil)
+	subjectSigner, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("failed to create subject signer: %v", err)
 	}

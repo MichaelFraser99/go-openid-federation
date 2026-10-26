@@ -10,17 +10,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jws"
 	"github.com/MichaelFraser99/go-jose/jwt"
-	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
 func TestServer_Resolve_DoesNotReflectPeerStatementContent(t *testing.T) {
 	const marker = "REFLECTION-MARKER-ZZZZ"
 
-	signer, err := jws.GetSigner(josemodel.ES256, nil)
+	signer, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("failed to build signer: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestServer_Resolve_DoesNotReflectPeerStatementContent(t *testing.T) {
 				}
 				token, tokenErr := jwt.New(signer, map[string]any{
 					"kid": "peer", "typ": "entity-statement+jwt", "alg": "ES256",
-				}, body, jwt.Opts{Algorithm: josemodel.ES256})
+				}, body, jwt.Opts{Algorithm: jwa.ES256})
 				if tokenErr != nil {
 					w.WriteHeader(http.StatusInternalServerError)
 					return
@@ -83,7 +83,7 @@ func TestServer_Resolve_DoesNotReflectPeerStatementContent(t *testing.T) {
 			defer peer.Close()
 			identifier = peer.URL
 
-			anchorSigner, err := jws.GetSigner(josemodel.ES256, nil)
+			anchorSigner, err := jws.GetSigner(jwa.ES256, nil)
 			if err != nil {
 				t.Fatalf("failed to build anchor signer: %v", err)
 			}
@@ -141,7 +141,7 @@ type peerFederation struct {
 
 func newPeerKey(t *testing.T) (crypto.Signer, map[string]any) {
 	t.Helper()
-	signer, err := jws.GetSigner(josemodel.ES256, nil)
+	signer, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("failed to build the peer signer: %v", err)
 	}
@@ -156,7 +156,7 @@ func newPeerKey(t *testing.T) (crypto.Signer, map[string]any) {
 func writePeerStatement(w http.ResponseWriter, signer crypto.Signer, claims map[string]any) {
 	token, err := jwt.New(signer, map[string]any{
 		"kid": "peer", "typ": "entity-statement+jwt", "alg": "ES256",
-	}, claims, jwt.Opts{Algorithm: josemodel.ES256})
+	}, claims, jwt.Opts{Algorithm: jwa.ES256})
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -207,7 +207,7 @@ func startPeerFederation(t *testing.T, anchorMetadata func(base string) map[stri
 
 func startResolverFor(t *testing.T, peer *peerFederation, cfg model.Configuration) *httptest.Server {
 	t.Helper()
-	signer, err := jws.GetSigner(josemodel.ES256, nil)
+	signer, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("failed to build the resolver signer: %v", err)
 	}

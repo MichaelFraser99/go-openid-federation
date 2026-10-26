@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwt"
-	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -83,7 +83,7 @@ func paddedTrustMark(t *testing.T, signer crypto.Signer, kid, iss, trustMarkType
 		"exp":             time.Now().Add(time.Hour).UTC().Unix(),
 		"ref":             "https://ref.example.com/" + padding,
 	}
-	token, err := jwt.New(signer, head, body, jwt.Opts{Algorithm: josemodel.RS256})
+	token, err := jwt.New(signer, head, body, jwt.Opts{Algorithm: jwa.RS256})
 	if err != nil {
 		t.Fatalf("failed to create a padded trust mark: %v", err)
 	}

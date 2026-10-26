@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jws"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
@@ -88,7 +89,7 @@ func (verifierProviderEntityType) VerifyResolvedMetadata(metadata map[string]any
 }
 
 func TestServer_Resolve_ExtensionEntityTypes(t *testing.T) {
-	signer, err := jws.GetSigner(josemodel.ES256, nil)
+	signer, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("expected no error creating signer, got %q", err.Error())
 	}
@@ -97,7 +98,7 @@ func TestServer_Resolve_ExtensionEntityTypes(t *testing.T) {
 		t.Fatalf("expected no error creating public JWK, got %q", err.Error())
 	}
 
-	trustAnchorSigner, err := jws.GetSigner(josemodel.ES256, nil)
+	trustAnchorSigner, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("expected no error creating trust anchor signer, got %q", err.Error())
 	}
@@ -106,7 +107,7 @@ func TestServer_Resolve_ExtensionEntityTypes(t *testing.T) {
 		t.Fatalf("expected no error creating trust anchor public JWK, got %q", err.Error())
 	}
 
-	verifierSigner, err := jws.GetSigner(josemodel.ES256, nil)
+	verifierSigner, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("expected no error creating verifier signer, got %q", err.Error())
 	}
@@ -398,7 +399,7 @@ func TestServer_List_PassesExtensionEntityTypesToRetriever(t *testing.T) {
 }
 
 func TestServer_HandleWellKnown_PublishesExtensionEntityTypes(t *testing.T) {
-	signer, err := jws.GetSigner(josemodel.ES256, nil)
+	signer, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("expected no error creating signer, got %q", err.Error())
 	}
@@ -447,7 +448,7 @@ func TestServer_HandleWellKnown_PublishesExtensionEntityTypes(t *testing.T) {
 }
 
 func TestServer_Fetch_PublishesExtensionEntityTypePolicy(t *testing.T) {
-	signer, err := jws.GetSigner(josemodel.ES256, nil)
+	signer, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("expected no error creating signer, got %q", err.Error())
 	}
@@ -456,7 +457,7 @@ func TestServer_Fetch_PublishesExtensionEntityTypePolicy(t *testing.T) {
 		t.Fatalf("expected no error creating public JWK, got %q", err.Error())
 	}
 
-	subordinateSigner, err := jws.GetSigner(josemodel.ES256, nil)
+	subordinateSigner, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("expected no error creating subordinate signer, got %q", err.Error())
 	}

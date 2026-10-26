@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwt"
-	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
 	"github.com/MichaelFraser99/go-openid-federation/internal/trust_chain"
 	"github.com/MichaelFraser99/go-openid-federation/internal/trust_marks"
@@ -83,7 +83,7 @@ func (s *Server) Resolve(w http.ResponseWriter, r *http.Request) ResponseFunc {
 		"kid": s.cfg.SignerConfiguration.KeyID,
 		"typ": "resolve-response+jwt",
 		"alg": s.cfg.SignerConfiguration.Algorithm,
-	}, resolvedMap, jwt.Opts{Algorithm: josemodel.GetAlgorithm(s.cfg.SignerConfiguration.Algorithm)})
+	}, resolvedMap, jwt.Opts{Algorithm: jwa.GetAlgorithm(s.cfg.SignerConfiguration.Algorithm)})
 	if err != nil {
 		s.cfg.LogError(ctx, "error creating resolve response", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(resolveUnavailableError))

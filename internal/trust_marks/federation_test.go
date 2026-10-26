@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
@@ -53,7 +54,7 @@ func federationPublicJwk(t *testing.T, pub crypto.PublicKey, kid string) map[str
 func federationSign(t *testing.T, signer crypto.Signer, kid string, body map[string]any) string {
 	t.Helper()
 	head := map[string]any{"kid": kid, "typ": "entity-statement+jwt", "alg": "RS256"}
-	token, err := jwt.New(signer, head, body, jwt.Opts{Algorithm: josemodel.RS256})
+	token, err := jwt.New(signer, head, body, jwt.Opts{Algorithm: jwa.RS256})
 	if err != nil {
 		t.Fatalf("failed to sign statement: %v", err)
 	}
@@ -185,7 +186,7 @@ func federationTrustMark(t *testing.T, signer crypto.Signer, kid, iss, trustMark
 		"iat":             time.Now().UTC().Unix(),
 		"exp":             time.Now().Add(time.Hour).UTC().Unix(),
 	}
-	token, err := jwt.New(signer, head, body, jwt.Opts{Algorithm: josemodel.RS256})
+	token, err := jwt.New(signer, head, body, jwt.Opts{Algorithm: jwa.RS256})
 	if err != nil {
 		t.Fatalf("failed to create trust mark: %v", err)
 	}

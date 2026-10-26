@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jws"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
@@ -74,7 +75,7 @@ func VerifyIssuedSignature(token, kid, alg string, signer crypto.Signer) error {
 	if err := ValidateStatementHeader(map[string]any{"typ": "entity-statement+jwt", "alg": alg}); err != nil {
 		return err
 	}
-	if josemodel.GetAlgorithm(alg) == josemodel.Unknown {
+	if jwa.GetAlgorithm(alg) == jwa.Unknown {
 		return fmt.Errorf("%q is not a supported signing algorithm", truncateHeaderValue(alg))
 	}
 	publicJWK, err := jwk.PublicJwk(signer.Public())
@@ -192,10 +193,10 @@ func VerifySelectedKey(token string, key map[string]any) error {
 	return nil
 }
 
-var verificationAlgorithms = []josemodel.Algorithm{
-	josemodel.ES256, josemodel.ES384, josemodel.ES512,
-	josemodel.RS256, josemodel.RS384, josemodel.RS512,
-	josemodel.PS256, josemodel.PS384, josemodel.PS512,
+var verificationAlgorithms = []jwa.Algorithm{
+	jwa.ES256, jwa.ES384, jwa.ES512,
+	jwa.RS256, jwa.RS384, jwa.RS512,
+	jwa.PS256, jwa.PS384, jwa.PS512,
 }
 
 func KeyCanVerify(key map[string]any) bool {
@@ -216,12 +217,12 @@ func KeyCanVerify(key map[string]any) bool {
 		if !ok {
 			return false
 		}
-		if !slices.ContainsFunc(verificationAlgorithms, func(algorithm josemodel.Algorithm) bool {
+		if !slices.ContainsFunc(verificationAlgorithms, func(algorithm jwa.Algorithm) bool {
 			return algorithm.String() == named
 		}) {
 			return false
 		}
-		candidates = []josemodel.Algorithm{josemodel.GetAlgorithm(named)}
+		candidates = []jwa.Algorithm{jwa.GetAlgorithm(named)}
 	}
 
 	for _, algorithm := range candidates {

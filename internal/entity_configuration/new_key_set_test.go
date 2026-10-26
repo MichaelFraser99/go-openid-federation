@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jws"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
@@ -18,7 +19,7 @@ func TestNew_SubordinateSignerSharingSigningKid(t *testing.T) {
 		EntityConfigurationLifetime: time.Hour,
 		IntermediateConfiguration:   &model.IntermediateConfiguration{SubordinateStatementLifetime: time.Hour},
 	}
-	override, err := jws.GetSigner(josemodel.ES256, nil)
+	override, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

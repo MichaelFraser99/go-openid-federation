@@ -3,6 +3,8 @@ package trust_marks
 import (
 	"crypto"
 	"crypto/rsa"
+	"encoding/base64"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -382,6 +384,103 @@ func TestValidate_ADelegationRefusalNamesTheClauseItFailed(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tc.expect) {
 				t.Errorf("[%s] the refusal must name the step the delegation failed rather than blaming its signature, got %q", tc.reference, err.Error())
+			}
+		})
+	}
+}
+
+func dlgRaw(t *testing.T, head, body map[string]any, signature string) string {
+	t.Helper()
+	headBytes, err := json.Marshal(head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return base64.RawURLEncoding.EncodeToString(headBytes) + "." + base64.RawURLEncoding.EncodeToString(bodyBytes) + "." + signature
+}
+
+func TestFilterByTrusted_ADelegationMustNameASigningAlgorithm(t *testing.T) {
+	tests := map[string]struct {
+		reference string
+		head      map[string]any
+	}{
+		"an alg of none": {
+			reference: "7.2.2 step 3",
+			head:      map[string]any{"kid": "owner-key", "typ": "trust-mark-delegation+jwt", "alg": "none"},
+		},
+		"no alg header": {
+			reference: "7.2.2 step 3",
+			head:      map[string]any{"kid": "owner-key", "typ": "trust-mark-delegation+jwt"},
+		},
+		"an alg that is not a string": {
+			reference: "7.2.2 step 3",
+			head:      map[string]any{"kid": "owner-key", "typ": "trust-mark-delegation+jwt", "alg": 256},
+		},
+		"an empty alg": {
+			reference: "7.2.2 step 3",
+			head:      map[string]any{"kid": "owner-key", "typ": "trust-mark-delegation+jwt", "alg": ""},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			f := newRvFed(t, map[string]string{"member": "ta"})
+			issuer := f.id("member")
+			ta := f.taConfig(t, map[string][]model.EntityIdentifier{rvType: {model.EntityIdentifier(issuer)}})
+			ownerKey := rvKey(t)
+			ta.TrustMarkOwners = map[string]model.TrustMarkOwner{rvType: dlgOwnerEntry(t, dlgOwner, ownerKey, "owner-key")}
+
+			delegation := dlgRaw(t, tc.head, dlgBody(dlgOwner, issuer, rvType), "")
+			tm := dlgMark(t, f.ecKey["member"], "test-key", issuer, rvType, rvSub, &delegation)
+			if got := f.filter(t, ta, model.TrustMarkHolder{TrustMarkType: rvType, TrustMark: tm}); len(got) != 0 {
+				t.Errorf("[%s] a delegation must name an acceptable signing algorithm and it must not be 'none', got %d trust marks", tc.reference, len(got))
+			}
+		})
+	}
+}
+
+func TestFilterByTrusted_AMalformedOwnerKeySharingTheKidIsSkipped(t *testing.T) {
+	tests := map[string]struct {
+		reference string
+		malformed map[string]any
+	}{
+		"a kty that is an object": {
+			reference: "RFC 7517 4.1",
+			malformed: map[string]any{"kid": "owner-key", "kty": map[string]any{"nested": true}, "n": "AQAB", "e": "AQAB"},
+		},
+		"a kty that is a number": {
+			reference: "RFC 7517 4.1",
+			malformed: map[string]any{"kid": "owner-key", "kty": 7, "n": "AQAB", "e": "AQAB"},
+		},
+		"no kty at all": {
+			reference: "RFC 7517 4.1",
+			malformed: map[string]any{"kid": "owner-key", "n": "AQAB", "e": "AQAB"},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					t.Fatalf("[%s] selecting the owner's key must not panic on an entry whose 'kty' is not a string: %v", tc.reference, recovered)
+				}
+			}()
+
+			f := newRvFed(t, map[string]string{"member": "ta"})
+			issuer := f.id("member")
+			ta := f.taConfig(t, map[string][]model.EntityIdentifier{rvType: {model.EntityIdentifier(issuer)}})
+			ownerKey := rvKey(t)
+			owner := dlgOwnerEntry(t, dlgOwner, ownerKey, "owner-key")
+			owner.JWKs.Keys = append([]map[string]any{tc.malformed}, owner.JWKs.Keys...)
+			ta.TrustMarkOwners = map[string]model.TrustMarkOwner{rvType: owner}
+
+			delegation := dlgSign(t, ownerKey, dlgHead("owner-key"), dlgBody(dlgOwner, issuer, rvType))
+			tm := dlgMark(t, f.ecKey["member"], "test-key", issuer, rvType, rvSub, &delegation)
+			if got := f.filter(t, ta, model.TrustMarkHolder{TrustMarkType: rvType, TrustMark: tm}); len(got) != 1 {
+				t.Errorf("[%s] an unusable entry carrying the same 'kid' must be skipped so the usable key behind it is found, got %d trust marks", tc.reference, len(got))
 			}
 		})
 	}

@@ -318,18 +318,21 @@ func TestToSlice_ConvertsAStringOperandForEveryOperatorThatHoldsOne(t *testing.T
 	tests := []struct {
 		name      string
 		reference string
+		key       string
 		operator  MetadataPolicyOperator
 		expect    []any
 	}{
-		{name: "a value holding a scope string", reference: "6.1.3.1.8", operator: Value{operatorValue: "openid profile"}, expect: []any{"openid", "profile"}},
-		{name: "a default holding a scope string", reference: "6.1.3.1.8", operator: Default{operatorValue: "openid profile"}, expect: []any{"openid", "profile"}},
-		{name: "a value holding irregular whitespace", reference: "RFC 7591 2", operator: Value{operatorValue: " openid  profile "}, expect: []any{"openid", "profile"}},
-		{name: "a value already holding an array", reference: "6.1.3.1.8", operator: Value{operatorValue: []any{"openid", "profile"}}, expect: []any{"openid", "profile"}},
+		{name: "a value holding a scope string", reference: "6.1.3.1.8", key: "scope", operator: Value{operatorValue: "openid profile"}, expect: []any{"openid", "profile"}},
+		{name: "a default holding a scope string", reference: "6.1.3.1.8", key: "scope", operator: Default{operatorValue: "openid profile"}, expect: []any{"openid", "profile"}},
+		{name: "a value holding irregular whitespace", reference: "RFC 7591 2", key: "scope", operator: Value{operatorValue: " openid  profile "}, expect: []any{"openid", "profile"}},
+		{name: "a value already holding an array", reference: "6.1.3.1.8", key: "scope", operator: Value{operatorValue: []any{"openid", "profile"}}, expect: []any{"openid", "profile"}},
+		{name: "a value holding a single value for a parameter that is not scope", reference: "6.1.3.1.1", key: "acr_values", operator: Value{operatorValue: "urn:example:loa2"}, expect: []any{"urn:example:loa2"}},
+		{name: "a default holding a single value for a parameter that is not scope", reference: "6.1.3.1.3", key: "acr_values", operator: Default{operatorValue: "urn:example:loa2"}, expect: []any{"urn:example:loa2"}},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			converted := tc.operator.ToSlice("scope")
+			converted := tc.operator.ToSlice(tc.key)
 			got, ok := converted.OperatorValue().([]any)
 			if !ok {
 				t.Fatalf("[%s] expected a slice operand, got %T", tc.reference, converted.OperatorValue())

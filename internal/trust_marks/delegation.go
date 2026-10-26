@@ -176,7 +176,7 @@ func verifyDelegation(ctx context.Context, cfg model.Configuration, mark model.T
 		cfg.LogError(ctx, "the delegation is missing the required 'iat' claim")
 		return fmt.Errorf("the trust mark's delegation is missing the required claim \"iat\"")
 	}
-	if issuedAt > time.Now().UTC().Unix() {
+	if issuedAt > time.Now().Add(model.ClockSkewLeeway).UTC().Unix() {
 		cfg.LogError(ctx, "the delegation is not yet issued", slog.Int64("iat", issuedAt))
 		return fmt.Errorf("the trust mark's delegation names an issuance time that has not yet arrived")
 	}
@@ -186,7 +186,7 @@ func verifyDelegation(ctx context.Context, cfg model.Configuration, mark model.T
 		cfg.LogError(ctx, "the delegation has a malformed 'exp' claim", slog.String("error", err.Error()))
 		return err
 	}
-	if present && time.Now().UTC().Unix() > expiry {
+	if present && time.Now().Add(-model.ClockSkewLeeway).UTC().Unix() > expiry {
 		cfg.LogError(ctx, "the delegation has expired", slog.Int64("exp", expiry))
 		return fmt.Errorf("the trust mark's delegation has expired")
 	}
@@ -211,7 +211,7 @@ func verifyDelegation(ctx context.Context, cfg model.Configuration, mark model.T
 				return nil, fmt.Errorf("failed to parse the owner's JWK as a public key: %w", err)
 			}
 			return []crypto.PublicKey{publicKey}, nil
-		}, &josemodel.JoseOptions{UseTokenProvidedKeys: false}); err != nil {
+		}, &josemodel.JoseOptions{UseTokenProvidedKeys: false, ClockSkewLeeway: model.ClockSkewLeeway}); err != nil {
 			cfg.LogError(ctx, "the delegation signature does not verify against an owner key", slog.String("kid", model.TruncateForResponse(kid)), slog.String("owner", string(owner.Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
 			continue
 		}

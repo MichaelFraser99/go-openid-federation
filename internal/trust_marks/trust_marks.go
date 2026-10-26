@@ -264,6 +264,7 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 		return []crypto.PublicKey{pubKey}, nil
 	}, &josemodel.JoseOptions{
 		UseTokenProvidedKeys: false,
+		ClockSkewLeeway:      model.ClockSkewLeeway,
 	})
 	if err != nil {
 		cfg.LogError(ctx, "failed to validate trust mark", slog.String("error", err.Error()), slog.String("trust_mark", model.TruncateForResponse(trustMark)))

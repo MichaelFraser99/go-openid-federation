@@ -24,7 +24,7 @@ Four packages, layered:
 
 ### Cryptography
 
-All JWS/JWK/JWT signing and verification goes through the sibling library `github.com/MichaelFraser99/go-jose` (`jwk`, `jws`, `jwt`, `model` subpackages). Do not hand-roll crypto — entity statements and trust marks are signed JWTs handled via that dependency.
+All JWS/JWK/JWT signing and verification goes through the sibling library `github.com/MichaelFraser99/go-jose` (`jwa`, `jwk`, `jws`, `jwt`, `model` subpackages, where `jwa` holds the algorithm identifiers). Do not hand-roll crypto — entity statements and trust marks are signed JWTs handled via that dependency.
 
 ### Anchoring the top of a chain
 
@@ -36,7 +36,7 @@ So with `TrustAnchors` unset, a chain whose last statement is the attacker's own
 
 `TrustAnchorsConfigured` tests `TrustAnchors != nil`, not its length, so a non-nil map with no entries refuses every anchor rather than falling back to the no-check mode. An anchor list that parsed to nothing is a configuration fault. `TrustAnchorKeys` returns `configured = false` for an anchor absent from the map or mapped to an empty set.
 
-**"Usable" must mean what go-jose means, not what the JWK syntax allows.** `entity_statement.UsableVerificationKeys` counts a key only if `jwk.PublicFromJwk` builds it *and* `jws.GetValidator` returns a validator for some algorithm; `jws/validate.go` has cases for the ES, RS and PS families and **no `EdDSA` case at all**. An earlier version of this code filtered on `model.ValidateJWKShape`, which asks only for a non-empty `kty`, so an operator pinning an Ed25519 anchor key — valid JOSE, and the default in several ecosystems — passed the filter, failed verification, and was told 404 that *the anchor's* configuration was unsigned: their own misconfiguration reported as the peer's fault, on every request. One definition now serves both the entry check and the chain check, so a set with no usable key answers `server_error` before any walk. Watch for this shape of mistake generally — a local predicate weaker than the library's, with the gap surfacing as a peer-blaming error.
+**"Usable" must mean what go-jose means, not what the JWK syntax allows.** `entity_statement.UsableVerificationKeys` counts a key only if `jwk.PublicFromJwk` builds it *and* `jws.GetValidator` returns a validator for some algorithm; `jws/validate.go` names `EdDSA` only to refuse it, so there is no validator for it. An earlier version of this code filtered on `model.ValidateJWKShape`, which asks only for a non-empty `kty`, so an operator pinning an Ed25519 anchor key — valid JOSE, and the default in several ecosystems — passed the filter, failed verification, and was told 404 that *the anchor's* configuration was unsigned: their own misconfiguration reported as the peer's fault, on every request. One definition now serves both the entry check and the chain check, so a set with no usable key answers `server_error` before any walk. Watch for this shape of mistake generally — a local predicate weaker than the library's, with the gap surfacing as a peer-blaming error.
 
 `model.ValidateJWKShape` is still load-bearing inside that predicate rather than tidy: go-jose asserts `kty.(string)` unchecked, so a configured key whose `kty` is an object or a number panics without it. `TestVerifyAgainstAnyKey` holds those two cases and a `recover` that fails the test.
 

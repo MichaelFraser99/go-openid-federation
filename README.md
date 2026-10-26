@@ -16,6 +16,10 @@ go get github.com/MichaelFraser99/go-openid-federation
 
 Requires Go 1.25.3 or later.
 
+> **Breaking change.** This release requires `go-jose` v0.10.0, which moved its algorithm identifiers to a new package. `Algorithm`, the ES, RS, PS and HS identifiers, `EdDSA`, `Unknown` and `GetAlgorithm` all moved from `go-jose/model` to `go-jose/jwa`, and the `joseerror` sentinels are now named `Err*`.
+>
+> Nothing in this library's own API exposes those types — `SignerConfiguration.Algorithm` is a string — so an upgrade is source-compatible for a consumer that only calls this library. But minimal version selection lifts every consumer to v0.10.0, so if your own code imports `go-jose` directly, `josemodel.ES256` becomes `jwa.ES256` and so on, in the same upgrade.
+
 ## Packages
 
 | Package | Purpose |
@@ -39,14 +43,14 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jws"
-	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 	"github.com/MichaelFraser99/go-openid-federation/server"
 )
 
 func main() {
-	signer, err := jws.GetSigner(josemodel.ES256, nil)
+	signer, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		log.Fatal(err)
 	}

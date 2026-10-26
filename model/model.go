@@ -1381,8 +1381,9 @@ func (t *TrustMark) UnmarshalJSON(data []byte) error {
 		t.Ref = &ref
 	}
 
-	if delegation, ok := jsonMap["delegation"].(string); ok {
-		t.DelegationJWT = &delegation
+	if delegation, present := jsonMap["delegation"]; present {
+		text, _ := delegation.(string)
+		t.DelegationJWT = &text
 	}
 
 	t.AdditionalClaims = make(map[string]any)

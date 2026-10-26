@@ -81,11 +81,6 @@ type ValidateOptions struct {
 	issuerKeys *issuerKeyCache
 }
 
-func trustMarkTypeIsOwned(trustMarkOwners map[string]model.TrustMarkOwner, trustMarkType string) bool {
-	_, owned := trustMarkOwners[trustMarkType]
-	return owned
-}
-
 type issuerKeyResult struct {
 	keys *josemodel.Jwks
 	err  error

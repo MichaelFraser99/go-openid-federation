@@ -2,6 +2,7 @@ package trust_marks
 
 import (
 	"crypto"
+	crand "crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
@@ -546,6 +547,215 @@ func TestFilterByTrusted_AMalformedOwnerKeySharingTheKidIsSkipped(t *testing.T) 
 			tm := dlgMark(t, f.ecKey["member"], "test-key", issuer, rvType, rvSub, &delegation)
 			if got := f.filter(t, ta, model.TrustMarkHolder{TrustMarkType: rvType, TrustMark: tm}); len(got) != 1 {
 				t.Errorf("[%s] an unusable entry carrying the same 'kid' must be skipped so the usable key behind it is found, got %d trust marks", tc.reference, len(got))
+			}
+		})
+	}
+}
+
+func TestFilterByTrusted_EveryOwnerKeyCarryingTheKidIsTried(t *testing.T) {
+	tests := map[string]struct {
+		reference string
+		signWith  int
+		keyCount  int
+	}{
+		"the first of two keys sharing a kid signs":  {reference: "7.2.2 step 9", signWith: 0, keyCount: 2},
+		"the second of two keys sharing a kid signs": {reference: "7.2.2 step 9", signWith: 1, keyCount: 2},
+		"the last of three keys sharing a kid signs": {reference: "7.2.2 step 9", signWith: 2, keyCount: 3},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			f := newRvFed(t, map[string]string{"member": "ta"})
+			issuer := f.id("member")
+			ta := f.taConfig(t, map[string][]model.EntityIdentifier{rvType: {model.EntityIdentifier(issuer)}})
+
+			ownerKeys := make([]*rsa.PrivateKey, tc.keyCount)
+			published := make([]map[string]any, tc.keyCount)
+			for i := range ownerKeys {
+				ownerKeys[i] = rvKey(t)
+				published[i] = federationPublicJwk(t, ownerKeys[i].Public(), "owner-key")
+			}
+			ta.TrustMarkOwners = map[string]model.TrustMarkOwner{rvType: {Sub: dlgOwner, JWKs: josemodel.Jwks{Keys: published}}}
+
+			delegation := dlgSign(t, ownerKeys[tc.signWith], dlgHead("owner-key"), dlgBody(dlgOwner, issuer, rvType))
+			tm := dlgMark(t, f.ecKey["member"], "test-key", issuer, rvType, rvSub, &delegation)
+			if got := f.filter(t, ta, model.TrustMarkHolder{TrustMarkType: rvType, TrustMark: tm}); len(got) != 1 {
+				t.Errorf("[%s] the signature must validate against one of the owner's keys carrying the kid, not only the first, got %d trust marks", tc.reference, len(got))
+			}
+		})
+	}
+}
+
+func TestFilterByTrusted_AnOwnedTypeWithAnUnrestrictedIssuerListTakesAValidDelegation(t *testing.T) {
+	f := newRvFed(t, map[string]string{"member": "ta"})
+	issuer := f.id("member")
+	ta := f.taConfig(t, map[string][]model.EntityIdentifier{rvType: {}})
+	ownerKey := rvKey(t)
+	ta.TrustMarkOwners = map[string]model.TrustMarkOwner{rvType: dlgOwnerEntry(t, dlgOwner, ownerKey, "owner-key")}
+
+	delegation := dlgSign(t, ownerKey, dlgHead("owner-key"), dlgBody(dlgOwner, issuer, rvType))
+	tm := dlgMark(t, f.ecKey["member"], "test-key", issuer, rvType, rvSub, &delegation)
+	if got := f.filter(t, ta, model.TrustMarkHolder{TrustMarkType: rvType, TrustMark: tm}); len(got) != 1 {
+		t.Errorf("[3.1.1] an empty issuer list means anyone may issue this type, so an owned type with a valid delegation must be kept, got %d trust marks", len(got))
+	}
+}
+
+func TestFilterByTrusted_AnOwnerKeyIsHeldToTheKeyRules(t *testing.T) {
+	tests := map[string]struct {
+		reference string
+		key       func(t *testing.T) (map[string]any, *rsa.PrivateKey)
+	}{
+		"an owner key published for encryption": {
+			reference: "RFC 7517 4.2",
+			key: func(t *testing.T) (map[string]any, *rsa.PrivateKey) {
+				key := rvKey(t)
+				published := federationPublicJwk(t, key.Public(), "owner-key")
+				published["use"] = "enc"
+				return published, key
+			},
+		},
+		"an owner key below the modulus the algorithm requires": {
+			reference: "RFC 7518 3.3",
+			key: func(t *testing.T) (map[string]any, *rsa.PrivateKey) {
+				key, err := rsa.GenerateKey(crand.Reader, 1024)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return federationPublicJwk(t, key.Public(), "owner-key"), key
+			},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			f := newRvFed(t, map[string]string{"member": "ta"})
+			issuer := f.id("member")
+			ta := f.taConfig(t, map[string][]model.EntityIdentifier{rvType: {model.EntityIdentifier(issuer)}})
+			published, ownerKey := tc.key(t)
+			ta.TrustMarkOwners = map[string]model.TrustMarkOwner{rvType: {Sub: dlgOwner, JWKs: josemodel.Jwks{Keys: []map[string]any{published}}}}
+
+			delegation := dlgSign(t, ownerKey, dlgHead("owner-key"), dlgBody(dlgOwner, issuer, rvType))
+			tm := dlgMark(t, f.ecKey["member"], "test-key", issuer, rvType, rvSub, &delegation)
+			if got := f.filter(t, ta, model.TrustMarkHolder{TrustMarkType: rvType, TrustMark: tm}); len(got) != 0 {
+				t.Errorf("[%s] the key rules this library applies to every other signing key reach a delegation's signing key too, got %d trust marks", tc.reference, len(got))
+			}
+		})
+	}
+}
+
+func TestFilterByTrusted_ADelegationClaimThatIsNotAStringIsNotTreatedAsAbsent(t *testing.T) {
+	tests := map[string]struct {
+		reference string
+		value     any
+	}{
+		"a number":      {reference: "7.3 step 9", value: 42},
+		"an object":     {reference: "7.3 step 9", value: map[string]any{"iss": dlgOwner}},
+		"an array":      {reference: "7.3 step 9", value: []any{"a", "b"}},
+		"a boolean":     {reference: "7.3 step 9", value: true},
+		"a null":        {reference: "7.3 step 9", value: nil},
+		"a bare string": {reference: "7.3 step 9", value: "not-a-jwt"},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			f := newRvFed(t, map[string]string{"member": "ta"})
+			issuer := f.id("member")
+			ta := f.taConfig(t, map[string][]model.EntityIdentifier{rvType: {model.EntityIdentifier(issuer)}})
+
+			body := map[string]any{
+				"iss": issuer, "sub": rvSub, "trust_mark_type": rvType,
+				"iat": time.Now().UTC().Unix(), "exp": time.Now().Add(time.Hour).UTC().Unix(),
+				"delegation": tc.value,
+			}
+			tm := dlgSign(t, f.ecKey["member"], map[string]any{"kid": "test-key", "typ": "trust-mark+jwt", "alg": "RS256"}, body)
+			if got := f.filter(t, ta, model.TrustMarkHolder{TrustMarkType: rvType, TrustMark: tm}); len(got) != 0 {
+				t.Errorf("[%s] a delegation claim that is present must be validated, and a value that is not a signed JWT cannot be, so the trust mark must be dropped rather than read as carrying no delegation, got %d trust marks", tc.reference, len(got))
+			}
+		})
+	}
+}
+
+func TestValidate_ADelegationNumericDateIsHeldToTheRepresentableRange(t *testing.T) {
+	tests := map[string]struct {
+		reference string
+		claim     string
+		value     any
+		expect    string
+	}{
+		"a negative iat":           {reference: "RFC 7519 2", claim: "iat", value: -1, expect: "must not be negative"},
+		"a hugely negative iat":    {reference: "RFC 7519 2", claim: "iat", value: -1e30, expect: "must not be negative"},
+		"an iat beyond the range":  {reference: "RFC 7519 2", claim: "iat", value: 1e30, expect: "outside the representable range"},
+		"a negative exp":           {reference: "RFC 7519 2", claim: "exp", value: -1, expect: "must not be negative"},
+		"an exp beyond the range":  {reference: "RFC 7519 2", claim: "exp", value: 1e30, expect: "outside the representable range"},
+		"an iat that is a string":  {reference: "7.2.1", claim: "iat", value: "1234567890", expect: "must be a number"},
+		"an exp that is a boolean": {reference: "7.2.1", claim: "exp", value: true, expect: "must be a number"},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			f := newRvFed(t, map[string]string{"member": "ta"})
+			issuer := f.id("member")
+			ta := f.taConfig(t, map[string][]model.EntityIdentifier{rvType: {model.EntityIdentifier(issuer)}})
+			ownerKey := rvKey(t)
+			ta.TrustMarkOwners = map[string]model.TrustMarkOwner{rvType: dlgOwnerEntry(t, dlgOwner, ownerKey, "owner-key")}
+
+			body := dlgBody(dlgOwner, issuer, rvType)
+			body[tc.claim] = tc.value
+			delegation := dlgSign(t, ownerKey, dlgHead("owner-key"), body)
+			tm := dlgMark(t, f.ecKey["member"], "test-key", issuer, rvType, rvSub, &delegation)
+
+			_, err := Validate(t.Context(), model.Configuration{HttpClient: f.server.Client()}, tm, ValidateOptions{
+				ExpectedType:             rvType,
+				ExpectedSubject:          rvSub,
+				AuthorizedIssuers:        []model.EntityIdentifier{model.EntityIdentifier(issuer)},
+				TrustAnchor:              ta.Sub,
+				TrustAnchorConfiguration: ta,
+			}, nil)
+			if err == nil {
+				t.Fatalf("[%s] expected the delegation to be refused", tc.reference)
+			}
+			if !strings.Contains(err.Error(), tc.expect) {
+				t.Errorf("[%s] a numeric date outside the range an int64 represents must be refused by name, not converted and compared, got %q", tc.reference, err.Error())
+			}
+		})
+	}
+}
+
+func TestValidate_AnEmptyDelegationClaimIsRefusedByName(t *testing.T) {
+	tests := map[string]struct {
+		reference string
+		claim     string
+	}{
+		"an empty sub":             {reference: "7.2.1", claim: "sub"},
+		"an empty iss":             {reference: "7.2.1", claim: "iss"},
+		"an empty trust_mark_type": {reference: "7.2.1", claim: "trust_mark_type"},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			f := newRvFed(t, map[string]string{"member": "ta"})
+			issuer := f.id("member")
+			ta := f.taConfig(t, map[string][]model.EntityIdentifier{rvType: {model.EntityIdentifier(issuer)}})
+			ownerKey := rvKey(t)
+			ta.TrustMarkOwners = map[string]model.TrustMarkOwner{rvType: dlgOwnerEntry(t, dlgOwner, ownerKey, "owner-key")}
+
+			body := dlgBody(dlgOwner, issuer, rvType)
+			body[tc.claim] = ""
+			delegation := dlgSign(t, ownerKey, dlgHead("owner-key"), body)
+			tm := dlgMark(t, f.ecKey["member"], "test-key", issuer, rvType, rvSub, &delegation)
+
+			_, err := Validate(t.Context(), model.Configuration{HttpClient: f.server.Client()}, tm, ValidateOptions{
+				ExpectedType:             rvType,
+				ExpectedSubject:          rvSub,
+				AuthorizedIssuers:        []model.EntityIdentifier{model.EntityIdentifier(issuer)},
+				TrustAnchor:              ta.Sub,
+				TrustAnchorConfiguration: ta,
+			}, nil)
+			if err == nil {
+				t.Fatalf("[%s] expected the delegation to be refused", tc.reference)
+			}
+			if !strings.Contains(err.Error(), "must be a non-empty string") {
+				t.Errorf("[%s] a required claim present as the empty string must be refused by name rather than compared as empty, got %q", tc.reference, err.Error())
 			}
 		})
 	}

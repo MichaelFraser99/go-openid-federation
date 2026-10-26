@@ -5,6 +5,8 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/base64"
+	"encoding/json"
 	"log/slog"
 	"strings"
 	"testing"
@@ -139,4 +141,91 @@ func rvSigningKey(t *testing.T) *rsa.PrivateKey {
 		t.Fatalf("failed to generate key: %v", err)
 	}
 	return key
+}
+
+func TestFilterByTrusted_ADelegationTheIssuerChoseIsBoundedInTheLog(t *testing.T) {
+	const marker = "DLG-TAIL-MARKER"
+	padding := strings.Repeat("g", 8192)
+
+	tests := []struct {
+		name      string
+		reference string
+		head      map[string]any
+		body      map[string]any
+	}{
+		{
+			name:      "a typ header the library does not accept",
+			reference: "7.2.2 step 2",
+			head:      map[string]any{"kid": "owner-key", "alg": "RS256", "typ": padding + marker},
+		},
+		{
+			name:      "a typ header that is not a string",
+			reference: "7.2.2 step 2",
+			head:      map[string]any{"kid": "owner-key", "alg": "RS256", "typ": []any{padding + marker}},
+		},
+		{
+			name:      "an alg header that is not a string",
+			reference: "7.2.2 step 3",
+			head:      map[string]any{"kid": "owner-key", "typ": "trust-mark-delegation+jwt", "alg": []any{padding + marker}},
+		},
+		{
+			name:      "a kid header that is not a string",
+			reference: "7.2.1",
+			head:      map[string]any{"typ": "trust-mark-delegation+jwt", "alg": "RS256", "kid": []any{padding + marker}},
+		},
+		{
+			name:      "a body the library cannot read",
+			reference: "7.2.2 step 1",
+			head:      map[string]any{"kid": "owner-key", "typ": "trust-mark-delegation+jwt", "alg": "RS256"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newRvFed(t, map[string]string{"member": "ta"})
+			issuer := f.id("member")
+			ta := f.taConfig(t, map[string][]model.EntityIdentifier{rvType: {model.EntityIdentifier(issuer)}})
+			ownerKey := rvKey(t)
+			ta.TrustMarkOwners = map[string]model.TrustMarkOwner{rvType: dlgOwnerEntry(t, dlgOwner, ownerKey, "owner-key")}
+
+			delegation := ""
+			if tc.body != nil {
+				delegation = dlgRaw(t, tc.head, tc.body, "")
+			} else if tc.name == "a body the library cannot read" {
+				headBytes, err := json.Marshal(tc.head)
+				if err != nil {
+					t.Fatal(err)
+				}
+				delegation = base64.RawURLEncoding.EncodeToString(headBytes) + "." + base64.RawURLEncoding.EncodeToString([]byte("[1"+padding+marker)) + ".sig"
+			} else {
+				delegation = dlgRaw(t, tc.head, dlgBody(dlgOwner, issuer, rvType), "")
+			}
+
+			tm := dlgMark(t, f.ecKey["member"], "test-key", issuer, rvType, rvSub, &delegation)
+
+			var logs bytes.Buffer
+			cfg := model.Configuration{
+				HttpClient: f.server.Client(),
+				Logger:     slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+			}
+			resolved := &model.ResolveResponse{
+				Sub:        rvSub,
+				Exp:        time.Now().Add(time.Hour).UTC().Unix(),
+				TrustMarks: []model.TrustMarkHolder{{TrustMarkType: rvType, TrustMark: tm}},
+			}
+
+			if err := FilterByTrusted(t.Context(), cfg, resolved, ta, nil); err != nil {
+				t.Fatalf("[%s] a mark whose delegation fails validation is dropped rather than refusing the resolve, got %v", tc.reference, err)
+			}
+			if len(resolved.TrustMarks) != 0 {
+				t.Fatalf("[%s] expected the mark to be dropped", tc.reference)
+			}
+			if strings.Contains(logs.String(), marker) {
+				t.Errorf("[%s] the tail of a value the trust mark issuer chose reached the log, so it is being logged whole", tc.reference)
+			}
+			if logs.Len() >= len(delegation) {
+				t.Errorf("[%s] the log is %d bytes against a %d byte delegation, so the delegation itself is being logged whole", tc.reference, logs.Len(), len(delegation))
+			}
+		})
+	}
 }

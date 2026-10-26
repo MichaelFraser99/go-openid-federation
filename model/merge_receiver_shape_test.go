@@ -110,3 +110,61 @@ func TestProcessAndExtractPolicy_ARuleIsCheckedWhenBothStatementsCarryBothOperat
 		})
 	}
 }
+
+func TestMetadataPolicySetContains_FindsAnOperatorWhateverShapeHoldsIt(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference string
+		set       []MetadataPolicyOperator
+		lookFor   reflect.Type
+	}{
+		{name: "a value held by value", reference: "6.1.3.1.1", set: []MetadataPolicyOperator{Value{operatorValue: []any{"a"}}}, lookFor: reflect.TypeOf(Value{})},
+		{name: "a value held by pointer", reference: "6.1.3.1.1", set: []MetadataPolicyOperator{&Value{operatorValue: []any{"a"}}}, lookFor: reflect.TypeOf(Value{})},
+		{name: "an add held by pointer", reference: "6.1.3.1.2", set: []MetadataPolicyOperator{&Add{operatorValue: []any{"a"}}}, lookFor: reflect.TypeOf(Add{})},
+		{name: "a subset_of held by pointer", reference: "6.1.3.1.5", set: []MetadataPolicyOperator{&SubsetOf{operatorValue: []any{"a"}}}, lookFor: reflect.TypeOf(SubsetOf{})},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			found, ok := metadataPolicySetContains(tc.set, tc.lookFor)
+			if !ok {
+				t.Fatalf("[%s] an operator must be found by a lookup for its type whatever shape holds it, or the rule between it and its partner is never checked", tc.reference)
+			}
+			if reflect.TypeOf(found) != tc.lookFor {
+				t.Errorf("[%s] the operator handed back must be the value type the caller asserts on, got %T", tc.reference, found)
+			}
+		})
+	}
+}
+
+func TestValidatePoliciesCanCombine_RefusesAForbiddenPairHeldByPointer(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference string
+		policies  []MetadataPolicyOperator
+	}{
+		{
+			name:      "an add that is not a subset of subset_of, both held by pointer",
+			reference: "6.1.3.1.2",
+			policies:  []MetadataPolicyOperator{&Add{operatorValue: []any{"a"}}, &SubsetOf{operatorValue: []any{"b"}}},
+		},
+		{
+			name:      "an add that is not a subset of subset_of, add held by pointer",
+			reference: "6.1.3.1.2",
+			policies:  []MetadataPolicyOperator{&Add{operatorValue: []any{"a"}}, SubsetOf{operatorValue: []any{"b"}}},
+		},
+		{
+			name:      "an add that is not a subset of subset_of, both held by value",
+			reference: "6.1.3.1.2",
+			policies:  []MetadataPolicyOperator{Add{operatorValue: []any{"a"}}, SubsetOf{operatorValue: []any{"b"}}},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := validatePoliciesCanCombine(tc.policies); err == nil {
+				t.Errorf("[%s] add must be a subset of subset_of, so this pair must be refused whatever shape holds the operators", tc.reference)
+			}
+		})
+	}
+}

@@ -58,7 +58,7 @@ func (a Add) Merge(valueToMerge any) (MetadataPolicyOperator, error) {
 		return nil, err
 	}
 
-	return &Add{operatorValue: anySlice}, nil
+	return Add{operatorValue: anySlice}, nil
 }
 
 func (a Add) CheckForConflict(containsFunc func(policyType reflect.Type) (MetadataPolicyOperator, bool)) error {

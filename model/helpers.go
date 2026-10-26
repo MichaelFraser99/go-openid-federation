@@ -254,8 +254,18 @@ func validatePoliciesCanCombine(policies []MetadataPolicyOperator) error {
 
 func metadataPolicySetContains(policySet []MetadataPolicyOperator, policyType reflect.Type) (MetadataPolicyOperator, bool) {
 	for _, policy := range policySet {
-		if reflect.TypeOf(policy) == policyType {
-			return policy, true
+		held := reflect.ValueOf(policy)
+		if held.Kind() == reflect.Pointer {
+			if held.IsNil() {
+				continue
+			}
+			held = held.Elem()
+		}
+		if held.Type() != policyType {
+			continue
+		}
+		if operator, ok := held.Interface().(MetadataPolicyOperator); ok {
+			return operator, true
 		}
 	}
 	return nil, false

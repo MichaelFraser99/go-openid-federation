@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwt"
-	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -17,7 +17,7 @@ func shapedMark(t *testing.T, f *rvFed, issuer, trustMarkType string, delegation
 		"iat": time.Now().UTC().Unix(), "exp": time.Now().Add(time.Hour).UTC().Unix(),
 		"delegation": delegation,
 	}
-	token, err := jwt.New(f.ecKey["member"], map[string]any{"kid": "test-key", "typ": "trust-mark+jwt", "alg": "RS256"}, body, jwt.Opts{Algorithm: josemodel.RS256})
+	token, err := jwt.New(f.ecKey["member"], map[string]any{"kid": "test-key", "typ": "trust-mark+jwt", "alg": "RS256"}, body, jwt.Opts{Algorithm: jwa.RS256})
 	if err != nil {
 		t.Fatalf("failed to sign the trust mark: %v", err)
 	}

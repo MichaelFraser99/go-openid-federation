@@ -289,7 +289,7 @@ func applyPolicyToMetadata(metadata map[string]any, policy map[string]PolicyOper
 					if !isString {
 						return fmt.Errorf("scope must be a string")
 					}
-					existing = ConvertStringsToAnySlice(strings.Fields(existingString))
+					existing = ConvertStringsToAnySlice(scopeTokens(existingString))
 				}
 				operator = operator.ToSlice(k)
 			}
@@ -329,7 +329,7 @@ func joinScopeTokens(values []string) string {
 	seen := make(map[string]struct{})
 	var tokens []string
 	for _, value := range values {
-		for _, token := range strings.Fields(value) {
+		for _, token := range scopeTokens(value) {
 			if _, ok := seen[token]; ok {
 				continue
 			}

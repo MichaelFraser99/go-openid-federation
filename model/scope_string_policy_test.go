@@ -349,3 +349,67 @@ func TestToSlice_ConvertsAStringOperandForEveryOperatorThatHoldsOne(t *testing.T
 		})
 	}
 }
+
+func TestScopeTokens_TheDelimiterIsOneAsciiSpaceAndNothingElse(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference string
+		scope     string
+		expect    []string
+	}{
+		{name: "one space between tokens", reference: "RFC 6749 3.3", scope: "openid profile", expect: []string{"openid", "profile"}},
+		{name: "a trailing space", reference: "RFC 6749 3.3", scope: "openid profile ", expect: []string{"openid", "profile"}},
+		{name: "a leading space", reference: "RFC 6749 3.3", scope: " openid profile", expect: []string{"openid", "profile"}},
+		{name: "a run of spaces", reference: "RFC 6749 3.3", scope: "openid  profile", expect: []string{"openid", "profile"}},
+		{name: "only spaces", reference: "RFC 6749 3.3", scope: "   ", expect: []string{}},
+		{name: "a single token", reference: "RFC 6749 3.3", scope: "openid", expect: []string{"openid"}},
+		{name: "a no-break space is not a delimiter", reference: "RFC 6749 3.3", scope: "openid profile", expect: []string{"openid profile"}},
+		{name: "a line separator is not a delimiter", reference: "RFC 6749 3.3", scope: "openid profile", expect: []string{"openid profile"}},
+		{name: "an ideographic space is not a delimiter", reference: "RFC 6749 3.3", scope: "openid　profile", expect: []string{"openid　profile"}},
+		{name: "a tab is not a delimiter", reference: "RFC 6749 3.3", scope: "openid\tprofile", expect: []string{"openid\tprofile"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := scopeTokens(tc.scope)
+			if !reflect.DeepEqual(got, tc.expect) {
+				t.Errorf("[%s] scope-token admits no whitespace and the delimiter is one SP, so only an ASCII space separates tokens: expected %q, got %q", tc.reference, tc.expect, got)
+			}
+		})
+	}
+}
+
+func TestApplyPolicy_AnInvalidScopeTokenDoesNotClearAnAllowList(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference string
+		subject   string
+		expect    string
+	}{
+		{name: "a no-break space inside a token", reference: "RFC 6749 3.3", subject: "openid profile", expect: ""},
+		{name: "a line separator inside a token", reference: "RFC 6749 3.3", subject: "openid profile", expect: ""},
+		{name: "an ideographic space inside a token", reference: "RFC 6749 3.3", subject: "openid　profile", expect: ""},
+		{name: "spaces around valid tokens", reference: "RFC 6749 3.3", subject: " openid  profile ", expect: "openid profile"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			leaf := scopeSubject(t, tc.subject)
+
+			merged, err := ProcessAndExtractPolicy([]EntityStatement{leaf, scopePolicyStatement(t, `{"subset_of":["openid","profile"]}`)})
+			if err != nil {
+				t.Fatalf("[%s] expected the policy to merge, got %v", tc.reference, err)
+			}
+
+			applied, err := ApplyPolicy(leaf, *merged)
+			if err != nil {
+				t.Fatalf("[%s] expected the merged policy to apply, got %v", tc.reference, err)
+			}
+
+			got, _ := (*applied.Metadata.OAuthClientMetadata)["scope"].(string)
+			if got != tc.expect {
+				t.Errorf("[%s] a token holding a character scope-token does not admit must not be split into tokens the policy allows: expected %q, got %q", tc.reference, tc.expect, got)
+			}
+		})
+	}
+}

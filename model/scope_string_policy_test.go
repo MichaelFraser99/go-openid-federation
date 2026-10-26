@@ -2,6 +2,8 @@ package model
 
 import (
 	"encoding/json"
+	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -25,7 +27,7 @@ func scopeSubject(t *testing.T, scope string) EntityStatement {
 	return statement
 }
 
-func TestMergePolicyOperators_AStringScopeIsSplitWhateverOperatorFacesIt(t *testing.T) {
+func TestProcessAndExtractPolicy_AStringScopeIsSplitWhateverOperatorFacesIt(t *testing.T) {
 	tests := []struct {
 		name      string
 		reference string
@@ -62,7 +64,7 @@ func TestMergePolicyOperators_AStringScopeIsSplitWhateverOperatorFacesIt(t *test
 			expect:    "openid offline_access",
 		},
 		{
-			name:      "a string default under a superior subset_of",
+			name:      "a string default under a superior subset_of, which resolve-time conversion already handled",
 			reference: "6.1.3.1.8",
 			superior:  `{"subset_of":["openid","offline_access","profile"]}`,
 			authority: `{"default":"openid offline_access"}`,
@@ -76,7 +78,7 @@ func TestMergePolicyOperators_AStringScopeIsSplitWhateverOperatorFacesIt(t *test
 			expect:    "openid offline_access",
 		},
 		{
-			name:      "a string subset_of, which is not an array operator value",
+			name:      "two array operators, which need no conversion",
 			reference: "6.1.3.1.5",
 			superior:  `{"subset_of":["openid","offline_access","profile"]}`,
 			authority: `{"superset_of":["openid"]}`,
@@ -190,6 +192,338 @@ func TestProcessAndExtractPolicy_AStringScopeIsSplitWithinOneStatement(t *testin
 			got, _ := (*applied.Metadata.OAuthClientMetadata)["scope"].(string)
 			if got != tc.expect {
 				t.Errorf("[%s] expected scope %q, got %q", tc.reference, tc.expect, got)
+			}
+		})
+	}
+}
+
+func TestProcessAndExtractPolicy_AScopeStringIsTokenisedTheSameWayEverywhere(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference string
+		superior  string
+		authority string
+		subject   string
+		expect    string
+	}{
+		{
+			name:      "a trailing space in an operator value",
+			reference: "RFC 7591 2",
+			superior:  `{"subset_of":["openid","profile"]}`,
+			authority: `{"value":"openid profile "}`,
+			subject:   "openid profile",
+			expect:    "openid profile",
+		},
+		{
+			name:      "a leading space in an operator value",
+			reference: "RFC 7591 2",
+			superior:  `{"subset_of":["openid","profile"]}`,
+			authority: `{"value":" openid profile"}`,
+			subject:   "openid profile",
+			expect:    "openid profile",
+		},
+		{
+			name:      "a double space in an operator value",
+			reference: "RFC 7591 2",
+			superior:  `{"subset_of":["openid","profile"]}`,
+			authority: `{"value":"openid  profile"}`,
+			subject:   "openid profile",
+			expect:    "openid profile",
+		},
+		{
+			name:      "irregular whitespace in the subject's own scope",
+			reference: "RFC 7591 2",
+			superior:  `{"subset_of":["openid","profile"]}`,
+			authority: `{"value":"openid profile"}`,
+			subject:   "openid  profile ",
+			expect:    "openid profile",
+		},
+		{
+			name:      "irregular whitespace in a subject's scope an operator reads",
+			reference: "RFC 7591 2",
+			superior:  `{"subset_of":["openid","profile"]}`,
+			authority: `{"subset_of":["openid","profile"]}`,
+			subject:   "openid  profile ",
+			expect:    "openid profile",
+		},
+		{
+			name:      "two values that differ only in whitespace",
+			reference: "6.1.3.1.1",
+			superior:  `{"value":"openid profile"}`,
+			authority: `{"value":"openid profile "}`,
+			subject:   "openid profile",
+			expect:    "openid profile",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			leaf := scopeSubject(t, tc.subject)
+
+			merged, err := ProcessAndExtractPolicy([]EntityStatement{
+				leaf,
+				scopePolicyStatement(t, tc.authority),
+				scopePolicyStatement(t, tc.superior),
+			})
+			if err != nil {
+				t.Fatalf("[%s] a scope string is a list of space-separated values, so irregular whitespace must not make a chain unresolvable: %v", tc.reference, err)
+			}
+
+			applied, err := ApplyPolicy(leaf, *merged)
+			if err != nil {
+				t.Fatalf("[%s] expected the merged policy to apply, got %v", tc.reference, err)
+			}
+			got, _ := (*applied.Metadata.OAuthClientMetadata)["scope"].(string)
+			if got != tc.expect {
+				t.Errorf("[%s] expected scope %q, got %q", tc.reference, tc.expect, got)
+			}
+		})
+	}
+}
+
+func TestToSlice_ReturnsAValueTypeAndToleratesANilOperand(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference string
+		operator  MetadataPolicyOperator
+	}{
+		{name: "a value with a nil operand", reference: "6.1.3.1.1", operator: Value{}},
+		{name: "a default with a nil operand", reference: "6.1.3.1.3", operator: Default{}},
+		{name: "an add", reference: "6.1.3.1.2", operator: Add{}},
+		{name: "a one_of", reference: "6.1.3.1.4", operator: OneOf{}},
+		{name: "a subset_of", reference: "6.1.3.1.5", operator: SubsetOf{}},
+		{name: "a superset_of", reference: "6.1.3.1.6", operator: SupersetOf{}},
+		{name: "an essential", reference: "6.1.3.1.7", operator: Essential{}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					t.Fatalf("[%s] converting an operator with no operand panicked: %v", tc.reference, recovered)
+				}
+			}()
+
+			converted := tc.operator.ToSlice("scope")
+			if reflect.TypeOf(converted).Kind() == reflect.Pointer {
+				t.Errorf("[%s] a converted operator must keep the receiver shape the others use, or a reflect.TypeOf lookup in metadataPolicySetContains misses it and a consumer's type assertion panics, got %T", tc.reference, converted)
+			}
+			if _, found := metadataPolicySetContains([]MetadataPolicyOperator{converted}, reflect.TypeOf(tc.operator)); !found {
+				t.Errorf("[%s] a converted operator must still be found by a lookup for its own type, got %T", tc.reference, converted)
+			}
+		})
+	}
+}
+
+func TestToSlice_ConvertsAStringOperandForEveryOperatorThatHoldsOne(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference string
+		key       string
+		operator  MetadataPolicyOperator
+		expect    []any
+	}{
+		{name: "a value holding a scope string", reference: "6.1.3.1.8", key: "scope", operator: Value{operatorValue: "openid profile"}, expect: []any{"openid", "profile"}},
+		{name: "a default holding a scope string", reference: "6.1.3.1.8", key: "scope", operator: Default{operatorValue: "openid profile"}, expect: []any{"openid", "profile"}},
+		{name: "a value holding irregular whitespace", reference: "RFC 7591 2", key: "scope", operator: Value{operatorValue: " openid  profile "}, expect: []any{"openid", "profile"}},
+		{name: "a value already holding an array", reference: "6.1.3.1.8", key: "scope", operator: Value{operatorValue: []any{"openid", "profile"}}, expect: []any{"openid", "profile"}},
+		{name: "a value holding a single value for a parameter that is not scope", reference: "6.1.3.1.1", key: "acr_values", operator: Value{operatorValue: "urn:example:loa2"}, expect: []any{"urn:example:loa2"}},
+		{name: "a default holding a single value for a parameter that is not scope", reference: "6.1.3.1.3", key: "acr_values", operator: Default{operatorValue: "urn:example:loa2"}, expect: []any{"urn:example:loa2"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			converted := tc.operator.ToSlice(tc.key)
+			got, ok := converted.OperatorValue().([]any)
+			if !ok {
+				t.Fatalf("[%s] expected a slice operand, got %T", tc.reference, converted.OperatorValue())
+			}
+			if !reflect.DeepEqual(got, tc.expect) {
+				t.Errorf("[%s] expected %v, got %v", tc.reference, tc.expect, got)
+			}
+			if reflect.TypeOf(converted).Kind() == reflect.Pointer {
+				t.Errorf("[%s] converting a string operand must keep the receiver shape the others use, or a reflect.TypeOf lookup in metadataPolicySetContains misses it and a consumer's type assertion panics, got %T", tc.reference, converted)
+			}
+			if _, found := metadataPolicySetContains([]MetadataPolicyOperator{converted}, reflect.TypeOf(tc.operator)); !found {
+				t.Errorf("[%s] a converted operator must still be found by a lookup for its own type, got %T", tc.reference, converted)
+			}
+		})
+	}
+}
+
+func TestScopeTokens_TheDelimiterIsOneAsciiSpaceAndNothingElse(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference string
+		scope     string
+		expect    []string
+	}{
+		{name: "one space between tokens", reference: "RFC 6749 3.3", scope: "openid profile", expect: []string{"openid", "profile"}},
+		{name: "a trailing space", reference: "RFC 6749 3.3", scope: "openid profile ", expect: []string{"openid", "profile"}},
+		{name: "a leading space", reference: "RFC 6749 3.3", scope: " openid profile", expect: []string{"openid", "profile"}},
+		{name: "a run of spaces", reference: "RFC 6749 3.3", scope: "openid  profile", expect: []string{"openid", "profile"}},
+		{name: "only spaces", reference: "RFC 6749 3.3", scope: "   ", expect: []string{}},
+		{name: "a single token", reference: "RFC 6749 3.3", scope: "openid", expect: []string{"openid"}},
+		{name: "a no-break space is not a delimiter", reference: "RFC 6749 3.3", scope: "openid profile", expect: []string{"openid profile"}},
+		{name: "a line separator is not a delimiter", reference: "RFC 6749 3.3", scope: "openid profile", expect: []string{"openid profile"}},
+		{name: "an ideographic space is not a delimiter", reference: "RFC 6749 3.3", scope: "openid　profile", expect: []string{"openid　profile"}},
+		{name: "a tab is not a delimiter", reference: "RFC 6749 3.3", scope: "openid\tprofile", expect: []string{"openid\tprofile"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := scopeTokens(tc.scope)
+			if !reflect.DeepEqual(got, tc.expect) {
+				t.Errorf("[%s] scope-token admits no whitespace and the delimiter is one SP, so only an ASCII space separates tokens: expected %q, got %q", tc.reference, tc.expect, got)
+			}
+		})
+	}
+}
+
+func TestApplyPolicy_AnInvalidScopeTokenDoesNotClearAnAllowList(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference string
+		subject   string
+		expect    string
+	}{
+		{name: "a no-break space inside a token", reference: "RFC 6749 3.3", subject: "openid profile", expect: ""},
+		{name: "a line separator inside a token", reference: "RFC 6749 3.3", subject: "openid profile", expect: ""},
+		{name: "an ideographic space inside a token", reference: "RFC 6749 3.3", subject: "openid　profile", expect: ""},
+		{name: "spaces around valid tokens", reference: "RFC 6749 3.3", subject: " openid  profile ", expect: "openid profile"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			leaf := scopeSubject(t, tc.subject)
+
+			merged, err := ProcessAndExtractPolicy([]EntityStatement{leaf, scopePolicyStatement(t, `{"subset_of":["openid","profile"]}`)})
+			if err != nil {
+				t.Fatalf("[%s] expected the policy to merge, got %v", tc.reference, err)
+			}
+
+			applied, err := ApplyPolicy(leaf, *merged)
+			if err != nil {
+				t.Fatalf("[%s] expected the merged policy to apply, got %v", tc.reference, err)
+			}
+
+			got, _ := (*applied.Metadata.OAuthClientMetadata)["scope"].(string)
+			if got != tc.expect {
+				t.Errorf("[%s] a token holding a character scope-token does not admit must not be split into tokens the policy allows: expected %q, got %q", tc.reference, tc.expect, got)
+			}
+		})
+	}
+}
+
+func TestProcessAndExtractPolicy_AnOperandNoSubjectCanMatchIsRefusedAsThePolicysFault(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference string
+		policy    string
+		leaks     []string
+	}{
+		{name: "a superset_of holding only an empty value", reference: "RFC 6749 3.3", policy: `{"superset_of":[""]}`},
+		{name: "a superset_of holding an empty value beside a real one", reference: "RFC 6749 3.3", policy: `{"superset_of":["","openid"]}`},
+		{name: "a superset_of holding only whitespace", reference: "RFC 6749 3.3", policy: `{"superset_of":["   "]}`},
+		{name: "a superset_of holding a tab", reference: "RFC 6749 3.3", policy: `{"superset_of":["\t"]}`},
+		{name: "a superset_of value with a trailing space", reference: "RFC 6749 3.3", policy: `{"superset_of":["openid "]}`, leaks: []string{"openid "}},
+		{name: "a superset_of value with a leading space", reference: "RFC 6749 3.3", policy: `{"superset_of":[" openid"]}`, leaks: []string{" openid"}},
+		{name: "a superset_of value holding two tokens", reference: "RFC 6749 3.3", policy: `{"superset_of":["openid profile"]}`, leaks: []string{"openid profile"}},
+		{name: "a superset_of value holding a no-break space", reference: "RFC 6749 3.3", policy: `{"superset_of":["openid\u00a0profile"]}`},
+		{name: "a one_of holding an empty value", reference: "RFC 6749 3.3", policy: `{"one_of":[""]}`},
+		{name: "a one_of value holding two tokens", reference: "RFC 6749 3.3", policy: `{"one_of":["openid profile"]}`, leaks: []string{"openid profile"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, subject := range []string{"openid", "openid profile", "openid  profile "} {
+				leaf := scopeSubject(t, subject)
+
+				_, err := ProcessAndExtractPolicy([]EntityStatement{leaf, scopePolicyStatement(t, tc.policy)})
+				if err == nil {
+					t.Fatalf("[%s] a scope value is one token of at least one character and no whitespace, so an operand the subject must match but never can is a fault in the policy rather than one left to deny every subject's chain: subject %q", tc.reference, subject)
+				}
+				if !strings.Contains(err.Error(), "no subject can ever match it") {
+					t.Errorf("[%s] the refusal must name the operator at fault rather than the subject's metadata, got %v", tc.reference, err)
+				}
+				for _, operand := range tc.leaks {
+					if strings.Contains(err.Error(), operand) {
+						t.Errorf("[%s] a superior writes this operand and the description reaches a resolve response, so no part of it may appear: %v", tc.reference, err)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestProcessAndExtractPolicy_AnOperandTheSubjectNeedNotMatchIsLeftAlone(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference string
+		policy    string
+		subject   string
+		expect    string
+	}{
+		{name: "a subset_of holding an empty value beside a real one", reference: "6.1.3.1.5", policy: `{"subset_of":["openid",""]}`, subject: "openid", expect: "openid"},
+		{name: "an array value holding an empty value", reference: "6.1.3.1.1", policy: `{"value":["openid",""]}`, subject: "openid", expect: "openid"},
+		{name: "an add holding an empty value", reference: "6.1.3.1.2", policy: `{"add":[""]}`, subject: "openid", expect: "openid"},
+		{name: "a subset_of holding whitespace beside a real one", reference: "6.1.3.1.5", policy: `{"subset_of":["openid","   "]}`, subject: "openid", expect: "openid"},
+		{name: "an add holding a value with a trailing space", reference: "6.1.3.1.2", policy: `{"add":["admin "]}`, subject: "openid", expect: "openid admin"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			leaf := scopeSubject(t, tc.subject)
+
+			merged, err := ProcessAndExtractPolicy([]EntityStatement{leaf, scopePolicyStatement(t, tc.policy)})
+			if err != nil {
+				t.Fatalf("[%s] an operator that intersects, unions or supplies its operand is not made unsatisfiable by an element the subject lacks, so the policy must stand: %v", tc.reference, err)
+			}
+
+			applied, err := ApplyPolicy(leaf, *merged)
+			if err != nil {
+				t.Fatalf("[%s] expected the merged policy to apply, got %v", tc.reference, err)
+			}
+
+			got, _ := (*applied.Metadata.OAuthClientMetadata)["scope"].(string)
+			if got != tc.expect {
+				t.Errorf("[%s] expected scope %q, got %q", tc.reference, tc.expect, got)
+			}
+		})
+	}
+}
+
+func TestApplyPolicy_TheResolvedScopeHoldsWhatThePolicySaid(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference string
+		policy    string
+		subject   string
+		expect    string
+	}{
+		{name: "an array value holding a no-break space", reference: "RFC 6749 3.3", policy: `{"value":["openid profile"]}`, subject: "openid", expect: "openid profile"},
+		{name: "a string value holding a no-break space", reference: "RFC 6749 3.3", policy: `{"value":"openid profile"}`, subject: "openid", expect: "openid profile"},
+		{name: "an add holding a no-break space", reference: "6.1.3.1.2", policy: `{"add":["openid profile"]}`, subject: "openid", expect: "openid openid profile"},
+		{name: "an array value holding a scope set", reference: "6.1.3.1.1", policy: `{"value":["openid","openid accounts"]}`, subject: "openid", expect: "openid accounts"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			leaf := scopeSubject(t, tc.subject)
+
+			merged, err := ProcessAndExtractPolicy([]EntityStatement{leaf, scopePolicyStatement(t, tc.policy)})
+			if err != nil {
+				t.Fatalf("[%s] expected the policy to merge, got %v", tc.reference, err)
+			}
+
+			applied, err := ApplyPolicy(leaf, *merged)
+			if err != nil {
+				t.Fatalf("[%s] expected the merged policy to apply, got %v", tc.reference, err)
+			}
+
+			got, _ := (*applied.Metadata.OAuthClientMetadata)["scope"].(string)
+			if got != tc.expect {
+				t.Errorf("[%s] the value an operator supplied must reach the resolved scope as the policy wrote it, not re-split on a character that does not separate scope values: expected %q, got %q", tc.reference, tc.expect, got)
 			}
 		})
 	}

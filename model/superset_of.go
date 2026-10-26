@@ -80,7 +80,7 @@ func (s SupersetOf) Merge(valueToMerge any) (MetadataPolicyOperator, error) {
 		return nil, err
 	}
 
-	return &SupersetOf{operatorValue: anySlice}, nil
+	return SupersetOf{operatorValue: anySlice}, nil
 }
 
 func (s SupersetOf) CheckForConflict(containsFunc func(policyType reflect.Type) (MetadataPolicyOperator, bool)) error {

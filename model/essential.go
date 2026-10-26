@@ -63,7 +63,11 @@ func (s Essential) Merge(valueToMerge any) (MetadataPolicyOperator, error) {
 		return nil, fmt.Errorf("MergePolicyOperators value must be a boolean")
 	}
 
-	return NewEssential(s.operatorValue || valueToMerge.(bool))
+	merged, err := NewEssential(s.operatorValue || valueToMerge.(bool))
+	if err != nil {
+		return nil, err
+	}
+	return *merged, nil
 }
 
 func (s Essential) CheckForConflict(containsFunc func(policyType reflect.Type) (MetadataPolicyOperator, bool)) error {

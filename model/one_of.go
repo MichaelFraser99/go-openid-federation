@@ -88,7 +88,11 @@ func (o OneOf) Merge(valueToMerge any) (MetadataPolicyOperator, error) {
 		return nil, fmt.Errorf("intersection of operator values is empty")
 	}
 
-	return NewOneOf(intersection)
+	merged, err := NewOneOf(intersection)
+	if err != nil {
+		return nil, err
+	}
+	return *merged, nil
 }
 
 // ResolutionHierarchy defines the order of application for "one_of".

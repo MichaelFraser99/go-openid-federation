@@ -87,7 +87,11 @@ func (s SubsetOf) Merge(valueToMerge any) (MetadataPolicyOperator, error) {
 		}
 	}
 
-	return NewSubsetOf(intersection)
+	merged, err := NewSubsetOf(intersection)
+	if err != nil {
+		return nil, err
+	}
+	return *merged, nil
 }
 
 func (s SubsetOf) CheckForConflict(containsFunc func(policyType reflect.Type) (MetadataPolicyOperator, bool)) error {

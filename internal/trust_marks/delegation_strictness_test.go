@@ -352,3 +352,39 @@ func TestFilterByTrusted_TheKidOfAnUnusableOwnerKeyIsBoundedInTheLog(t *testing.
 		})
 	}
 }
+
+func TestFilterByTrusted_ADelegationTypIsComparedAsAMediaType(t *testing.T) {
+	tests := map[string]struct {
+		reference string
+		typ       string
+		keep      bool
+	}{
+		"the bare type":                    {reference: "7.2.1", typ: "trust-mark-delegation+jwt", keep: true},
+		"the application/ form":            {reference: "RFC 7515 4.1.9", typ: "application/trust-mark-delegation+jwt", keep: true},
+		"a different case":                 {reference: "RFC 7515 4.1.9", typ: "Trust-Mark-Delegation+JWT", keep: true},
+		"the application/ form in caps":    {reference: "RFC 7515 4.1.9", typ: "APPLICATION/TRUST-MARK-DELEGATION+JWT", keep: true},
+		"a plain JWT":                      {reference: "7.2.1", typ: "JWT", keep: false},
+		"the trust mark's own type":        {reference: "7.2.1", typ: "trust-mark+jwt", keep: false},
+		"the type as a suffix of another":  {reference: "7.2.1", typ: "x-trust-mark-delegation+jwt", keep: false},
+		"the type with a trailing suffix":  {reference: "7.2.1", typ: "trust-mark-delegation+jwt-x", keep: false},
+		"application/ prepended twice":     {reference: "RFC 7515 4.1.9", typ: "application/application/trust-mark-delegation+jwt", keep: false},
+		"another subtype under the prefix": {reference: "RFC 7515 4.1.9", typ: "application/entity-statement+jwt", keep: false},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			d := dlgSetup(t)
+			head := dlgHead("owner-key")
+			head["typ"] = tc.typ
+			delegation := dlgSignRaw(t, d.ownerKey, head, dlgBody(dlgOwner, d.issuer, rvType))
+
+			got := d.kept(t, delegation)
+			if tc.keep && got != 1 {
+				t.Errorf("[%s] media type values are case insensitive and 'application/' is prepended to a value with no '/', so %q names the delegation type and a delegation the owner signed with it must be kept, got %d trust marks", tc.reference, tc.typ, got)
+			}
+			if !tc.keep && got != 0 {
+				t.Errorf("[%s] %q does not name the delegation type, so the delegation must be refused however it is signed, got %d trust marks", tc.reference, tc.typ, got)
+			}
+		})
+	}
+}

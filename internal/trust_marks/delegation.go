@@ -81,13 +81,21 @@ func delegationTime(body map[string]any, claim string) (int64, bool, error) {
 	return int64(seconds), true, nil
 }
 
+func splitDelegation(ctx context.Context, cfg model.Configuration, mark model.TrustMark) ([]string, error) {
+	parts := strings.Split(*mark.DelegationJWT, ".")
+	if len(parts) != 3 {
+		cfg.LogError(ctx, "the trust mark's delegation is not a signed JWT", slog.Int("parts_count", len(parts)), slog.String("trust_mark_type", model.TruncateForResponse(mark.Type)))
+		return nil, fmt.Errorf("the trust mark's delegation is not a signed JWT")
+	}
+	return parts, nil
+}
+
 func verifyDelegation(ctx context.Context, cfg model.Configuration, mark model.TrustMark, issuer model.EntityIdentifier, owner model.TrustMarkOwner) error {
 	delegation := *mark.DelegationJWT
 
-	parts := strings.Split(delegation, ".")
-	if len(parts) != 3 {
-		cfg.LogError(ctx, "the trust mark's delegation is not a signed JWT", slog.Int("parts_count", len(parts)), slog.String("trust_mark_type", model.TruncateForResponse(mark.Type)))
-		return fmt.Errorf("the trust mark's delegation is not a signed JWT")
+	parts, err := splitDelegation(ctx, cfg, mark)
+	if err != nil {
+		return err
 	}
 
 	headBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
@@ -226,6 +234,10 @@ func verifyDelegationRequirement(ctx context.Context, cfg model.Configuration, m
 			return fmt.Errorf("the trust anchor names an owner for this trust mark type, so the trust mark must carry a 'delegation' claim")
 		}
 		return nil
+	}
+
+	if _, err := splitDelegation(ctx, cfg, mark); err != nil {
+		return err
 	}
 
 	if !owned {

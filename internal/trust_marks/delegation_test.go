@@ -3,6 +3,7 @@ package trust_marks
 import (
 	"crypto"
 	"crypto/rsa"
+	"strings"
 	"testing"
 	"time"
 
@@ -327,6 +328,60 @@ func TestFilterByTrusted_AnUnusableOwnerKeyDoesNotBlockTheDelegation(t *testing.
 			tm := dlgMark(t, f.ecKey["member"], "test-key", issuer, rvType, rvSub, &delegation)
 			if got := f.filter(t, ta, model.TrustMarkHolder{TrustMarkType: rvType, TrustMark: tm}); len(got) != 1 {
 				t.Errorf("[%s] a key beside the signing key that this library cannot use must not stop the delegation verifying, got %d trust marks", tc.reference, len(got))
+			}
+		})
+	}
+}
+
+func TestValidate_ADelegationRefusalNamesTheClauseItFailed(t *testing.T) {
+	tests := map[string]struct {
+		reference string
+		expect    string
+		body      func(owner, issuer string) map[string]any
+	}{
+		"an expired delegation is not a signature failure": {
+			reference: "7.2.2 step 7",
+			expect:    "expired",
+			body: func(owner, issuer string) map[string]any {
+				body := dlgBody(owner, issuer, rvType)
+				body["exp"] = time.Now().Add(-time.Hour).UTC().Unix()
+				return body
+			},
+		},
+		"a delegation issued in the future is not a signature failure": {
+			reference: "7.2.2 step 6",
+			expect:    "issuance time that has not yet arrived",
+			body: func(owner, issuer string) map[string]any {
+				body := dlgBody(owner, issuer, rvType)
+				body["iat"] = time.Now().Add(time.Hour).UTC().Unix()
+				return body
+			},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			f := newRvFed(t, map[string]string{"member": "ta"})
+			issuer := f.id("member")
+			ta := f.taConfig(t, map[string][]model.EntityIdentifier{rvType: {model.EntityIdentifier(issuer)}})
+			ownerKey := rvKey(t)
+			ta.TrustMarkOwners = map[string]model.TrustMarkOwner{rvType: dlgOwnerEntry(t, dlgOwner, ownerKey, "owner-key")}
+
+			delegation := dlgSign(t, ownerKey, dlgHead("owner-key"), tc.body(dlgOwner, issuer))
+			tm := dlgMark(t, f.ecKey["member"], "test-key", issuer, rvType, rvSub, &delegation)
+
+			_, err := Validate(t.Context(), model.Configuration{HttpClient: f.server.Client()}, tm, ValidateOptions{
+				ExpectedType:             rvType,
+				ExpectedSubject:          rvSub,
+				AuthorizedIssuers:        []model.EntityIdentifier{model.EntityIdentifier(issuer)},
+				TrustAnchor:              ta.Sub,
+				TrustAnchorConfiguration: ta,
+			}, nil)
+			if err == nil {
+				t.Fatalf("[%s] expected the delegation to be refused", tc.reference)
+			}
+			if !strings.Contains(err.Error(), tc.expect) {
+				t.Errorf("[%s] the refusal must name the step the delegation failed rather than blaming its signature, got %q", tc.reference, err.Error())
 			}
 		})
 	}

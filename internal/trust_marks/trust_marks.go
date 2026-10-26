@@ -130,11 +130,6 @@ func FilterByTrusted(ctx context.Context, cfg model.Configuration, resolved *mod
 			continue
 		}
 
-		if len(authorizedIssuers) == 0 && trustMarkTypeIsOwned(trustAnchorConfiguration.TrustMarkOwners, tm.TrustMarkType) {
-			cfg.LogInfo(ctx, "trust mark type is owned, so an unrestricted issuer list requires a delegation this library cannot yet validate, omitting", slog.String("trust_mark_type", tm.TrustMarkType))
-			continue
-		}
-
 		validated, err := Validate(ctx, cfg, tm.TrustMark, ValidateOptions{
 			ExpectedType:             tm.TrustMarkType,
 			ExpectedSubject:          resolved.Sub,
@@ -178,7 +173,6 @@ func issuerFederationKeys(ctx context.Context, cfg model.Configuration, issuer m
 	})
 }
 
-// todo: validate the delegation claim against trust_mark_owners
 func Validate(ctx context.Context, cfg model.Configuration, trustMark string, opts ValidateOptions, cache *resolvecache.Cache) (*model.TrustMark, error) {
 	cfg.LogInfo(ctx, "validating trust mark", slog.String("trust_mark", model.TruncateForResponse(trustMark)))
 
@@ -287,5 +281,10 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 		cfg.LogError(ctx, "invalid trust mark type", slog.String("type", typ))
 		return nil, fmt.Errorf("invalid trust mark type")
 	}
+
+	if err := verifyDelegationRequirement(ctx, cfg, body, *parsedIssuer, opts.TrustAnchorConfiguration.TrustMarkOwners); err != nil {
+		return nil, err
+	}
+
 	return &body, nil
 }

@@ -189,7 +189,7 @@ func TestFilterByTrusted_IntermediateWellKnownTakeoverForgesIssuerKey(t *testing
 	}
 }
 
-func TestFilterByTrusted_OwnedTypeWithEmptyIssuerListNeedsNoDelegation(t *testing.T) {
+func TestFilterByTrusted_OwnedTypeWithEmptyIssuerListStillNeedsADelegation(t *testing.T) {
 	f := newRvFed(t, map[string]string{"member": "ta"})
 	ta := f.taConfig(t, map[string][]model.EntityIdentifier{rvType: {}})
 	ta.TrustMarkOwners = map[string]model.TrustMarkOwner{rvType: {Sub: "https://owner.example.com"}}

@@ -415,33 +415,73 @@ func TestApplyPolicy_AnInvalidScopeTokenDoesNotClearAnAllowList(t *testing.T) {
 	}
 }
 
-func TestProcessAndExtractPolicy_AnEmptyScopeValueIsRefusedAsThePolicysFault(t *testing.T) {
+func TestProcessAndExtractPolicy_AnOperandNoSubjectCanMatchIsRefusedAsThePolicysFault(t *testing.T) {
 	tests := []struct {
 		name      string
 		reference string
 		policy    string
-		subjects  []string
 	}{
-		{name: "a superset_of holding only an empty value", reference: "RFC 6749 3.3", policy: `{"superset_of":[""]}`, subjects: []string{"openid", "openid profile", "openid  profile "}},
-		{name: "a superset_of holding an empty value beside a real one", reference: "RFC 6749 3.3", policy: `{"superset_of":["","openid"]}`, subjects: []string{"openid", "openid profile"}},
-		{name: "a subset_of holding an empty value", reference: "RFC 6749 3.3", policy: `{"subset_of":["","openid"]}`, subjects: []string{"openid"}},
-		{name: "an add holding an empty value", reference: "RFC 6749 3.3", policy: `{"add":[""]}`, subjects: []string{"openid"}},
-		{name: "a value holding an empty value", reference: "RFC 6749 3.3", policy: `{"value":["openid",""]}`, subjects: []string{"openid"}},
-		{name: "a value holding only whitespace", reference: "RFC 6749 3.3", policy: `{"subset_of":["   "]}`, subjects: []string{"openid"}},
+		{name: "a superset_of holding only an empty value", reference: "RFC 6749 3.3", policy: `{"superset_of":[""]}`},
+		{name: "a superset_of holding an empty value beside a real one", reference: "RFC 6749 3.3", policy: `{"superset_of":["","openid"]}`},
+		{name: "a superset_of holding only whitespace", reference: "RFC 6749 3.3", policy: `{"superset_of":["   "]}`},
+		{name: "a superset_of holding a tab", reference: "RFC 6749 3.3", policy: `{"superset_of":["\t"]}`},
+		{name: "a superset_of value with a trailing space", reference: "RFC 6749 3.3", policy: `{"superset_of":["openid "]}`},
+		{name: "a superset_of value with a leading space", reference: "RFC 6749 3.3", policy: `{"superset_of":[" openid"]}`},
+		{name: "a superset_of value holding two tokens", reference: "RFC 6749 3.3", policy: `{"superset_of":["openid profile"]}`},
+		{name: "a superset_of value holding a no-break space", reference: "RFC 6749 3.3", policy: `{"superset_of":["openid\u00a0profile"]}`},
+		{name: "a one_of holding an empty value", reference: "RFC 6749 3.3", policy: `{"one_of":[""]}`},
+		{name: "a one_of value holding two tokens", reference: "RFC 6749 3.3", policy: `{"one_of":["openid profile"]}`},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			for _, subject := range tc.subjects {
+			for _, subject := range []string{"openid", "openid profile", "openid  profile "} {
 				leaf := scopeSubject(t, subject)
 
 				_, err := ProcessAndExtractPolicy([]EntityStatement{leaf, scopePolicyStatement(t, tc.policy)})
 				if err == nil {
-					t.Fatalf("[%s] a scope value holds at least one character, so an operand no subject can ever satisfy must be refused rather than left to deny every subject's chain: subject %q", tc.reference, subject)
+					t.Fatalf("[%s] a scope value is one token of at least one character and no whitespace, so an operand the subject must match but never can is a fault in the policy rather than one left to deny every subject's chain: subject %q", tc.reference, subject)
 				}
-				if !strings.Contains(err.Error(), "scope value must hold at least one character") {
-					t.Errorf("[%s] the refusal must name the operand that cannot be satisfied rather than the subject's metadata, got %v", tc.reference, err)
+				if !strings.Contains(err.Error(), "can never be matched by any subject") {
+					t.Errorf("[%s] the refusal must name the operand that cannot be matched rather than the subject's metadata, got %v", tc.reference, err)
 				}
+			}
+		})
+	}
+}
+
+func TestProcessAndExtractPolicy_AnOperandTheSubjectNeedNotMatchIsLeftAlone(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference string
+		policy    string
+		subject   string
+		expect    string
+	}{
+		{name: "a subset_of holding an empty value beside a real one", reference: "6.1.3.1.5", policy: `{"subset_of":["openid",""]}`, subject: "openid", expect: "openid"},
+		{name: "an array value holding an empty value", reference: "6.1.3.1.1", policy: `{"value":["openid",""]}`, subject: "openid", expect: "openid"},
+		{name: "an add holding an empty value", reference: "6.1.3.1.2", policy: `{"add":[""]}`, subject: "openid", expect: "openid"},
+		{name: "a subset_of holding whitespace beside a real one", reference: "6.1.3.1.5", policy: `{"subset_of":["openid","   "]}`, subject: "openid", expect: "openid"},
+		{name: "an add holding a value with a trailing space", reference: "6.1.3.1.2", policy: `{"add":["admin "]}`, subject: "openid", expect: "openid admin"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			leaf := scopeSubject(t, tc.subject)
+
+			merged, err := ProcessAndExtractPolicy([]EntityStatement{leaf, scopePolicyStatement(t, tc.policy)})
+			if err != nil {
+				t.Fatalf("[%s] an operator that intersects, unions or supplies its operand is not made unsatisfiable by an element the subject lacks, so the policy must stand: %v", tc.reference, err)
+			}
+
+			applied, err := ApplyPolicy(leaf, *merged)
+			if err != nil {
+				t.Fatalf("[%s] expected the merged policy to apply, got %v", tc.reference, err)
+			}
+
+			got, _ := (*applied.Metadata.OAuthClientMetadata)["scope"].(string)
+			if got != tc.expect {
+				t.Errorf("[%s] expected scope %q, got %q", tc.reference, tc.expect, got)
 			}
 		})
 	}

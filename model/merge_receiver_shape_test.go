@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -62,12 +63,14 @@ func TestProcessAndExtractPolicy_ARuleIsCheckedWhenBothStatementsCarryBothOperat
 	tests := []struct {
 		name      string
 		reference string
+		partner   string
 		subject   string
 		authority string
 		superior  string
 	}{
 		{
 			name:      "an add that is not a subset of the merged subset_of",
+			partner:   "'subset_of'",
 			reference: "6.1.3.1.2",
 			subject:   `"acr_values":["a","b","c"]`,
 			authority: `{"acr_values":{"add":["b"],"subset_of":["b","c"]}}`,
@@ -75,6 +78,7 @@ func TestProcessAndExtractPolicy_ARuleIsCheckedWhenBothStatementsCarryBothOperat
 		},
 		{
 			name:      "a subset_of that is not a superset of the merged superset_of",
+			partner:   "'superset_of'",
 			reference: "6.1.3.1.6",
 			subject:   `"acr_values":["a","b","c"]`,
 			authority: `{"acr_values":{"subset_of":["a","b"],"superset_of":["a"]}}`,
@@ -82,6 +86,7 @@ func TestProcessAndExtractPolicy_ARuleIsCheckedWhenBothStatementsCarryBothOperat
 		},
 		{
 			name:      "an add that is not a subset of the merged subset_of on scope",
+			partner:   "'subset_of'",
 			reference: "6.1.3.1.8",
 			subject:   `"scope":"openid profile admin"`,
 			authority: `{"scope":{"add":["admin"],"subset_of":["openid","admin"]}}`,
@@ -99,6 +104,9 @@ func TestProcessAndExtractPolicy_ARuleIsCheckedWhenBothStatementsCarryBothOperat
 				policyStatement(t, tc.superior),
 			})
 			if err != nil {
+				if !strings.Contains(err.Error(), "cannot merge policy of type") || !strings.Contains(err.Error(), tc.partner) {
+					t.Fatalf("[%s] the refusal must come from the rule between the pair rather than some other fault, got %v", tc.reference, err)
+				}
 				return
 			}
 
@@ -171,6 +179,34 @@ func TestValidatePoliciesCanCombine_RefusesAForbiddenPairHeldByPointer(t *testin
 		t.Run(tc.name, func(t *testing.T) {
 			if err := validatePoliciesCanCombine(tc.policies); err == nil {
 				t.Errorf("[%s] add must be a subset of subset_of, so this pair must be refused whatever shape holds the operators", tc.reference)
+			}
+		})
+	}
+}
+
+func TestMetadataPolicySetContains_ToleratesANilEntry(t *testing.T) {
+	tests := map[string]struct {
+		reference string
+		set       []MetadataPolicyOperator
+		expectHit bool
+	}{
+		"a nil entry alone":               {reference: "6.1.3.1.1", set: []MetadataPolicyOperator{nil}, expectHit: false},
+		"a nil entry before the operator": {reference: "6.1.3.1.1", set: []MetadataPolicyOperator{nil, Value{operatorValue: []any{"a"}}}, expectHit: true},
+		"a nil entry after the operator":  {reference: "6.1.3.1.1", set: []MetadataPolicyOperator{Value{operatorValue: []any{"a"}}, nil}, expectHit: true},
+		"a typed nil beside the operator": {reference: "6.1.3.1.1", set: []MetadataPolicyOperator{(*Add)(nil), Value{operatorValue: []any{"a"}}}, expectHit: true},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					t.Fatalf("[%s] a lookup must not panic on a nil entry the set holds: %v", tc.reference, recovered)
+				}
+			}()
+
+			_, found := metadataPolicySetContains(tc.set, reflect.TypeOf(Value{}))
+			if found != tc.expectHit {
+				t.Errorf("[%s] expected found=%v, got %v", tc.reference, tc.expectHit, found)
 			}
 		})
 	}

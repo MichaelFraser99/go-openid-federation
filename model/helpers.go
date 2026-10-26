@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 )
 
 func ReMarshalJsonAsEntityMetadata[T any](data any) (*T, error) {
@@ -70,7 +71,11 @@ func sortByPriority(policies []MetadataPolicyOperator) []MetadataPolicyOperator 
 	return policies
 }
 
-func verifyScopeOperand(value any) error {
+func operandMustBeMatchedBySubject(operator string) bool {
+	return operator == "superset_of" || operator == "one_of"
+}
+
+func verifyScopeOperand(operator string, value any) error {
 	if value == nil {
 		return nil
 	}
@@ -86,8 +91,11 @@ func verifyScopeOperand(value any) error {
 		if !ok {
 			return fmt.Errorf("all scope values must be strings")
 		}
-		if strings.TrimSpace(token) == "" {
-			return fmt.Errorf("a scope value must hold at least one character, so an empty one can never be satisfied")
+		if !operandMustBeMatchedBySubject(operator) {
+			continue
+		}
+		if len(scopeTokens(token)) != 1 || strings.ContainsFunc(token, unicode.IsSpace) {
+			return fmt.Errorf("a scope value is one token holding at least one character and no whitespace, so %q can never be matched by any subject", TruncateForResponse(token))
 		}
 	}
 	return nil
@@ -104,7 +112,7 @@ func sortAndValidatePolicy(policy *MetadataPolicy) error {
 					if operator.String() == "essential" {
 						continue
 					}
-					if err := verifyScopeOperand(operator.OperatorValue()); err != nil {
+					if err := verifyScopeOperand(operator.String(), operator.OperatorValue()); err != nil {
 						return err
 					}
 				}
@@ -258,6 +266,9 @@ func validatePoliciesCanCombine(policies []MetadataPolicyOperator) error {
 
 func metadataPolicySetContains(policySet []MetadataPolicyOperator, policyType reflect.Type) (MetadataPolicyOperator, bool) {
 	for _, policy := range policySet {
+		if policy == nil {
+			continue
+		}
 		held := reflect.ValueOf(policy)
 		if held.Kind() == reflect.Pointer {
 			if held.IsNil() {

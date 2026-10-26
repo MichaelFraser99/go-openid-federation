@@ -32,11 +32,13 @@ func TestFilterByTrusted_ATrustMarkGetsTheSameClockSkewLeewayAsAStatement(t *tes
 		at        time.Duration
 		keep      bool
 	}{
-		"an exp just inside the leeway":    {reference: "7.3 step 6", claim: "exp", at: -model.ClockSkewLeeway / 2, keep: true},
-		"an exp well beyond the leeway":    {reference: "7.3 step 6", claim: "exp", at: -10 * model.ClockSkewLeeway, keep: false},
-		"an iat just inside the leeway":    {reference: "7.3 step 5", claim: "iat", at: model.ClockSkewLeeway / 2, keep: true},
-		"an iat well beyond the leeway":    {reference: "7.3 step 5", claim: "iat", at: 10 * model.ClockSkewLeeway, keep: false},
+		"an iat 30 seconds ahead":          {reference: "7.3 step 5", claim: "iat", at: 30 * time.Second, keep: true},
+		"an iat 59 seconds ahead":          {reference: "7.3 step 5", claim: "iat", at: 59 * time.Second, keep: true},
+		"an iat 90 seconds ahead":          {reference: "7.3 step 5", claim: "iat", at: 90 * time.Second, keep: false},
+		"an iat 10 minutes ahead":          {reference: "7.3 step 5", claim: "iat", at: 10 * time.Minute, keep: false},
 		"an exp comfortably in the future": {reference: "7.3 step 6", claim: "exp", at: time.Hour, keep: true},
+		"an exp 30 seconds in the past":    {reference: "8.3.2", claim: "exp", at: -30 * time.Second, keep: false},
+		"an exp 10 minutes in the past":    {reference: "7.3 step 6", claim: "exp", at: -10 * time.Minute, keep: false},
 	}
 
 	for name, tc := range tests {
@@ -51,7 +53,7 @@ func TestFilterByTrusted_ATrustMarkGetsTheSameClockSkewLeewayAsAStatement(t *tes
 				t.Errorf("[%s] a trust mark within the clock skew allowance an entity statement gets must be kept, got %d trust marks", tc.reference, len(got))
 			}
 			if !tc.keep && len(got) != 0 {
-				t.Errorf("[%s] a trust mark beyond the allowance must be dropped, got %d trust marks", tc.reference, len(got))
+				t.Errorf("[%s] a trust mark this resolver could not carry in a response must be dropped, got %d trust marks", tc.reference, len(got))
 			}
 		})
 	}
@@ -64,10 +66,14 @@ func TestFilterByTrusted_ADelegationGetsTheSameClockSkewLeeway(t *testing.T) {
 		at        time.Duration
 		keep      bool
 	}{
-		"an exp just inside the leeway": {reference: "7.2.2 step 7", claim: "exp", at: -model.ClockSkewLeeway / 2, keep: true},
-		"an exp well beyond the leeway": {reference: "7.2.2 step 7", claim: "exp", at: -10 * model.ClockSkewLeeway, keep: false},
-		"an iat just inside the leeway": {reference: "7.2.2 step 6", claim: "iat", at: model.ClockSkewLeeway / 2, keep: true},
-		"an iat well beyond the leeway": {reference: "7.2.2 step 6", claim: "iat", at: 10 * model.ClockSkewLeeway, keep: false},
+		"an exp 30 seconds in the past": {reference: "7.2.2 step 7", claim: "exp", at: -30 * time.Second, keep: true},
+		"an exp 59 seconds in the past": {reference: "7.2.2 step 7", claim: "exp", at: -59 * time.Second, keep: true},
+		"an exp 90 seconds in the past": {reference: "7.2.2 step 7", claim: "exp", at: -90 * time.Second, keep: false},
+		"an exp 10 minutes in the past": {reference: "7.2.2 step 7", claim: "exp", at: -10 * time.Minute, keep: false},
+		"an iat 30 seconds ahead":       {reference: "7.2.2 step 6", claim: "iat", at: 30 * time.Second, keep: true},
+		"an iat 59 seconds ahead":       {reference: "7.2.2 step 6", claim: "iat", at: 59 * time.Second, keep: true},
+		"an iat 90 seconds ahead":       {reference: "7.2.2 step 6", claim: "iat", at: 90 * time.Second, keep: false},
+		"an iat 10 minutes ahead":       {reference: "7.2.2 step 6", claim: "iat", at: 10 * time.Minute, keep: false},
 	}
 
 	for name, tc := range tests {
@@ -130,6 +136,40 @@ func TestValidate_ASkewedDelegationStillNamesTheRightFault(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tc.expect) {
 				t.Errorf("[%s] the refusal must still name the clock fault rather than the signature, got %q", tc.reference, err.Error())
+			}
+		})
+	}
+}
+
+func TestFilterByTrusted_AResolveResponseExpiryStaysInTheFuture(t *testing.T) {
+	tests := map[string]struct {
+		reference string
+		at        time.Duration
+	}{
+		"a mark expiring inside the leeway": {reference: "8.3.2", at: -model.ClockSkewLeeway / 2},
+		"a mark expiring a second ago":      {reference: "8.3.2", at: -time.Second},
+		"a mark expiring exactly now":       {reference: "8.3.2", at: 0},
+		"a mark expiring beyond the leeway": {reference: "8.3.2", at: -10 * model.ClockSkewLeeway},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			f := newRvFed(t, map[string]string{"member": "ta"})
+			issuer := f.id("member")
+			ta := f.taConfig(t, map[string][]model.EntityIdentifier{rvType: {model.EntityIdentifier(issuer)}})
+
+			tm := skewedTrustMark(t, f, issuer, "exp", tc.at)
+			resolved := &model.ResolveResponse{Sub: rvSub, Exp: time.Now().Add(24 * time.Hour).UTC().Unix(),
+				TrustMarks: []model.TrustMarkHolder{{TrustMarkType: rvType, TrustMark: tm}}}
+
+			if err := FilterByTrusted(t.Context(), model.Configuration{HttpClient: f.server.Client()}, resolved, ta, nil); err != nil {
+				t.Fatalf("[%s] one unusable mark must not refuse the whole response, got %v", tc.reference, err)
+			}
+			if err := model.VerifyChainExpiry(resolved.Exp); err != nil {
+				t.Errorf("[%s] the response expiry is the minimum over the marks it carries, so a mark whose expiry has passed must not be carried: %v", tc.reference, err)
+			}
+			if len(resolved.TrustMarks) != 0 {
+				t.Errorf("[%s] expected the mark to be omitted, got %d", tc.reference, len(resolved.TrustMarks))
 			}
 		})
 	}

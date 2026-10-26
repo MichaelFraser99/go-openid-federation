@@ -146,6 +146,32 @@ func TestFilterByTrusted_ADelegationThatFailsAStepIsDropped(t *testing.T) {
 			reference: "7.2.2 step 1",
 			raw:       func() *string { s := ""; return &s }(),
 		},
+		"one segment that decodes to a usable header": {
+			reference: "7.2.2 step 1",
+			raw: func() *string {
+				head, err := json.Marshal(map[string]any{"kid": "owner-key", "typ": "trust-mark-delegation+jwt", "alg": "RS256"})
+				if err != nil {
+					panic(err)
+				}
+				s := base64.RawURLEncoding.EncodeToString(head)
+				return &s
+			}(),
+		},
+		"two segments that both decode": {
+			reference: "7.2.2 step 1",
+			raw: func() *string {
+				head, err := json.Marshal(map[string]any{"kid": "owner-key", "typ": "trust-mark-delegation+jwt", "alg": "RS256"})
+				if err != nil {
+					panic(err)
+				}
+				body, err := json.Marshal(map[string]any{"iss": dlgOwner})
+				if err != nil {
+					panic(err)
+				}
+				s := base64.RawURLEncoding.EncodeToString(head) + "." + base64.RawURLEncoding.EncodeToString(body)
+				return &s
+			}(),
+		},
 		"no typ header": {
 			reference: "7.2.2 step 2",
 			head:      func(kid string) map[string]any { return map[string]any{"kid": kid, "alg": "RS256"} },
@@ -268,6 +294,13 @@ func TestFilterByTrusted_ADelegationThatFailsAStepIsDropped(t *testing.T) {
 			}
 
 			tm := dlgMark(t, f.ecKey["member"], "test-key", issuer, rvType, rvSub, &delegation)
+
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					t.Fatalf("[%s] a delegation the trust mark issuer chose must not panic this resolver: %v", tc.reference, recovered)
+				}
+			}()
+
 			if got := f.filter(t, ta, model.TrustMarkHolder{TrustMarkType: rvType, TrustMark: tm}); len(got) != 0 {
 				t.Errorf("[%s] a delegation that fails a validation step makes the whole validation fail, so the trust mark must be dropped", tc.reference)
 			}
@@ -285,6 +318,20 @@ func TestFilterByTrusted_ADelegationForATypeWithNoOwnerIsDropped(t *testing.T) {
 	tm := dlgMark(t, f.ecKey["member"], "test-key", issuer, rvType, rvSub, &delegation)
 	if got := f.filter(t, ta, model.TrustMarkHolder{TrustMarkType: rvType, TrustMark: tm}); len(got) != 0 {
 		t.Error("[7.2.2 step 9] the owner's keys come from trust_mark_owners, so a delegation for a type the anchor names no owner for has nothing to verify it against and must be dropped")
+	}
+
+	_, err := Validate(t.Context(), model.Configuration{HttpClient: f.server.Client()}, tm, ValidateOptions{
+		ExpectedType:             rvType,
+		ExpectedSubject:          rvSub,
+		AuthorizedIssuers:        []model.EntityIdentifier{model.EntityIdentifier(issuer)},
+		TrustAnchor:              ta.Sub,
+		TrustAnchorConfiguration: ta,
+	}, nil)
+	if err == nil {
+		t.Fatal("[7.2.2 step 9] expected the delegation to be refused")
+	}
+	if !strings.Contains(err.Error(), "names no owner for") {
+		t.Errorf("[7.2.2 step 9] the refusal must say the trust anchor names no owner for this type, rather than reporting a mismatch against an owner identifier that is empty, got %q", err.Error())
 	}
 }
 

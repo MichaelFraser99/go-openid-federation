@@ -339,8 +339,19 @@ func TestValidate_ADelegationRefusalNamesTheClauseItFailed(t *testing.T) {
 	tests := map[string]struct {
 		reference string
 		expect    string
+		head      map[string]any
 		body      func(owner, issuer string) map[string]any
 	}{
+		"an algorithm of none is not a key failure": {
+			reference: "7.2.2 step 3",
+			expect:    "'alg' header",
+			head:      map[string]any{"kid": "owner-key", "typ": "trust-mark-delegation+jwt", "alg": "none"},
+		},
+		"a missing algorithm is not a key failure": {
+			reference: "7.2.2 step 3",
+			expect:    "'alg' header",
+			head:      map[string]any{"kid": "owner-key", "typ": "trust-mark-delegation+jwt"},
+		},
 		"an expired delegation is not a signature failure": {
 			reference: "7.2.2 step 7",
 			expect:    "expired",
@@ -369,7 +380,14 @@ func TestValidate_ADelegationRefusalNamesTheClauseItFailed(t *testing.T) {
 			ownerKey := rvKey(t)
 			ta.TrustMarkOwners = map[string]model.TrustMarkOwner{rvType: dlgOwnerEntry(t, dlgOwner, ownerKey, "owner-key")}
 
-			delegation := dlgSign(t, ownerKey, dlgHead("owner-key"), tc.body(dlgOwner, issuer))
+			body := dlgBody(dlgOwner, issuer, rvType)
+			if tc.body != nil {
+				body = tc.body(dlgOwner, issuer)
+			}
+			delegation := dlgSign(t, ownerKey, dlgHead("owner-key"), body)
+			if tc.head != nil {
+				delegation = dlgRaw(t, tc.head, body, "")
+			}
 			tm := dlgMark(t, f.ecKey["member"], "test-key", issuer, rvType, rvSub, &delegation)
 
 			_, err := Validate(t.Context(), model.Configuration{HttpClient: f.server.Client()}, tm, ValidateOptions{

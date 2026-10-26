@@ -400,6 +400,16 @@ func TestValidate_ADelegationRefusalNamesTheClauseItFailed(t *testing.T) {
 			expect:    "'alg' header",
 			head:      map[string]any{"kid": "owner-key", "typ": "trust-mark-delegation+jwt"},
 		},
+		"a missing kid is not a key failure": {
+			reference: "7.2.1",
+			expect:    "'kid' header",
+			head:      map[string]any{"typ": "trust-mark-delegation+jwt", "alg": "RS256"},
+		},
+		"a kid that is not a string is not a key failure": {
+			reference: "7.2.1",
+			expect:    "'kid' header",
+			head:      map[string]any{"typ": "trust-mark-delegation+jwt", "alg": "RS256", "kid": 7},
+		},
 		"an expired delegation is not a signature failure": {
 			reference: "7.2.2 step 7",
 			expect:    "expired",

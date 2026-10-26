@@ -509,7 +509,11 @@ Resolving by hand, rather than through `ResolveMetadata`, means four steps in th
 
 Calling `ApplyPolicy` on a policy that has not been through `ProcessAndExtractPolicy` therefore applies it as written, including combinations the specification makes a policy error — `{"value": ["a"], "add": ["b"]}` resolves to `["a","b"]` with no error rather than refusing. Skipping the step is what does it, not the length of the chain.
 
-`scope` is handled as a special case. It travels as a space delimited string but is operated on as a list, so an operator's value is converted to its slice form at three points — before two policies are merged, before one statement's own operators are checked against each other, and before resolution — and the result is rejoined afterwards. All three use `strings.Fields`, so irregular whitespace in a scope string does not produce an empty token that nothing can match.
+`scope` is handled as a special case. It travels as a space delimited string but is operated on as a list, so an operator's value is converted to its slice form at three points — before two policies are merged, before one statement's own operators are checked against each other, and before resolution — and the result is rejoined afterwards. All three split on an ASCII space and drop empty runs, which is what RFC 6749 section 3.3 defines: `scope = scope-token *( SP scope-token )`, and `scope-token = 1*( %x21 / %x23-5B / %x5D-7E )`.
+
+Two consequences are worth knowing. Irregular spacing does not make a chain unresolvable, so a superior writing `"openid profile "` tokenises the same way as one writing `"openid profile"`. And a character the ABNF excludes is not a delimiter, so `"openid\u00a0profile"` is one value rather than two: it does not match an allow-list that permits `openid` and `profile` separately. A scope value that holds no character is refused when the policy is processed, because no subject can satisfy it.
+
+An array operand is a list of scope sets rather than single values, so `{"value": ["openid", "openid accounts"]}` is legal and flattens to `openid accounts` on the way out.
 
 To implement an operator outside this set, satisfy `model.MetadataPolicyOperator`:
 

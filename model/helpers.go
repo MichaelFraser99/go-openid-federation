@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 )
 
 func ReMarshalJsonAsEntityMetadata[T any](data any) (*T, error) {
@@ -70,7 +71,11 @@ func sortByPriority(policies []MetadataPolicyOperator) []MetadataPolicyOperator 
 	return policies
 }
 
-func verifyScopeOperand(value any) error {
+func operandMustBeMatchedBySubject(operator string) bool {
+	return operator == "superset_of" || operator == "one_of"
+}
+
+func verifyScopeOperand(operator string, value any) error {
 	if value == nil {
 		return nil
 	}
@@ -82,8 +87,15 @@ func verifyScopeOperand(value any) error {
 	}
 	slice := reflect.ValueOf(value)
 	for i := range slice.Len() {
-		if _, ok := slice.Index(i).Interface().(string); !ok {
+		token, ok := slice.Index(i).Interface().(string)
+		if !ok {
 			return fmt.Errorf("all scope values must be strings")
+		}
+		if !operandMustBeMatchedBySubject(operator) {
+			continue
+		}
+		if len(scopeTokens(token)) != 1 || strings.ContainsFunc(token, unicode.IsSpace) {
+			return fmt.Errorf("a %s scope value must be a single token holding at least one character and no whitespace, or no subject can ever match it", operator)
 		}
 	}
 	return nil
@@ -100,7 +112,7 @@ func sortAndValidatePolicy(policy *MetadataPolicy) error {
 					if operator.String() == "essential" {
 						continue
 					}
-					if err := verifyScopeOperand(operator.OperatorValue()); err != nil {
+					if err := verifyScopeOperand(operator.String(), operator.OperatorValue()); err != nil {
 						return err
 					}
 				}
@@ -254,8 +266,21 @@ func validatePoliciesCanCombine(policies []MetadataPolicyOperator) error {
 
 func metadataPolicySetContains(policySet []MetadataPolicyOperator, policyType reflect.Type) (MetadataPolicyOperator, bool) {
 	for _, policy := range policySet {
-		if reflect.TypeOf(policy) == policyType {
-			return policy, true
+		if policy == nil {
+			continue
+		}
+		held := reflect.ValueOf(policy)
+		if held.Kind() == reflect.Pointer {
+			if held.IsNil() {
+				continue
+			}
+			held = held.Elem()
+		}
+		if held.Type() != policyType {
+			continue
+		}
+		if operator, ok := held.Interface().(MetadataPolicyOperator); ok {
+			return operator, true
 		}
 	}
 	return nil, false
@@ -289,7 +314,7 @@ func applyPolicyToMetadata(metadata map[string]any, policy map[string]PolicyOper
 					if !isString {
 						return fmt.Errorf("scope must be a string")
 					}
-					existing = ConvertStringsToAnySlice(strings.Split(existingString, " "))
+					existing = ConvertStringsToAnySlice(scopeTokens(existingString))
 				}
 				operator = operator.ToSlice(k)
 			}
@@ -329,7 +354,7 @@ func joinScopeTokens(values []string) string {
 	seen := make(map[string]struct{})
 	var tokens []string
 	for _, value := range values {
-		for _, token := range strings.Fields(value) {
+		for _, token := range scopeTokens(value) {
 			if _, ok := seen[token]; ok {
 				continue
 			}

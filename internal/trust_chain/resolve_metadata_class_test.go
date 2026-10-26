@@ -137,3 +137,44 @@ func TestSubordinateStatementFailure_KeepsTheClassAndDropsThePeersText(t *testin
 		})
 	}
 }
+
+func TestResolveMetadata_APolicyOperandASuperiorWroteDoesNotReachTheResponse(t *testing.T) {
+	const marker = "operand-marker-zzzz"
+
+	tests := map[string]struct {
+		reference string
+		policy    map[string]any
+	}{
+		"a superset_of value holding two tokens": {
+			reference: "8.9 invalid_metadata",
+			policy:    map[string]any{"oauth_client": map[string]any{"scope": map[string]any{"superset_of": []any{marker + " x"}}}},
+		},
+		"a superset_of value with a trailing space": {
+			reference: "8.9 invalid_metadata",
+			policy:    map[string]any{"oauth_client": map[string]any{"scope": map[string]any{"superset_of": []any{marker + " "}}}},
+		},
+		"a one_of value holding two tokens": {
+			reference: "8.9 invalid_metadata",
+			policy:    map[string]any{"oauth_client": map[string]any{"scope": map[string]any{"one_of": []any{marker + " x"}}}},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			chain := chainWithClaims(t, map[string]any{
+				"oauth_client": map[string]any{"redirect_uris": []any{"https://leaf.example.com/cb"}, "scope": "openid"},
+			}, map[string]any{"metadata_policy": tc.policy})
+
+			_, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chain, nil)
+			if err == nil {
+				t.Fatalf("[%s] expected a policy no subject can match to be refused", tc.reference)
+			}
+			if !errors.Is(err, model.ErrInvalidMetadata) {
+				t.Fatalf("[%s] expected invalid_metadata, got %v", tc.reference, err)
+			}
+			if strings.Contains(err.Error(), marker) {
+				t.Errorf("[%s] a superior writes this operand and the description reaches the resolve response, so it must not appear: %v", tc.reference, err)
+			}
+		})
+	}
+}

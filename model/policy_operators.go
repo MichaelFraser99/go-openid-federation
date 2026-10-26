@@ -11,9 +11,13 @@ import (
 	"unicode/utf8"
 )
 
+func scopeTokens(scope string) []string {
+	return strings.FieldsFunc(scope, func(r rune) bool { return r == ' ' })
+}
+
 func scopeOperatorSlice(value any) []any {
 	if s, ok := value.(string); ok {
-		return ConvertStringsToAnySlice(strings.Split(s, " "))
+		return ConvertStringsToAnySlice(scopeTokens(s))
 	}
 	return []any{value}
 }

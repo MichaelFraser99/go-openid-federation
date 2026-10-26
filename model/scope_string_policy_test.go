@@ -420,17 +420,18 @@ func TestProcessAndExtractPolicy_AnOperandNoSubjectCanMatchIsRefusedAsThePolicys
 		name      string
 		reference string
 		policy    string
+		leaks     []string
 	}{
 		{name: "a superset_of holding only an empty value", reference: "RFC 6749 3.3", policy: `{"superset_of":[""]}`},
 		{name: "a superset_of holding an empty value beside a real one", reference: "RFC 6749 3.3", policy: `{"superset_of":["","openid"]}`},
 		{name: "a superset_of holding only whitespace", reference: "RFC 6749 3.3", policy: `{"superset_of":["   "]}`},
 		{name: "a superset_of holding a tab", reference: "RFC 6749 3.3", policy: `{"superset_of":["\t"]}`},
-		{name: "a superset_of value with a trailing space", reference: "RFC 6749 3.3", policy: `{"superset_of":["openid "]}`},
-		{name: "a superset_of value with a leading space", reference: "RFC 6749 3.3", policy: `{"superset_of":[" openid"]}`},
-		{name: "a superset_of value holding two tokens", reference: "RFC 6749 3.3", policy: `{"superset_of":["openid profile"]}`},
+		{name: "a superset_of value with a trailing space", reference: "RFC 6749 3.3", policy: `{"superset_of":["openid "]}`, leaks: []string{"openid "}},
+		{name: "a superset_of value with a leading space", reference: "RFC 6749 3.3", policy: `{"superset_of":[" openid"]}`, leaks: []string{" openid"}},
+		{name: "a superset_of value holding two tokens", reference: "RFC 6749 3.3", policy: `{"superset_of":["openid profile"]}`, leaks: []string{"openid profile"}},
 		{name: "a superset_of value holding a no-break space", reference: "RFC 6749 3.3", policy: `{"superset_of":["openid\u00a0profile"]}`},
 		{name: "a one_of holding an empty value", reference: "RFC 6749 3.3", policy: `{"one_of":[""]}`},
-		{name: "a one_of value holding two tokens", reference: "RFC 6749 3.3", policy: `{"one_of":["openid profile"]}`},
+		{name: "a one_of value holding two tokens", reference: "RFC 6749 3.3", policy: `{"one_of":["openid profile"]}`, leaks: []string{"openid profile"}},
 	}
 
 	for _, tc := range tests {
@@ -442,8 +443,13 @@ func TestProcessAndExtractPolicy_AnOperandNoSubjectCanMatchIsRefusedAsThePolicys
 				if err == nil {
 					t.Fatalf("[%s] a scope value is one token of at least one character and no whitespace, so an operand the subject must match but never can is a fault in the policy rather than one left to deny every subject's chain: subject %q", tc.reference, subject)
 				}
-				if !strings.Contains(err.Error(), "can never be matched by any subject") {
-					t.Errorf("[%s] the refusal must name the operand that cannot be matched rather than the subject's metadata, got %v", tc.reference, err)
+				if !strings.Contains(err.Error(), "no subject can ever match it") {
+					t.Errorf("[%s] the refusal must name the operator at fault rather than the subject's metadata, got %v", tc.reference, err)
+				}
+				for _, operand := range tc.leaks {
+					if strings.Contains(err.Error(), operand) {
+						t.Errorf("[%s] a superior writes this operand and the description reaches a resolve response, so no part of it may appear: %v", tc.reference, err)
+					}
 				}
 			}
 		})

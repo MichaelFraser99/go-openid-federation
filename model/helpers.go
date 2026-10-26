@@ -95,7 +95,7 @@ func verifyScopeOperand(operator string, value any) error {
 			continue
 		}
 		if len(scopeTokens(token)) != 1 || strings.ContainsFunc(token, unicode.IsSpace) {
-			return fmt.Errorf("a scope value is one token holding at least one character and no whitespace, so %q can never be matched by any subject", TruncateForResponse(token))
+			return fmt.Errorf("a %s scope value must be a single token holding at least one character and no whitespace, or no subject can ever match it", operator)
 		}
 	}
 	return nil

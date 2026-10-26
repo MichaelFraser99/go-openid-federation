@@ -122,10 +122,17 @@ func TestMetadataPolicySetContains_FindsAnOperatorWhateverShapeHoldsIt(t *testin
 		{name: "a value held by pointer", reference: "6.1.3.1.1", set: []MetadataPolicyOperator{&Value{operatorValue: []any{"a"}}}, lookFor: reflect.TypeOf(Value{})},
 		{name: "an add held by pointer", reference: "6.1.3.1.2", set: []MetadataPolicyOperator{&Add{operatorValue: []any{"a"}}}, lookFor: reflect.TypeOf(Add{})},
 		{name: "a subset_of held by pointer", reference: "6.1.3.1.5", set: []MetadataPolicyOperator{&SubsetOf{operatorValue: []any{"a"}}}, lookFor: reflect.TypeOf(SubsetOf{})},
+		{name: "a value behind a nil pointer in the set", reference: "6.1.3.1.1", set: []MetadataPolicyOperator{(*Add)(nil), Value{operatorValue: []any{"a"}}}, lookFor: reflect.TypeOf(Value{})},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					t.Fatalf("[%s] a lookup must not panic on what the set holds: %v", tc.reference, recovered)
+				}
+			}()
+
 			found, ok := metadataPolicySetContains(tc.set, tc.lookFor)
 			if !ok {
 				t.Fatalf("[%s] an operator must be found by a lookup for its type whatever shape holds it, or the rule between it and its partner is never checked", tc.reference)

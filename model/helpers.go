@@ -82,8 +82,12 @@ func verifyScopeOperand(value any) error {
 	}
 	slice := reflect.ValueOf(value)
 	for i := range slice.Len() {
-		if _, ok := slice.Index(i).Interface().(string); !ok {
+		token, ok := slice.Index(i).Interface().(string)
+		if !ok {
 			return fmt.Errorf("all scope values must be strings")
+		}
+		if strings.TrimSpace(token) == "" {
+			return fmt.Errorf("a scope value must hold at least one character, so an empty one can never be satisfied")
 		}
 	}
 	return nil

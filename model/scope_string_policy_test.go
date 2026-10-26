@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -409,6 +410,38 @@ func TestApplyPolicy_AnInvalidScopeTokenDoesNotClearAnAllowList(t *testing.T) {
 			got, _ := (*applied.Metadata.OAuthClientMetadata)["scope"].(string)
 			if got != tc.expect {
 				t.Errorf("[%s] a token holding a character scope-token does not admit must not be split into tokens the policy allows: expected %q, got %q", tc.reference, tc.expect, got)
+			}
+		})
+	}
+}
+
+func TestProcessAndExtractPolicy_AnEmptyScopeValueIsRefusedAsThePolicysFault(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference string
+		policy    string
+		subjects  []string
+	}{
+		{name: "a superset_of holding only an empty value", reference: "RFC 6749 3.3", policy: `{"superset_of":[""]}`, subjects: []string{"openid", "openid profile", "openid  profile "}},
+		{name: "a superset_of holding an empty value beside a real one", reference: "RFC 6749 3.3", policy: `{"superset_of":["","openid"]}`, subjects: []string{"openid", "openid profile"}},
+		{name: "a subset_of holding an empty value", reference: "RFC 6749 3.3", policy: `{"subset_of":["","openid"]}`, subjects: []string{"openid"}},
+		{name: "an add holding an empty value", reference: "RFC 6749 3.3", policy: `{"add":[""]}`, subjects: []string{"openid"}},
+		{name: "a value holding an empty value", reference: "RFC 6749 3.3", policy: `{"value":["openid",""]}`, subjects: []string{"openid"}},
+		{name: "a value holding only whitespace", reference: "RFC 6749 3.3", policy: `{"subset_of":["   "]}`, subjects: []string{"openid"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, subject := range tc.subjects {
+				leaf := scopeSubject(t, subject)
+
+				_, err := ProcessAndExtractPolicy([]EntityStatement{leaf, scopePolicyStatement(t, tc.policy)})
+				if err == nil {
+					t.Fatalf("[%s] a scope value holds at least one character, so an operand no subject can ever satisfy must be refused rather than left to deny every subject's chain: subject %q", tc.reference, subject)
+				}
+				if !strings.Contains(err.Error(), "scope value must hold at least one character") {
+					t.Errorf("[%s] the refusal must name the operand that cannot be satisfied rather than the subject's metadata, got %v", tc.reference, err)
+				}
 			}
 		})
 	}

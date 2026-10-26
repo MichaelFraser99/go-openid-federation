@@ -21,7 +21,11 @@ const delegationJWTType = "trust-mark-delegation+jwt"
 
 const maxDelegationNumericDate = float64(1 << 62)
 
-func selectOwnerKeys(owner model.TrustMarkOwner, kid string) []map[string]any {
+func namesDelegationType(typ string) bool {
+	return strings.EqualFold(typ, delegationJWTType) || strings.EqualFold(typ, "application/"+delegationJWTType)
+}
+
+func selectOwnerKeys(ctx context.Context, cfg model.Configuration, owner model.TrustMarkOwner, kid string) []map[string]any {
 	selected := make([]map[string]any, 0, len(owner.JWKs.Keys))
 	for _, key := range owner.JWKs.Keys {
 		keyID, ok := key["kid"].(string)
@@ -29,6 +33,10 @@ func selectOwnerKeys(owner model.TrustMarkOwner, kid string) []map[string]any {
 			continue
 		}
 		if model.ValidateJWKShape(key) != nil {
+			continue
+		}
+		if members := model.PrivateJWKMembers(key); len(members) > 0 {
+			cfg.LogError(ctx, "the trust anchor publishes a trust mark owner key carrying private key material, so anyone holding that statement can mint delegations for this type, skipping it", slog.String("owner", string(owner.Sub)), slog.String("kid", model.TruncateForResponse(kid)), slog.Any("private_members", members))
 			continue
 		}
 		selected = append(selected, key)
@@ -94,7 +102,7 @@ func verifyDelegation(ctx context.Context, cfg model.Configuration, mark model.T
 	}
 
 	typ, ok := head["typ"].(string)
-	if !ok || typ != delegationJWTType {
+	if !ok || !namesDelegationType(typ) {
 		cfg.LogError(ctx, "the delegation is not explicitly typed as a trust mark delegation", slog.String("typ", describeHeaderMember(head["typ"])))
 		return fmt.Errorf("the trust mark's delegation must carry a 'typ' header of %q", delegationJWTType)
 	}
@@ -175,7 +183,7 @@ func verifyDelegation(ctx context.Context, cfg model.Configuration, mark model.T
 		return fmt.Errorf("the trust mark's delegation has expired")
 	}
 
-	selectedKeys := selectOwnerKeys(owner, kid)
+	selectedKeys := selectOwnerKeys(ctx, cfg, owner, kid)
 	if len(selectedKeys) == 0 {
 		cfg.LogError(ctx, "the delegation names a key the owner does not publish", slog.String("kid", model.TruncateForResponse(kid)), slog.String("owner", string(owner.Sub)))
 		return fmt.Errorf("the trust mark's delegation names a 'kid' the trust mark owner does not publish a usable key for")

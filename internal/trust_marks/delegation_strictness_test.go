@@ -305,3 +305,50 @@ func TestFilterByTrusted_EveryDelegationValueIsBoundedInTheLog(t *testing.T) {
 		})
 	}
 }
+
+func TestFilterByTrusted_TheKidOfAnUnusableOwnerKeyIsBoundedInTheLog(t *testing.T) {
+	const marker = "DLG-UNUSABLE-KID-MARKER"
+	long := strings.Repeat("h", 8192) + marker
+
+	tests := map[string]struct {
+		reference string
+		member    string
+		value     any
+	}{
+		"a key published for encryption":        {reference: "8.9", member: "use", value: "enc"},
+		"a key published for another algorithm": {reference: "8.9", member: "alg", value: "RS512"},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			d := dlgSetup(t)
+			published := federationPublicJwk(t, d.ownerKey.Public(), long)
+			published[tc.member] = tc.value
+			d.anchor.TrustMarkOwners = map[string]model.TrustMarkOwner{rvType: {Sub: dlgOwner, JWKs: josemodel.Jwks{Keys: []map[string]any{published}}}}
+
+			delegation := dlgSignRaw(t, d.ownerKey, dlgHead(long), dlgBody(dlgOwner, d.issuer, rvType))
+
+			var logs bytes.Buffer
+			cfg := model.Configuration{
+				HttpClient: d.fed.server.Client(),
+				Logger:     slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+			}
+			tm := dlgMark(t, d.fed.ecKey["member"], "test-key", d.issuer, rvType, rvSub, &delegation)
+			resolved := &model.ResolveResponse{Sub: rvSub, Exp: time.Now().Add(time.Hour).UTC().Unix(),
+				TrustMarks: []model.TrustMarkHolder{{TrustMarkType: rvType, TrustMark: tm}}}
+
+			if err := FilterByTrusted(t.Context(), cfg, resolved, d.anchor, nil); err != nil {
+				t.Fatalf("[%s] a mark whose delegation names an unusable key is dropped rather than refusing the resolve, got %v", tc.reference, err)
+			}
+			if len(resolved.TrustMarks) != 0 {
+				t.Fatalf("[%s] expected the mark to be dropped", tc.reference)
+			}
+			if !strings.Contains(logs.String(), "cannot verify it") {
+				t.Fatalf("[%s] expected the per-key refusal to be logged, got %q", tc.reference, logs.String())
+			}
+			if strings.Contains(logs.String(), marker) {
+				t.Errorf("[%s] the tail of a kid the trust mark issuer chose reached the log, so it is being logged whole", tc.reference)
+			}
+		})
+	}
+}

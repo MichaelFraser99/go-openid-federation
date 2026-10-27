@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
@@ -218,7 +219,7 @@ func TestValidate_APeerPublishingPrivateMembersIsLoggedAndStillVerified(t *testi
 				"jwks":     map[string]any{"keys": []any{published}},
 				"metadata": map[string]any{},
 			}
-			token, err := jwt.New(key, map[string]any{"kid": "leaf", "alg": "RS256", "typ": "entity-statement+jwt"}, body, jwt.Opts{Algorithm: josemodel.RS256})
+			token, err := jwt.New(key, map[string]any{"kid": "leaf", "alg": "RS256", "typ": "entity-statement+jwt"}, body, jwt.Opts{Algorithm: jwa.RS256})
 			if err != nil {
 				t.Fatalf("failed to sign: %v", err)
 			}
@@ -450,7 +451,7 @@ func TestValidate_APeerPublishingPrivateMembersIsLoggedEvenWhenTheKeyIsUnusable(
 				"jwks":     map[string]any{"keys": []any{published, tc.spare}},
 				"metadata": map[string]any{},
 			}
-			token, err := jwt.New(key, map[string]any{"kid": "leaf", "alg": "RS256", "typ": "entity-statement+jwt"}, body, jwt.Opts{Algorithm: josemodel.RS256})
+			token, err := jwt.New(key, map[string]any{"kid": "leaf", "alg": "RS256", "typ": "entity-statement+jwt"}, body, jwt.Opts{Algorithm: jwa.RS256})
 			if err != nil {
 				t.Fatalf("failed to sign: %v", err)
 			}
@@ -628,7 +629,7 @@ func TestValidate_AStatementThatFailsAnIdentityCheckIsNotLoggedAsALeak(t *testin
 				"exp":      time.Now().Add(time.Hour).Unix(),
 				"jwks":     map[string]any{"keys": []any{published}},
 				"metadata": map[string]any{},
-			}, jwt.Opts{Algorithm: josemodel.RS256})
+			}, jwt.Opts{Algorithm: jwa.RS256})
 			if err != nil {
 				t.Fatalf("failed to sign: %v", err)
 			}

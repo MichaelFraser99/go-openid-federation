@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
@@ -286,7 +287,7 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		return nil, fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %s", err.Error())
 	}
 
-	if josemodel.GetAlgorithm(signerConfiguration.Algorithm) == josemodel.Unknown {
+	if jwa.GetAlgorithm(signerConfiguration.Algorithm) == jwa.Unknown {
 		return nil, fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %q is not a supported signing algorithm", signerConfiguration.Algorithm)
 	}
 
@@ -294,7 +295,7 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		"kid": signerConfiguration.KeyID,
 		"typ": "entity-statement+jwt",
 		"alg": signerConfiguration.Algorithm,
-	}, subordinateStatementMap, jwt.Opts{Algorithm: josemodel.GetAlgorithm(signerConfiguration.Algorithm)})
+	}, subordinateStatementMap, jwt.Opts{Algorithm: jwa.GetAlgorithm(signerConfiguration.Algorithm)})
 	if err != nil {
 		return nil, err
 	}

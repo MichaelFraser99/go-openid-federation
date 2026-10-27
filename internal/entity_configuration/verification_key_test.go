@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
@@ -69,7 +70,7 @@ func TestValidate_TheVerificationKeyComesFromTheExactKeysMember(t *testing.T) {
 				"jwks":     tc.jwks,
 				"metadata": map[string]any{},
 			}
-			token, err := jwt.New(realKey, map[string]any{"kid": "leaf", "alg": "RS256", "typ": "entity-statement+jwt"}, body, jwt.Opts{Algorithm: josemodel.RS256})
+			token, err := jwt.New(realKey, map[string]any{"kid": "leaf", "alg": "RS256", "typ": "entity-statement+jwt"}, body, jwt.Opts{Algorithm: jwa.RS256})
 			if err != nil {
 				t.Fatalf("failed to sign: %v", err)
 			}
@@ -127,7 +128,7 @@ func TestValidate_RefusesAStatementSignedWithAKeyPublishedForAnotherAlgorithm(t 
 				"jwks":     map[string]any{"keys": []any{published}},
 				"metadata": map[string]any{},
 			}
-			token, err := jwt.New(key, map[string]any{"kid": "leaf", "alg": "RS256", "typ": "entity-statement+jwt"}, body, jwt.Opts{Algorithm: josemodel.RS256})
+			token, err := jwt.New(key, map[string]any{"kid": "leaf", "alg": "RS256", "typ": "entity-statement+jwt"}, body, jwt.Opts{Algorithm: jwa.RS256})
 			if err != nil {
 				t.Fatalf("failed to sign: %v", err)
 			}
@@ -246,7 +247,7 @@ func TestValidate_AKeyThisImplementationCannotUseDoesNotBlockTheOthers(t *testin
 				"jwks":     map[string]any{"keys": []any{tc.spare, headerJwkPublicJwk(t, signingKey.Public(), "leaf")}},
 				"metadata": map[string]any{},
 			}
-			token, err := jwt.New(signingKey, map[string]any{"kid": "leaf", "alg": "RS256", "typ": "entity-statement+jwt"}, body, jwt.Opts{Algorithm: josemodel.RS256})
+			token, err := jwt.New(signingKey, map[string]any{"kid": "leaf", "alg": "RS256", "typ": "entity-statement+jwt"}, body, jwt.Opts{Algorithm: jwa.RS256})
 			if err != nil {
 				t.Fatalf("failed to sign: %v", err)
 			}
@@ -298,7 +299,7 @@ func TestValidate_AStatementSignedWithAKeyThisImplementationCannotUseIsRefusedCl
 				"jwks":     map[string]any{"keys": []any{tc.signing}},
 				"metadata": map[string]any{},
 			}
-			token, err := jwt.New(signingKey, map[string]any{"kid": "leaf", "alg": "RS256", "typ": "entity-statement+jwt"}, body, jwt.Opts{Algorithm: josemodel.RS256})
+			token, err := jwt.New(signingKey, map[string]any{"kid": "leaf", "alg": "RS256", "typ": "entity-statement+jwt"}, body, jwt.Opts{Algorithm: jwa.RS256})
 			if err != nil {
 				t.Fatalf("failed to sign: %v", err)
 			}

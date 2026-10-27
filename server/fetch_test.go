@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jws"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
@@ -21,7 +22,7 @@ import (
 )
 
 func TestServer_Fetch(t *testing.T) {
-	subordinateSigner, err := jws.GetSigner(josemodel.ES256, nil)
+	subordinateSigner, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("expected no error creating subordinate signer, got %q", err.Error())
 	}
@@ -128,7 +129,7 @@ func TestServer_Fetch(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			signer, err := jws.GetSigner(josemodel.ES256, nil)
+			signer, err := jws.GetSigner(jwa.ES256, nil)
 			if err != nil {
 				t.Fatalf("expected no error creating signer, got %q", err.Error())
 			}

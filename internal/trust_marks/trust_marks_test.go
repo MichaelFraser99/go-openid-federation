@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwt"
-	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -448,7 +448,7 @@ func createTrustMarkJWT(t *testing.T, issuer, trustMarkType, sub string, private
 		"typ": "trust-mark+jwt",
 		"alg": "RS256",
 	}
-	token, err := jwt.New(privateKey, head, body, jwt.Opts{Algorithm: josemodel.RS256})
+	token, err := jwt.New(privateKey, head, body, jwt.Opts{Algorithm: jwa.RS256})
 	if err != nil {
 		t.Fatalf("failed to create trust mark JWT: %v", err)
 	}
@@ -472,7 +472,7 @@ func createTrustMarkJWTWithExp(t *testing.T, issuer, trustMarkType, sub string, 
 		"typ": "trust-mark+jwt",
 		"alg": "RS256",
 	}
-	token, err := jwt.New(privateKey, head, body, jwt.Opts{Algorithm: josemodel.RS256})
+	token, err := jwt.New(privateKey, head, body, jwt.Opts{Algorithm: jwa.RS256})
 	if err != nil {
 		t.Fatalf("failed to create trust mark JWT: %v", err)
 	}

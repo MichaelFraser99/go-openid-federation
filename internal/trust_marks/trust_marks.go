@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jwt"
@@ -143,6 +144,11 @@ func FilterByTrusted(ctx context.Context, cfg model.Configuration, resolved *mod
 			continue
 		}
 
+		if validated.Expiry != nil && *validated.Expiry <= time.Now().UTC().Unix() {
+			cfg.LogInfo(ctx, "omitting a trust mark whose expiry has passed, because the response expiry is the minimum over the marks it carries", slog.String("trust_mark_type", model.TruncateForResponse(tm.TrustMarkType)), slog.Int64("exp", *validated.Expiry))
+			continue
+		}
+
 		trustedTrustMarks = append(trustedTrustMarks, tm)
 		if validated.Expiry != nil && *validated.Expiry < resolved.Exp {
 			resolved.Exp = *validated.Expiry
@@ -264,6 +270,7 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 		return []crypto.PublicKey{pubKey}, nil
 	}, &josemodel.JoseOptions{
 		UseTokenProvidedKeys: false,
+		ClockSkewLeeway:      model.ClockSkewLeeway,
 	})
 	if err != nil {
 		cfg.LogError(ctx, "failed to validate trust mark", slog.String("error", err.Error()), slog.String("trust_mark", model.TruncateForResponse(trustMark)))

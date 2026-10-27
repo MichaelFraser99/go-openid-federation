@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jwt"
-	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
@@ -64,7 +64,7 @@ func createEntityStatement(t *testing.T, iss, sub model.EntityIdentifier, author
 		"alg": "RS256",
 	}
 
-	token, err := jwt.New(signer, head, body, jwt.Opts{Algorithm: josemodel.RS256})
+	token, err := jwt.New(signer, head, body, jwt.Opts{Algorithm: jwa.RS256})
 	if err != nil {
 		t.Fatalf("failed to create entity statement: %v", err)
 	}
@@ -98,7 +98,7 @@ func createSubordinateStatement(t *testing.T, iss, sub model.EntityIdentifier, s
 		"alg": "RS256",
 	}
 
-	token, err := jwt.New(signer, head, body, jwt.Opts{Algorithm: josemodel.RS256})
+	token, err := jwt.New(signer, head, body, jwt.Opts{Algorithm: jwa.RS256})
 	if err != nil {
 		t.Fatalf("failed to create subordinate statement: %v", err)
 	}
@@ -265,7 +265,7 @@ func TestResolveMetadata(t *testing.T) {
 						"typ": "entity-statement+jwt",
 						"alg": "RS256",
 					}
-					token, _ := jwt.New(key, head, body, jwt.Opts{Algorithm: josemodel.RS256})
+					token, _ := jwt.New(key, head, body, jwt.Opts{Algorithm: jwa.RS256})
 					return *token
 				}(),
 			},
@@ -290,7 +290,7 @@ func TestResolveMetadata(t *testing.T) {
 						"typ": "entity-statement+jwt",
 						"alg": "RS256",
 					}
-					token, _ := jwt.New(key, head, body, jwt.Opts{Algorithm: josemodel.RS256})
+					token, _ := jwt.New(key, head, body, jwt.Opts{Algorithm: jwa.RS256})
 					return *token
 				}(),
 			},
@@ -321,7 +321,7 @@ func TestResolveMetadata(t *testing.T) {
 						"typ": "entity-statement+jwt",
 						"alg": "RS256",
 					}
-					token, _ := jwt.New(key, head, body, jwt.Opts{Algorithm: josemodel.RS256})
+					token, _ := jwt.New(key, head, body, jwt.Opts{Algorithm: jwa.RS256})
 					return *token
 				}(),
 			},

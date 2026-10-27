@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwt"
-	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/internal/trust_marks"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
@@ -52,7 +52,7 @@ func (s *Server) TrustMarkStatus(w http.ResponseWriter, r *http.Request) Respons
 		"kid": s.cfg.SignerConfiguration.KeyID,
 		"typ": "trust-mark-status-response+jwt",
 		"alg": s.cfg.SignerConfiguration.Algorithm,
-	}, statusMap, jwt.Opts{Algorithm: josemodel.GetAlgorithm(s.cfg.SignerConfiguration.Algorithm)})
+	}, statusMap, jwt.Opts{Algorithm: jwa.GetAlgorithm(s.cfg.SignerConfiguration.Algorithm)})
 	if err != nil {
 		s.cfg.LogInfo(ctx, "error creating resolve response", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(trustMarkStatusUnavailableError))

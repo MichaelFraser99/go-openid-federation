@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
@@ -38,7 +39,7 @@ func anchorKeySet(t *testing.T, pub crypto.PublicKey, members map[string]any) jo
 
 func chainSignStatementWithKid(t *testing.T, signer crypto.Signer, kid string, body map[string]any) string {
 	t.Helper()
-	token, err := jwt.New(signer, map[string]any{"kid": kid, "typ": "entity-statement+jwt", "alg": "RS256"}, body, jwt.Opts{Algorithm: josemodel.RS256})
+	token, err := jwt.New(signer, map[string]any{"kid": kid, "typ": "entity-statement+jwt", "alg": "RS256"}, body, jwt.Opts{Algorithm: jwa.RS256})
 	if err != nil {
 		t.Fatalf("failed to sign statement: %v", err)
 	}

@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jws"
-	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -30,7 +30,7 @@ func (r sharedStatusRetriever) GetSubordinateStatus(context.Context, model.Entit
 
 func contractServer(t *testing.T, apply func(cfg *model.ServerConfiguration)) *httptest.Server {
 	t.Helper()
-	signer, err := jws.GetSigner(josemodel.ES256, nil)
+	signer, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("failed to build the signer: %v", err)
 	}

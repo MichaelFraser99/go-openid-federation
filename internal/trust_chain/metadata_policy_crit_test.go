@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jwt"
-	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -21,7 +21,7 @@ const (
 
 func criticalOperatorSign(t *testing.T, signer crypto.Signer, body map[string]any) string {
 	t.Helper()
-	token, err := jwt.New(signer, map[string]any{"kid": "test-key", "typ": "entity-statement+jwt", "alg": "RS256"}, body, jwt.Opts{Algorithm: josemodel.RS256})
+	token, err := jwt.New(signer, map[string]any{"kid": "test-key", "typ": "entity-statement+jwt", "alg": "RS256"}, body, jwt.Opts{Algorithm: jwa.RS256})
 	if err != nil {
 		t.Fatalf("failed to sign: %v", err)
 	}

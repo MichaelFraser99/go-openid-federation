@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jws"
 	"github.com/MichaelFraser99/go-jose/jwt"
@@ -13,7 +14,7 @@ import (
 
 func anyKeySign(t *testing.T, signer crypto.Signer, kid string) string {
 	t.Helper()
-	token, err := jwt.New(signer, map[string]any{"kid": kid, "typ": "entity-statement+jwt", "alg": "RS256"}, map[string]any{"iss": "https://leaf.example.com"}, jwt.Opts{Algorithm: josemodel.RS256})
+	token, err := jwt.New(signer, map[string]any{"kid": kid, "typ": "entity-statement+jwt", "alg": "RS256"}, map[string]any{"iss": "https://leaf.example.com"}, jwt.Opts{Algorithm: jwa.RS256})
 	if err != nil {
 		t.Fatalf("failed to sign: %v", err)
 	}
@@ -139,7 +140,7 @@ func TestVerifyAgainstAnyKey(t *testing.T) {
 
 func TestKeyCanVerify_HonoursWhatTheKeySaysAboutItself(t *testing.T) {
 	rsaKey := selectorKey(t)
-	ecSigner, err := jws.GetSigner(josemodel.ES256, nil)
+	ecSigner, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +233,7 @@ func TestVerifyAgainstAnyKey_AKeyTheTokenCarriesIsNeverTrusted(t *testing.T) {
 
 	token, err := jwt.New(attacker, map[string]any{
 		"kid": "x", "typ": "entity-statement+jwt", "alg": "RS256", "jwk": attackerJwk,
-	}, map[string]any{"iss": "https://ta.example.com"}, jwt.Opts{Algorithm: josemodel.RS256})
+	}, map[string]any{"iss": "https://ta.example.com"}, jwt.Opts{Algorithm: jwa.RS256})
 	if err != nil {
 		t.Fatal(err)
 	}

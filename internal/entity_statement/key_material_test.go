@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
@@ -33,7 +34,7 @@ func keyMaterialJwk(t *testing.T, pub crypto.PublicKey, kid string) map[string]a
 	return *published
 }
 
-func keyMaterialSign(t *testing.T, signer crypto.Signer, kid string, alg josemodel.Algorithm) string {
+func keyMaterialSign(t *testing.T, signer crypto.Signer, kid string, alg jwa.Algorithm) string {
 	t.Helper()
 	token, err := jwt.New(signer, map[string]any{"kid": kid, "typ": "entity-statement+jwt", "alg": alg.String()}, map[string]any{"iss": "https://leaf.example.com"}, jwt.Opts{Algorithm: alg})
 	if err != nil {
@@ -44,7 +45,7 @@ func keyMaterialSign(t *testing.T, signer crypto.Signer, kid string, alg josemod
 
 func TestVerifyAgainstJwks_HonoursWhatTheSelectedKeySaysAboutItsUse(t *testing.T) {
 	key := keyMaterialKey(t, 2048)
-	token := keyMaterialSign(t, key, "leaf", josemodel.RS256)
+	token := keyMaterialSign(t, key, "leaf", jwa.RS256)
 
 	tests := []struct {
 		name      string
@@ -97,12 +98,12 @@ func TestVerifyAgainstJwks_RefusesAnRSAKeyBelowTheAlgorithmsMinimumSize(t *testi
 		name      string
 		reference string
 		signer    *rsa.PrivateKey
-		alg       josemodel.Algorithm
+		alg       jwa.Algorithm
 		expectErr string
 	}{
-		{name: "a 2048 bit key with RS256", reference: "RFC 7518 3.3", signer: strong, alg: josemodel.RS256},
-		{name: "a 1024 bit key with RS256", reference: "RFC 7518 3.3", signer: weak, alg: josemodel.RS256, expectErr: "1024 bit RSA modulus"},
-		{name: "a 1024 bit key with PS256", reference: "RFC 7518 3.5", signer: weak, alg: josemodel.PS256, expectErr: "1024 bit RSA modulus"},
+		{name: "a 2048 bit key with RS256", reference: "RFC 7518 3.3", signer: strong, alg: jwa.RS256},
+		{name: "a 1024 bit key with RS256", reference: "RFC 7518 3.3", signer: weak, alg: jwa.RS256, expectErr: "1024 bit RSA modulus"},
+		{name: "a 1024 bit key with PS256", reference: "RFC 7518 3.5", signer: weak, alg: jwa.PS256, expectErr: "1024 bit RSA modulus"},
 	}
 
 	for _, tc := range tests {
@@ -129,7 +130,7 @@ func TestVerifyAgainstJwks_RefusesAnRSAKeyBelowTheAlgorithmsMinimumSize(t *testi
 
 func TestVerifyAgainstJwks_AKeyThisLibraryCannotJudgeDoesNotBlockTheSigningKey(t *testing.T) {
 	key := keyMaterialKey(t, 2048)
-	token := keyMaterialSign(t, key, "leaf", josemodel.RS256)
+	token := keyMaterialSign(t, key, "leaf", jwa.RS256)
 	signing := keyMaterialJwk(t, key.Public(), "leaf")
 
 	oversized := keyMaterialKey(t, 2048)
@@ -201,7 +202,7 @@ func TestVerifyAgainstJwks_AKeyThisLibraryCannotJudgeDoesNotBlockTheSigningKey(t
 
 func TestVerifyAgainstJwks_ASelectedKeyThisLibraryCannotUseIsRefusedWithoutPanicking(t *testing.T) {
 	key := keyMaterialKey(t, 2048)
-	token := keyMaterialSign(t, key, "leaf", josemodel.RS256)
+	token := keyMaterialSign(t, key, "leaf", jwa.RS256)
 
 	tests := []struct {
 		name      string

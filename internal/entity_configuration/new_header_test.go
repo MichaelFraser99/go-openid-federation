@@ -6,15 +6,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jws"
-	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
 func TestNew_RefusesAHeaderItsOwnReadPathRejects(t *testing.T) {
 	signerConfiguration, _ := issuanceSigner(t)
 
-	rsaSigner, err := jws.GetSigner(josemodel.RS256, nil)
+	rsaSigner, err := jws.GetSigner(jwa.RS256, nil)
 	if err != nil {
 		t.Fatalf("failed to build an RSA signer: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestNew_RefusesAHeaderItsOwnReadPathRejects(t *testing.T) {
 }
 
 func TestNew_RefusesAnAlgorithmThatDoesNotMatchTheKey(t *testing.T) {
-	ecSigner, err := jws.GetSigner(josemodel.ES256, nil)
+	ecSigner, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("failed to build an EC signer: %v", err)
 	}

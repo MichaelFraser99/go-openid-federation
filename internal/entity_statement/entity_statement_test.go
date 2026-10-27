@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
@@ -124,7 +125,7 @@ func TestVerifyAgainstJwks(t *testing.T) {
 
 	sign := func(t *testing.T, signer crypto.Signer, head map[string]any) string {
 		t.Helper()
-		token, err := jwt.New(signer, head, body, jwt.Opts{Algorithm: josemodel.RS256})
+		token, err := jwt.New(signer, head, body, jwt.Opts{Algorithm: jwa.RS256})
 		if err != nil {
 			t.Fatalf("failed to sign: %v", err)
 		}
@@ -206,7 +207,7 @@ func TestVerifyAgainstJwks_HonoursTheAlgorithmThePublishedKeyIsFor(t *testing.T)
 				publishedKey["alg"] = tc.keyAlg
 			}
 
-			token, err := jwt.New(key, map[string]any{"kid": "a", "alg": "RS256"}, body, jwt.Opts{Algorithm: josemodel.RS256})
+			token, err := jwt.New(key, map[string]any{"kid": "a", "alg": "RS256"}, body, jwt.Opts{Algorithm: jwa.RS256})
 			if err != nil {
 				t.Fatalf("failed to sign: %v", err)
 			}
@@ -239,7 +240,7 @@ func TestVerifyAgainstJwks_TheKeyAlgorithmIsComparedExactly(t *testing.T) {
 		t.Run(keyAlg, func(t *testing.T) {
 			publishedKey := selectorJwk(t, key.Public(), "a")
 			publishedKey["alg"] = keyAlg
-			token, err := jwt.New(key, map[string]any{"kid": "a", "alg": "RS256"}, body, jwt.Opts{Algorithm: josemodel.RS256})
+			token, err := jwt.New(key, map[string]any{"kid": "a", "alg": "RS256"}, body, jwt.Opts{Algorithm: jwa.RS256})
 			if err != nil {
 				t.Fatalf("failed to sign: %v", err)
 			}
@@ -259,7 +260,7 @@ func TestVerifyAgainstJwks_ANullKeyAlgorithmLeavesTheKeyUnconstrained(t *testing
 	key := selectorKey(t)
 	publishedKey := selectorJwk(t, key.Public(), "a")
 	publishedKey["alg"] = nil
-	token, err := jwt.New(key, map[string]any{"kid": "a", "alg": "RS256"}, map[string]any{"iss": "https://leaf.example.com"}, jwt.Opts{Algorithm: josemodel.RS256})
+	token, err := jwt.New(key, map[string]any{"kid": "a", "alg": "RS256"}, map[string]any{"iss": "https://leaf.example.com"}, jwt.Opts{Algorithm: jwa.RS256})
 	if err != nil {
 		t.Fatalf("failed to sign: %v", err)
 	}

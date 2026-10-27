@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jws"
-	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -36,7 +36,7 @@ func (r testTrustMarkRetriever) ListTrustMarks(_ context.Context, _ string, _ *m
 
 func startTrustMarkStatusServer(t *testing.T, retriever model.TrustMarkRetriever) *httptest.Server {
 	t.Helper()
-	signer, err := jws.GetSigner(josemodel.ES256, nil)
+	signer, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("expected no error creating signer, got %q", err.Error())
 	}

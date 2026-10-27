@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jws"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
@@ -16,7 +17,7 @@ import (
 
 func issuanceSigner(t *testing.T) (model.SignerConfiguration, map[string]any) {
 	t.Helper()
-	signer, err := jws.GetSigner(josemodel.ES256, nil)
+	signer, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("failed to create signer: %v", err)
 	}

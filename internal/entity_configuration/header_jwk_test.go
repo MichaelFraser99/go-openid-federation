@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jwt"
-	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -88,7 +88,7 @@ func TestValidate_RejectsEntityConfigurationNotSignedByAPublishedKey(t *testing.
 				"metadata": map[string]any{},
 			}
 
-			token, err := jwt.New(tc.signer, tc.head, body, jwt.Opts{Algorithm: josemodel.RS256})
+			token, err := jwt.New(tc.signer, tc.head, body, jwt.Opts{Algorithm: jwa.RS256})
 			if err != nil {
 				t.Fatalf("failed to sign entity configuration: %v", err)
 			}

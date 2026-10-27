@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jwt"
-	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -40,7 +40,7 @@ func chainJwks(t *testing.T, signer crypto.Signer) map[string]any {
 func chainSignStatement(t *testing.T, signer crypto.Signer, body map[string]any) string {
 	t.Helper()
 	header := map[string]any{"kid": "chain-key", "typ": "entity-statement+jwt", "alg": "RS256"}
-	token, err := jwt.New(signer, header, body, jwt.Opts{Algorithm: josemodel.RS256})
+	token, err := jwt.New(signer, header, body, jwt.Opts{Algorithm: jwa.RS256})
 	if err != nil {
 		t.Fatalf("failed to sign statement: %v", err)
 	}

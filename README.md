@@ -16,6 +16,10 @@ go get github.com/MichaelFraser99/go-openid-federation
 
 Requires Go 1.25.3 or later.
 
+> **Breaking change.** This release requires `go-jose` v0.10.0, which moved its algorithm identifiers to a new package. `Algorithm`, the ES, RS, PS and HS identifiers, `EdDSA`, `Unknown` and `GetAlgorithm` all moved from `go-jose/model` to `go-jose/jwa`, and the `joseerror` sentinels are now named `Err*`.
+>
+> Nothing in this library's own API exposes those types — `SignerConfiguration.Algorithm` is a string — so an upgrade is source-compatible for a consumer that only calls this library. But minimal version selection lifts every consumer to v0.10.0, so if your own code imports `go-jose` directly, `josemodel.ES256` becomes `jwa.ES256` and so on, in the same upgrade.
+
 ## Packages
 
 | Package | Purpose |
@@ -39,14 +43,14 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jws"
-	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 	"github.com/MichaelFraser99/go-openid-federation/server"
 )
 
 func main() {
-	signer, err := jws.GetSigner(josemodel.ES256, nil)
+	signer, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -351,7 +355,7 @@ A `SubordinateConfiguration` may carry its own `SignerConfiguration`. When prese
 
 Parsing applies the claim rules from section 3.2 of the specification. Three of these reject statements that earlier releases accepted.
 
-- A statement is rejected when it is expired or future-dated. Both comparisons allow `model.ClockSkewLeeway` of clock skew, and so does the trust chain expiry check, so the two layers agree on what expired means. The `iat` claim must be before the `exp` claim.
+- A statement is rejected when it is expired or future-dated. Both comparisons allow `model.ClockSkewLeeway` of clock skew, and so does the trust chain expiry check, so the two layers agree on what expired means. The `iat` claim must be before the `exp` claim. A trust mark and its `delegation` are judged with the same allowance, which earlier releases did not do: they were compared against the current time exactly, so an issuer whose clock ran a few seconds fast had its marks dropped from resolve responses with no error while an entity statement in the same state was accepted. One limit is worth knowing: a trust mark whose `exp` has already passed is still left out of a resolve response, however small the margin, because section 8.3.2 makes the response's `exp` the minimum over the marks it carries and a response whose `exp` has passed is unusable. The allowance decides whether such a mark is *valid*, not whether it can be carried.
 - A statement that carries a `crit` claim is rejected, with no opt-in. The library has no way to carry the critical extension claims themselves. See issue #132.
 - A statement that carries a `metadata_policy_crit` claim is rejected. The claim names metadata policy operators that an implementation must understand, and this library understands none beyond the seven standard operators.
 

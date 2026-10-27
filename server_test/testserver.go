@@ -8,17 +8,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jws"
 	"github.com/MichaelFraser99/go-jose/jwt"
-	josemodel "github.com/MichaelFraser99/go-jose/model"
 )
 
 // TestServer creates a local federation for testing purposes.
 func TestServer(t *testing.T) *httptest.Server {
 	var testServerURL string
 
-	leafSigner, err := jws.GetSigner(josemodel.ES256, nil)
+	leafSigner, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("expected no error creating leaf signer, got %q", err.Error())
 	}
@@ -31,7 +31,7 @@ func TestServer(t *testing.T) *httptest.Server {
 		t.Fatalf("expected no error creating leaf JWK bytes, got %q", err.Error())
 	}
 
-	intermediateSigner1, err := jws.GetSigner(josemodel.ES256, nil)
+	intermediateSigner1, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("expected no error creating intermediate signer 1, got %q", err.Error())
 	}
@@ -43,7 +43,7 @@ func TestServer(t *testing.T) *httptest.Server {
 	if err != nil {
 		t.Fatalf("expected no error creating intermediate JWK bytes, got %q", err.Error())
 	}
-	intermediateSigner2, err := jws.GetSigner(josemodel.ES256, nil)
+	intermediateSigner2, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("expected no error creating intermediate signer 2, got %q", err.Error())
 	}
@@ -55,7 +55,7 @@ func TestServer(t *testing.T) *httptest.Server {
 	if err != nil {
 		t.Fatalf("expected no error creating intermediate JWK bytes, got %q", err.Error())
 	}
-	trustAnchorSigner, err := jws.GetSigner(josemodel.ES256, nil)
+	trustAnchorSigner, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("expected no error creating trust anchor signer, got %q", err.Error())
 	}
@@ -134,7 +134,7 @@ func TestServer(t *testing.T) *httptest.Server {
 		signed, err := jwt.New(leafSigner, map[string]any{
 			"kid": (*leafJWK)["kid"],
 			"typ": "entity-statement+jwt",
-		}, esMap, jwt.Opts{Algorithm: josemodel.ES256})
+		}, esMap, jwt.Opts{Algorithm: jwa.ES256})
 		if err != nil {
 			t.Fatalf("expected no error signing ta, got %q", err.Error())
 		}
@@ -170,7 +170,7 @@ func TestServer(t *testing.T) *httptest.Server {
 		signed, err := jwt.New(intermediateSigner1, map[string]any{
 			"kid": (*intermediateJWK)["kid"],
 			"typ": "entity-statement+jwt",
-		}, esMap, jwt.Opts{Algorithm: josemodel.ES256})
+		}, esMap, jwt.Opts{Algorithm: jwa.ES256})
 		if err != nil {
 			t.Fatalf("expected no error signing ta, got %q", err.Error())
 		}
@@ -225,7 +225,7 @@ func TestServer(t *testing.T) *httptest.Server {
 		signed, err := jwt.New(intermediateSigner1, map[string]any{
 			"kid": (*intermediateJWK)["kid"],
 			"typ": "entity-statement+jwt",
-		}, esMap, jwt.Opts{Algorithm: josemodel.ES256})
+		}, esMap, jwt.Opts{Algorithm: jwa.ES256})
 		if err != nil {
 			t.Fatalf("expected no error signing ta, got %q", err.Error())
 		}
@@ -262,7 +262,7 @@ func TestServer(t *testing.T) *httptest.Server {
 		signed, err := jwt.New(intermediateSigner2, map[string]any{
 			"kid": (*intermediateJWK2)["kid"],
 			"typ": "entity-statement+jwt",
-		}, esMap, jwt.Opts{Algorithm: josemodel.ES256})
+		}, esMap, jwt.Opts{Algorithm: jwa.ES256})
 		if err != nil {
 			t.Fatalf("expected no error signing ta, got %q", err.Error())
 		}
@@ -313,7 +313,7 @@ func TestServer(t *testing.T) *httptest.Server {
 		signed, err := jwt.New(intermediateSigner2, map[string]any{
 			"kid": (*intermediateJWK2)["kid"],
 			"typ": "entity-statement+jwt",
-		}, esMap, jwt.Opts{Algorithm: josemodel.ES256})
+		}, esMap, jwt.Opts{Algorithm: jwa.ES256})
 		if err != nil {
 			t.Fatalf("expected no error signing ta, got %q", err.Error())
 		}
@@ -343,7 +343,7 @@ func TestServer(t *testing.T) *httptest.Server {
 		signed, err := jwt.New(trustAnchorSigner, map[string]any{
 			"kid": (*trustAnchorJWK)["kid"],
 			"typ": "entity-statement+jwt",
-		}, esMap, jwt.Opts{Algorithm: josemodel.ES256})
+		}, esMap, jwt.Opts{Algorithm: jwa.ES256})
 		if err != nil {
 			t.Fatalf("expected no error signing ta, got %q", err.Error())
 		}
@@ -381,7 +381,7 @@ func TestServer(t *testing.T) *httptest.Server {
 		signed, err := jwt.New(trustAnchorSigner, map[string]any{
 			"kid": (*trustAnchorJWK)["kid"],
 			"typ": "entity-statement+jwt",
-		}, esMap, jwt.Opts{Algorithm: josemodel.ES256})
+		}, esMap, jwt.Opts{Algorithm: jwa.ES256})
 		if err != nil {
 			t.Fatalf("expected no error signing ta aa, got %q", err.Error())
 		}

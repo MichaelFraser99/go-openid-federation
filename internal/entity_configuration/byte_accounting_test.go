@@ -21,8 +21,6 @@ func TestRetrieve_ChargesWhatTheRequestHoldsAndChargesItOnce(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Written out rather than taken from model.StatementCost: computing the
-	// expectation with the function under test asserts only that it equals itself.
 	want := 2*int64(len(*signed)) + int64(statement.DecodedValues())*model.DecodedValueCost
 	if got := cache.PeerBytes(); got != want {
 		t.Fatalf("[8.2] a statement is charged the signed text and its parsed form together, so %d was expected, got %d", want, got)

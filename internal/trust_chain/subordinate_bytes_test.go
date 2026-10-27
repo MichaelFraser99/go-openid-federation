@@ -1,6 +1,7 @@
 package trust_chain
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
@@ -14,10 +15,6 @@ func TestBuildTrustChain_ASubordinateStatementIsChargedLikeAConfiguration(t *tes
 	leaf := model.EntityIdentifier(testServer.URL + "/leaf")
 	anchor := model.EntityIdentifier(testServer.URL + "/ta")
 
-	// The walk and the chain assembly are charged separately, so measuring the walk
-	// alone isolates what the subordinate statements add. Comparing a single total
-	// against a figure derived from the chain cannot: the configurations alone
-	// exceed it, so an uncharged subordinate statement looks the same.
 	walkCache := resolvecache.New()
 	if _, _, _, err := chainUpOne(t.Context(), cfg, leaf, anchor, []model.EntityIdentifier{}, []model.EntityStatement{}, []string{}, walkCache, newWalkMemo()); err != nil {
 		t.Fatalf("expected the walk to reach the anchor: %v", err)
@@ -36,9 +33,6 @@ func TestBuildTrustChain_ASubordinateStatementIsChargedLikeAConfiguration(t *tes
 		t.Fatalf("expected a chain of at least two entries, got %d", len(parsedChain))
 	}
 
-	// The chain is the leaf's configuration, then one subordinate statement per
-	// step, then the anchor's own configuration. Only the middle span is charged
-	// here; both configurations were charged during the walk.
 	var expected int64
 	for i := 1; i < len(parsedChain)-1; i++ {
 		expected += 2*int64(len(signedChain[i])) + int64(parsedChain[i].DecodedValues())*model.DecodedValueCost
@@ -49,5 +43,48 @@ func TestBuildTrustChain_ASubordinateStatementIsChargedLikeAConfiguration(t *tes
 
 	if got := fullCache.PeerBytes() - configurationsOnly; got != expected {
 		t.Errorf("[8.2] a request retains every subordinate statement in the chain it answers with, so each must be charged like a configuration: expected %d beyond the %d the walk charged, got %d", expected, configurationsOnly, got)
+	}
+}
+
+func TestBuildTrustChain_ABudgetSpentByTheWalkRefusesTheSubordinateFetch(t *testing.T) {
+	testServer := server_test.TestServer(t)
+	leaf := model.EntityIdentifier(testServer.URL + "/leaf")
+	anchor := model.EntityIdentifier(testServer.URL + "/ta")
+
+	walkCache := resolvecache.New()
+	if _, _, _, err := chainUpOne(t.Context(), model.Configuration{HttpClient: testServer.Client()}, leaf, anchor, []model.EntityIdentifier{}, []model.EntityStatement{}, []string{}, walkCache, newWalkMemo()); err != nil {
+		t.Fatalf("expected the walk to reach the anchor: %v", err)
+	}
+	spentByTheWalk := walkCache.PeerBytes()
+	if spentByTheWalk == 0 {
+		t.Fatal("the walk charged nothing, so no budget can be spent by it")
+	}
+
+	tests := map[string]struct {
+		budget  int64
+		refused bool
+	}{
+		"a budget the walk alone exceeds": {budget: spentByTheWalk - 1, refused: true},
+		"a budget large enough for both":  {budget: spentByTheWalk * 100, refused: false},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			cfg := model.Configuration{HttpClient: testServer.Client(), MaxRequestPeerBytes: test.budget}
+			_, _, _, err := BuildTrustChain(t.Context(), cfg, leaf, anchor, resolvecache.New())
+
+			if !test.refused {
+				if err != nil {
+					t.Fatalf("expected the chain to build within the budget: %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, model.ErrLimitReached) {
+				t.Errorf("[8.9] the walk alone spends the budget, so no subordinate statement may be fetched: expected a limit, got %v", err)
+			}
+			if errors.Is(err, model.ErrServerError) || errors.Is(err, model.ErrTemporarilyUnavailable) {
+				t.Errorf("[8.9] a configured bound refusing a caller's own graph is not a server fault, got %v", err)
+			}
+		})
 	}
 }

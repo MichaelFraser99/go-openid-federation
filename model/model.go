@@ -66,21 +66,8 @@ const DefaultMaxPeerResponseBytes int64 = 1 << 20
 
 const DefaultMaxRequestPeerBytes int64 = 64 << 20
 
-// DecodedValueCost is what one decoded JSON value is charged against
-// MaxRequestPeerBytes.
-//
-// It is measured rather than estimated. Retaining twenty parsed copies of bodies
-// built from the shapes a peer can choose cost, per value: 18.9 B for null, 34.9 B
-// for a number or short string, 66.9 B for an empty object, 185.4 B for a
-// single-entry object, and 201.4 B for an object holding an empty object. This is
-// rounded up from the worst of those.
 const DecodedValueCost = 256
 
-// StatementCost is what retaining one parsed statement and the signed text it came
-// from is charged against MaxRequestPeerBytes.
-//
-// The signed length is counted twice because both are retained: the text itself,
-// and the strings the parsed form holds, which the text contains.
 func StatementCost(signed string, statement *EntityStatement) int64 {
 	cost := 2 * int64(len(signed))
 	if statement != nil {
@@ -398,21 +385,10 @@ type EntityStatement struct { //todo: allow for additional claims to be set - th
 	decodedValues int
 }
 
-// DecodedValues reports how many JSON values this statement decoded to, which is
-// zero for a statement this library built rather than parsed.
-//
-// A request retains the parsed statement as well as the signed text it came from,
-// and the parsed form of many small values costs far more than its text: each
-// element of a map[string]any is an interface value, and a map or slice carries a
-// header of its own. Measured, a peer can choose a body whose parsed form retains
-// over fifty times its own length, so the length alone does not bound what a
-// request holds.
 func (e EntityStatement) DecodedValues() int {
 	return e.decodedValues
 }
 
-// CountDecodedValues counts the JSON values a decoded document holds, including
-// the maps and slices containing them.
 func CountDecodedValues(value any) int {
 	switch typed := value.(type) {
 	case map[string]any:

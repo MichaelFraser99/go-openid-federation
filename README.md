@@ -250,6 +250,8 @@ When the library resolves a trust chain, it follows federation endpoints derived
 | Limit | Default | Applies to |
 |---|---|---|
 | `Configuration.MaxPeerResponseBytes` | `model.DefaultMaxPeerResponseBytes`, 1 MiB | The body of any response fetched from a peer |
+| `Configuration.MaxRequestPeerBytes` | `model.DefaultMaxRequestPeerBytes`, 64 MiB | The total bytes of peer statements one request may hold |
+| `Configuration.MaxPeerResponseTime` | `model.DefaultMaxPeerResponseTime`, 10s | How long any one peer may take to answer, including its body |
 | `Configuration.MaxTrustChainDepth` | `model.DefaultMaxTrustChainDepth`, 10 | Entities on one path from the leaf to a trust anchor |
 | `Configuration.MaxEntitiesTraversed` | `model.DefaultMaxEntitiesTraversed`, 1024 | Entity configurations one request may fetch while walking `authority_hints`, across every chain it builds |
 | `Configuration.MaxTrustMarkIssuers` | `model.DefaultMaxTrustMarkIssuers` | Distinct trust mark issuers resolved for one subject |
@@ -258,9 +260,17 @@ When the library resolves a trust chain, it follows federation endpoints derived
 >
 > - `MaxTrustChainDepth` was unlimited by default and described as bounding the entities traversed. It bounds the length of one chain, which is a different thing, and it now defaults to 10. A federation whose legitimate chains are longer must raise it, or `/resolve` refuses every subject whose chain is longer.
 > - `MaxEntitiesTraversed` is new and defaults to 1024.
+> - `MaxRequestPeerBytes` is new and defaults to 64 MiB. It bounds what one request holds, which the other two did not: a peer may split its bytes across responses however it likes, and `MaxEntitiesTraversed` × `MaxPeerResponseBytes` set a ceiling of 1 GiB per request. A federation of 1024 entities whose configurations average 4 KB uses 4 MB, so the default is generous; raise it if yours is larger, and size it against the memory available to the process rather than against the number of peers.
+> - `MaxPeerResponseTime` is new and defaults to 10 seconds. Nothing bounded a peer in time before: `Server.Configure` installs `http.DefaultClient` when no `HttpClient` is given, and that has no timeout, so a peer that accepted a connection and never answered held the request open. The deadline is derived from the request context rather than set on a client, so it applies to the client you supply as well as to the fallback, and it never outlives your own cancellation.
 > - Zero no longer means unlimited for either: it selects the default. Set a large value to restore the old behaviour.
 > - A consumer who already set `MaxTrustChainDepth` themselves gets the same 404 as before, but with a description naming the bound rather than one that reads as an unknown trust anchor.
 > - A trust mark whose issuer cannot be walked within the bounds is omitted from the response, as any unverifiable mark is. Section 8.3 requires a response to carry only verified trust marks, so the resolve still succeeds.
+
+`MaxRequestPeerBytes` and `MaxPeerResponseTime` answer different questions from the other bounds, which is why they are separate knobs rather than derived ones. The entity and step bounds say how many peers may be contacted; the byte budget says how much memory the answers may occupy, and the deadline says how long any one peer may take. An operator sizing a container cares about the second, and an operator sizing a request timeout cares about the third, and neither is computable from the counts.
+
+The byte budget is charged as each entity configuration is retrieved and refuses the next fetch once it is spent, so a request overshoots by at most one response. Subordinate statements are not charged against it: they are not cached, so they do not contribute to what a request retains.
+
+The deadline bounds one peer, not the whole walk. A graph of slow-but-responsive peers can still take `MaxEntitiesTraversed` × `MaxPeerResponseTime` in the worst case, so a deployment that needs a ceiling on the request as a whole should impose it with its own HTTP server timeout or by cancelling the context it passes in. That remains the consumer's call, because only the consumer knows what its callers will wait for.
 
 A request may also step into at most `MaxTrustChainDepth` × `MaxEntitiesTraversed` entities. One entity is stepped into many times when several paths lead to it, and the step bound is the backstop for a graph that defeats the memory of dead ends described below.
 

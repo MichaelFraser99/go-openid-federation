@@ -250,6 +250,8 @@ When the library resolves a trust chain, it follows federation endpoints derived
 | Limit | Default | Applies to |
 |---|---|---|
 | `Configuration.MaxPeerResponseBytes` | `model.DefaultMaxPeerResponseBytes`, 1 MiB | The body of any response fetched from a peer |
+| `Configuration.MaxRequestPeerBytes` | `model.DefaultMaxRequestPeerBytes`, 64 MiB | An estimate of the memory one request may hold in peer statements: twice the signed length of each, plus `model.DecodedValueCost` for every JSON value it decoded to |
+| `Configuration.MaxPeerResponseTime` | `model.DefaultMaxPeerResponseTime`, 10s | How long any one peer may take to answer, including its body |
 | `Configuration.MaxTrustChainDepth` | `model.DefaultMaxTrustChainDepth`, 10 | Entities on one path from the leaf to a trust anchor |
 | `Configuration.MaxEntitiesTraversed` | `model.DefaultMaxEntitiesTraversed`, 1024 | Entity configurations one request may fetch while walking `authority_hints`, across every chain it builds |
 | `Configuration.MaxTrustMarkIssuers` | `model.DefaultMaxTrustMarkIssuers` | Distinct trust mark issuers resolved for one subject |
@@ -258,9 +260,25 @@ When the library resolves a trust chain, it follows federation endpoints derived
 >
 > - `MaxTrustChainDepth` was unlimited by default and described as bounding the entities traversed. It bounds the length of one chain, which is a different thing, and it now defaults to 10. A federation whose legitimate chains are longer must raise it, or `/resolve` refuses every subject whose chain is longer.
 > - `MaxEntitiesTraversed` is new and defaults to 1024.
+> - `MaxRequestPeerBytes` is new and defaults to 64 MiB. It bounds what one request holds, which the other two did not: a peer may split its bytes across responses however it likes, and `MaxEntitiesTraversed` × `MaxPeerResponseBytes` set a ceiling of 1 GiB per request. Size it against the memory available to the process, not against the number of peers. Note it charges an estimate of retained memory rather than the bytes on the wire, so budget several times the size of your statements — see below for the formula and what a real statement costs.
+> - `MaxPeerResponseTime` is new and defaults to 10 seconds. Nothing bounded a peer in time before: `Server.Configure` installs `http.DefaultClient` when no `HttpClient` is given, and that has no timeout, so a peer that accepted a connection and never answered held the request open. The deadline is derived from the request context rather than set on a client, so it applies to the client you supply as well as to the fallback, and it never outlives your own cancellation.
 > - Zero no longer means unlimited for either: it selects the default. Set a large value to restore the old behaviour.
 > - A consumer who already set `MaxTrustChainDepth` themselves gets the same 404 as before, but with a description naming the bound rather than one that reads as an unknown trust anchor.
 > - A trust mark whose issuer cannot be walked within the bounds is omitted from the response, as any unverifiable mark is. Section 8.3 requires a response to carry only verified trust marks, so the resolve still succeeds.
+
+`MaxRequestPeerBytes` and `MaxPeerResponseTime` answer different questions from the other bounds, which is why they are separate knobs rather than derived ones. The entity and step bounds say how many peers may be contacted; the byte budget estimates how much memory the answers occupy, and the deadline says how long any one peer may take. An operator sizing a container cares about the second, and an operator sizing a request timeout cares about the third, and neither is computable from the counts.
+
+The byte budget is charged as each statement is retrieved and refuses the next fetch once it is spent, so a request overshoots by at most one response. Entity configurations and subordinate statements are both charged, because a request retains both: configurations in the per-request cache, subordinate statements in the chain itself until the response is written.
+
+Each statement is charged twice its signed length, plus `model.DecodedValueCost` for every JSON value it decoded to. The signed length counts twice because a request keeps both the signed text and the parsed statement, and the parsed form holds the same strings again. The per-value cost exists because the parsed form of many small values costs far more than its text: every element of a `map[string]any` is an interface value, and each map and slice carries a header. `model.DecodedValueCost` is measured rather than estimated, at 256 bytes, which is rounded up from the most expensive shape a peer can choose.
+
+So the budget is not a count of bytes on the wire, and an operator raising it is sizing retained memory. The multiple depends on how a statement divides its bytes between values. Measured against this repository's own fixtures, a 1,930-byte leaf configuration holding 47 values is charged 15,892 bytes, which is 8.2 times its signed size; a 750-byte trust anchor configuration holding 16 values is charged 5,596 bytes, or 7.5 times. A larger statement carrying more string content costs a lower multiple, because its bytes sit in values rather than in the count of them. At 1,024 configurations of the leaf's shape the default is about a quarter spent, so it remains generous, but the margin is a small multiple rather than a large one.
+
+A statement padded to defeat the bound is charged far more than its size, which is the point of the per-value cost: a body of `[0,0,0,…]` whose parsed form retains over fifty times its own length is charged for the values, not the bytes.
+
+The deadline bounds one peer, not the whole walk, and the worst case is long. A request may fetch `MaxEntitiesTraversed` entity configurations. Subordinate statements are not counted against that bound, so it may fetch a further `(1 + MaxTrustMarkIssuers)` × `(MaxTrustChainDepth - 1)` = 585 peers at the defaults. Every one of those may take the full deadline. So a graph of slow-but-responsive peers can hold one request for about `(1024 + 585)` × 10s, which is four and a half hours.
+
+**Impose a ceiling on the request as a whole.** At these defaults that is not optional. Set a timeout on your own HTTP server, or cancel the context you pass in. The library cannot choose the value for you, because only you know what your callers will wait for.
 
 A request may also step into at most `MaxTrustChainDepth` × `MaxEntitiesTraversed` entities. One entity is stepped into many times when several paths lead to it, and the step bound is the backstop for a graph that defeats the memory of dead ends described below.
 

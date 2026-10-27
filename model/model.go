@@ -41,6 +41,9 @@ type Configuration struct {
 	MaxEntitiesTraversed int
 
 	MaxPeerResponseBytes int64
+	MaxRequestPeerBytes  int64
+
+	MaxPeerResponseTime time.Duration
 
 	MaxTrustMarkIssuers int
 
@@ -60,6 +63,20 @@ func (cfg *Configuration) TrustAnchorKeys(anchor EntityIdentifier) (josemodel.Jw
 }
 
 const DefaultMaxPeerResponseBytes int64 = 1 << 20
+
+const DefaultMaxRequestPeerBytes int64 = 64 << 20
+
+const DecodedValueCost = 256
+
+func StatementCost(signed string, statement *EntityStatement) int64 {
+	cost := 2 * int64(len(signed))
+	if statement != nil {
+		cost += int64(statement.DecodedValues()) * DecodedValueCost
+	}
+	return cost
+}
+
+const DefaultMaxPeerResponseTime = 10 * time.Second
 
 const (
 	DefaultEntityConfigurationLifetime  = time.Hour
@@ -92,6 +109,20 @@ func (cfg *Configuration) TrustMarkIssuerLimit() int {
 		return cfg.MaxTrustMarkIssuers
 	}
 	return DefaultMaxTrustMarkIssuers
+}
+
+func (cfg *Configuration) PeerResponseTimeLimit() time.Duration {
+	if cfg.MaxPeerResponseTime > 0 {
+		return cfg.MaxPeerResponseTime
+	}
+	return DefaultMaxPeerResponseTime
+}
+
+func (cfg *Configuration) RequestPeerBytesLimit() int64 {
+	if cfg.MaxRequestPeerBytes > 0 {
+		return cfg.MaxRequestPeerBytes
+	}
+	return DefaultMaxRequestPeerBytes
 }
 
 func (cfg *Configuration) PeerResponseLimit() int64 {
@@ -350,6 +381,31 @@ type EntityStatement struct { //todo: allow for additional claims to be set - th
 	TrustMarkIssuers map[string][]EntityIdentifier `json:"trust_mark_issuers,omitempty"`
 	TrustMarkOwners  map[string]TrustMarkOwner     `json:"trust_mark_owners,omitempty"`
 	SourceEndpoint   *string                       `json:"source_endpoint,omitempty"`
+
+	decodedValues int
+}
+
+func (e EntityStatement) DecodedValues() int {
+	return e.decodedValues
+}
+
+func CountDecodedValues(value any) int {
+	switch typed := value.(type) {
+	case map[string]any:
+		count := 1
+		for _, element := range typed {
+			count += CountDecodedValues(element)
+		}
+		return count
+	case []any:
+		count := 1
+		for _, element := range typed {
+			count += CountDecodedValues(element)
+		}
+		return count
+	default:
+		return 1
+	}
 }
 
 type TrustMarkOwner struct {
@@ -515,6 +571,7 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
+	e.decodedValues = CountDecodedValues(jsonMap)
 
 	if iss, ok := jsonMap["iss"]; !ok {
 		return fmt.Errorf("missing required body claim 'iss'")

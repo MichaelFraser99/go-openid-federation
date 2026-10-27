@@ -40,6 +40,11 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 	}
 
 	for i := 0; i < len(route)-1; i++ {
+		if held := cache.PeerBytes(); held > cfg.RequestPeerBytesLimit() {
+			cfg.LogError(ctx, "reached the maximum bytes of peer statements one request may hold", slog.String("subject", string(route[i].Sub)), slog.Int64("held", held), slog.Int64("max_bytes", cfg.RequestPeerBytesLimit()))
+			return nil, nil, nil, model.NewLimitReachedError("the resolver reached the maximum bytes of peer statements it may hold for one request")
+		}
+
 		signedResponse, subordinateStatement, err := subordinate_statement.Retrieve(ctx, cfg, route[i+1], route[i].Sub)
 		if err != nil {
 			cfg.LogInfo(ctx, "subordinate statement unusable", slog.String("issuer", string(route[i+1].Sub)), slog.String("subject", string(route[i].Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
@@ -48,6 +53,7 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 			}
 			return nil, nil, nil, subordinateStatementFailure(err)
 		}
+		cache.RecordPeerBytes(model.StatementCost(*signedResponse, subordinateStatement))
 		trustChain = append(trustChain, *signedResponse)
 		parsedTrustChain = append(parsedTrustChain, *subordinateStatement)
 	}

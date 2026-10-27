@@ -17,6 +17,7 @@ type Cache struct {
 	deadEnds  map[DeadEnd]struct{}
 	traversed int
 	fetched   int
+	peerBytes int64
 }
 
 func New() *Cache {
@@ -57,6 +58,7 @@ func (c *Cache) RecordDeadEnd(key DeadEnd) {
 		c.deadEnds = map[DeadEnd]struct{}{}
 	}
 	c.deadEnds[key] = struct{}{}
+	delete(c.entries, key.Subject)
 }
 
 func (c *Cache) DeadEnds() int {
@@ -94,4 +96,19 @@ func (c *Cache) RecordFetch() int {
 	}
 	c.fetched++
 	return c.fetched
+}
+
+func (c *Cache) PeerBytes() int64 {
+	if c == nil {
+		return 0
+	}
+	return c.peerBytes
+}
+
+func (c *Cache) RecordPeerBytes(n int64) int64 {
+	if c == nil {
+		return 0
+	}
+	c.peerBytes += n
+	return c.peerBytes
 }

@@ -33,9 +33,17 @@ func Retrieve(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 		return nil, nil, model.NewLimitReachedError("the resolver reached the maximum number of entity configurations it may fetch for one request")
 	}
 
+	if held := cache.PeerBytes(); held > cfg.RequestPeerBytesLimit() {
+		cfg.LogError(ctx, "reached the maximum bytes of peer statements one request may hold", slog.String("subject", string(entityIdentifier)), slog.Int64("held", held), slog.Int64("max_bytes", cfg.RequestPeerBytesLimit()))
+		return nil, nil, model.NewLimitReachedError("the resolver reached the maximum bytes of peer statements it may hold for one request")
+	}
+
 	signed, statement, err := fetch(ctx, cfg, entityIdentifier)
 	if err != nil {
 		return nil, nil, err
+	}
+	if signed != nil {
+		cache.RecordPeerBytes(int64(len(*signed)))
 	}
 	cache.Store(entityIdentifier, signed, statement)
 	return signed, statement, nil

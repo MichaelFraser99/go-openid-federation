@@ -55,7 +55,10 @@ func fetch(ctx context.Context, cfg model.Configuration, entityIdentifier model.
 	}
 
 	cfg.LogInfo(ctx, "retrieving entity configuration", slog.String("subject", string(entityIdentifier)))
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s.well-known/openid-federation", strings.TrimSuffix(string(entityIdentifier), "/")+"/"), nil)
+	fetchCtx, cancel := context.WithTimeout(ctx, cfg.PeerResponseTimeLimit())
+	defer cancel()
+
+	request, err := http.NewRequestWithContext(fetchCtx, http.MethodGet, fmt.Sprintf("%s.well-known/openid-federation", strings.TrimSuffix(string(entityIdentifier), "/")+"/"), nil)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -43,6 +43,8 @@ type Configuration struct {
 	MaxPeerResponseBytes int64
 	MaxRequestPeerBytes  int64
 
+	MaxPeerResponseTime time.Duration
+
 	MaxTrustMarkIssuers int
 
 	TrustAnchors map[EntityIdentifier]josemodel.Jwks
@@ -63,6 +65,8 @@ func (cfg *Configuration) TrustAnchorKeys(anchor EntityIdentifier) (josemodel.Jw
 const DefaultMaxPeerResponseBytes int64 = 1 << 20
 
 const DefaultMaxRequestPeerBytes int64 = 64 << 20
+
+const DefaultMaxPeerResponseTime = 10 * time.Second
 
 const (
 	DefaultEntityConfigurationLifetime  = time.Hour
@@ -95,6 +99,13 @@ func (cfg *Configuration) TrustMarkIssuerLimit() int {
 		return cfg.MaxTrustMarkIssuers
 	}
 	return DefaultMaxTrustMarkIssuers
+}
+
+func (cfg *Configuration) PeerResponseTimeLimit() time.Duration {
+	if cfg.MaxPeerResponseTime > 0 {
+		return cfg.MaxPeerResponseTime
+	}
+	return DefaultMaxPeerResponseTime
 }
 
 func (cfg *Configuration) RequestPeerBytesLimit() int64 {

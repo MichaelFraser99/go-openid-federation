@@ -35,7 +35,10 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 		return nil, nil, model.NewInvalidTrustChainError("issuer entity statement does not list a federation fetch endpoint within it's federation metadata")
 	}
 
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%ssub=%s", func() string {
+	fetchCtx, cancel := context.WithTimeout(ctx, cfg.PeerResponseTimeLimit())
+	defer cancel()
+
+	request, err := http.NewRequestWithContext(fetchCtx, http.MethodGet, fmt.Sprintf("%ssub=%s", func() string {
 		trimmedString := strings.TrimSuffix(fetchEndpoint, "/")
 		if strings.Contains(trimmedString, "?") {
 			return trimmedString + "&"

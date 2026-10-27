@@ -58,6 +58,7 @@ func (c *Cache) RecordDeadEnd(key DeadEnd) {
 		c.deadEnds = map[DeadEnd]struct{}{}
 	}
 	c.deadEnds[key] = struct{}{}
+	delete(c.entries, key.Subject)
 }
 
 func (c *Cache) DeadEnds() int {

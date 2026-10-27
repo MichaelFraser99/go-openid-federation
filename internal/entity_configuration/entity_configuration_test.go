@@ -73,7 +73,7 @@ func TestRetrieve(t *testing.T) {
 				if err != nil {
 					t.Fatalf("expected no error parsing signed response, got %q", err.Error())
 				}
-				if diff := cmp.Diff(*result, *parsedSignedResult, cmpopts.SortSlices(func(x, y any) bool {
+				if diff := cmp.Diff(*result, *parsedSignedResult, cmpopts.IgnoreUnexported(model.EntityStatement{}), cmpopts.SortSlices(func(x, y any) bool {
 					if sx, ok := x.(string); ok {
 						if sy, ok := y.(string); ok {
 							return sx < sy

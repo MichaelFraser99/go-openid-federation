@@ -54,6 +54,7 @@ func TestRetrieve_APeerThatNeverAnswersDoesNotHoldTheRequest(t *testing.T) {
 			}
 
 			done := make(chan error, 1)
+			started := time.Now()
 			go func() {
 				_, _, err := Retrieve(t.Context(), cfg, model.EntityIdentifier(server.URL), nil)
 				done <- err
@@ -61,6 +62,9 @@ func TestRetrieve_APeerThatNeverAnswersDoesNotHoldTheRequest(t *testing.T) {
 
 			select {
 			case err := <-done:
+				if elapsed := time.Since(started); elapsed >= model.DefaultMaxPeerResponseTime/2 {
+					t.Errorf("[%s] a configured 50ms deadline took %v, which is within reach of the %v default, so the configured value is not the one applied", tc.reference, elapsed, model.DefaultMaxPeerResponseTime)
+				}
 				if err == nil {
 					t.Fatalf("[%s] a peer that never answers must not produce a statement", tc.reference)
 				}

@@ -43,7 +43,7 @@ func Retrieve(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 		return nil, nil, err
 	}
 	if signed != nil {
-		cache.RecordPeerBytes(int64(len(*signed)))
+		cache.RecordPeerBytes(model.StatementCost(*signed, statement))
 	}
 	cache.Store(entityIdentifier, signed, statement)
 	return signed, statement, nil

@@ -428,7 +428,7 @@ func TestEntityStatement_UnmarshalJSON(t *testing.T) {
 				return
 			}
 
-			if diff := cmp.Diff(tt.expected, got, cmpopts.IgnoreFields(josemodel.Jwks{}, "Opts")); diff != "" {
+			if diff := cmp.Diff(tt.expected, got, cmpopts.IgnoreUnexported(EntityStatement{}), cmpopts.IgnoreFields(josemodel.Jwks{}, "Opts")); diff != "" {
 				t.Errorf("EntityStatement.UnmarshalJSON() mismatch (-want +got):\n%s", diff)
 			}
 		})

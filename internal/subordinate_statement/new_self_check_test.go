@@ -60,23 +60,6 @@ func TestNew_RefusesSubordinateStatementsItsOwnParserRejects(t *testing.T) {
 	}
 }
 
-func TestNew_RefusesASubordinateStatementAboutItself(t *testing.T) {
-	cfg := model.ServerConfiguration{
-		EntityIdentifier: "https://ta.example.com",
-		IntermediateConfiguration: &model.IntermediateConfiguration{
-			SubordinateStatementLifetime: time.Hour,
-		},
-	}
-
-	token, err := New(t.Context(), "https://ta.example.com", selfCheckRetriever(t), cfg)
-	if err == nil {
-		t.Fatalf("[3.2 step 6] expected issuance to be refused, got a signed statement %v", token)
-	}
-	if !strings.Contains(err.Error(), "entity configuration") {
-		t.Fatalf("[3.2 step 6] expected the refusal to name the entity configuration rule, got %v", err)
-	}
-}
-
 func TestNew_RefusesANegativeSubordinateLifetime(t *testing.T) {
 	cfg := model.ServerConfiguration{
 		EntityIdentifier: "https://ta.example.com",

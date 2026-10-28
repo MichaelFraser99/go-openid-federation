@@ -138,7 +138,25 @@ Each endpoint accepts the one method in the table. Any other method answers `405
 
 | Parameter | Required | Notes |
 | --- | --- | --- |
-| `sub` | yes | Must be a valid entity identifier, and must not be the server's own identifier |
+| `sub` | yes | Must be a valid entity identifier, and must not name the server's own identifier |
+
+Naming the server's own identifier answers `invalid_request`, as section 8.1.2 recommends.
+
+**This one guard refuses more than section 16 calls equal, on purpose.** Section 16 requires identifier comparison to be a Unicode code point to code point equality, with no normalisation. Two spellings that differ at all are therefore two identifiers. But a guard that stops a peer obtaining a statement about the issuing entity must not be escapable by respelling the request, and a subordinate store often resolves a respelling to the same row — a retriever that trims a trailing slash, for instance. So `sub` is compared against the server's identifier in a canonical form, and these spellings are **refused** rather than served:
+
+| Refused | Why |
+| --- | --- |
+| the host in a different case | RFC 3986 section 6.2.2.1 makes host case equivalent |
+| a trailing dot on the host | the same host in DNS |
+| an explicit `:443`, with or without leading zeros | RFC 3986 section 6.2.3 removes a default port |
+| a percent encoded unreserved character, such as `/t%61` for `/ta` | RFC 3986 section 6.2.2.2 makes them equivalent |
+| a trailing slash, a doubled slash, or dot segments resolving to the same path | RFC 3986 section 6.2.2.3 |
+
+Refusing extra spellings never makes the server accept something it should not, which is why the departure from section 16 is safe here. It applies to **this guard only**. Identifier comparison everywhere else, policy attribution included, remains exact.
+
+Two things it deliberately does not do. A percent encoded **reserved** character stays encoded, because `%2F` is not a `/`. And the path is not case folded, because RFC 3986 makes no such equivalence — a store whose collation is case insensitive could still resolve `/TA` to its own `/ta` row, so if your store behaves that way, keep the server's own identifier out of it.
+
+> **Breaking change.** A `sub` that spells the server's own identifier differently was previously served a subordinate statement whenever the subordinate store resolved that spelling. Those requests now answer `invalid_request`.
 
 **`/list`**
 
@@ -340,7 +358,7 @@ The text of an unclassified retriever error is never sent to the caller, on any 
 
 `ExtendedListingRetriever` is the exception, in two ways. An unknown subject there is an empty listing rather than an error, so return an empty `ImmediateSubordinateEntities`. And a nil response is **not** treated as not found: it answers `server_error`, because a listing retriever that returns nothing at all is a misconfiguration rather than a statement about any one subject.
 
-An entity your `ExtendedListingRetriever` lists must also be resolvable through `Retriever`, or a request for the `subordinate_statement` claim returns that entity without one. Table 4 of the draft makes the attribute a MUST when the claim is asked for and does not qualify it, so this is a deliberate deviation: a listed entity the server cannot sign for is an inconsistency between two of your retrievers rather than a fault in the request, and failing the whole page for one entity is worse than omitting its statement. Keep the two retrievers consistent and the question does not arise. Any other failure while signing a statement is classified as usual, so a `model.Err*` sentinel from your `Retriever` chooses the status a peer sees.
+An entity your `ExtendedListingRetriever` lists must also be resolvable through `Retriever`, or a request for the `subordinate_statement` claim returns that entity without one. Table 4 of the draft makes the attribute a MUST when the claim is asked for and does not qualify it, so this is a deliberate deviation: a listed entity the server cannot sign for is an inconsistency between two of your retrievers rather than a fault in the request, and failing the whole page for one entity is worse than omitting its statement. Keep the two retrievers consistent and the question does not arise. Any other failure while signing a statement is classified as usual, so a `model.Err*` sentinel from your `Retriever` chooses the status a peer sees. A listing that includes the server's **own** identifier is the same case: no entity issues a subordinate statement about itself, so that entry is listed without one. It previously answered `server_error` for the whole page.
 
 Entries in `ImmediateSubordinateEntities` are `map[string]any`, and each one must carry an `id` whose value is a `string` holding an Entity Identifier. A store that round-trips through JSON yields `float64` for a numeric value, so an `id` that looks like a number arrives as the wrong type and the whole listing is refused with a `server_error`.
 

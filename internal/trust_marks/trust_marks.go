@@ -210,6 +210,10 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 		cfg.LogError(ctx, "trust mark is missing a usable 'kid' header", slog.Any("kid", headMap["kid"]))
 		return nil, fmt.Errorf("trust mark header claim 'kid' must be a non-empty string")
 	}
+	if err := entity_statement.VerifyNoCriticalHeader(headMap); err != nil {
+		cfg.LogError(ctx, "trust mark header carries a critical extension", slog.String("error", err.Error()))
+		return nil, fmt.Errorf("the trust mark's JWT header is refused: %s", err.Error())
+	}
 
 	bodyBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {

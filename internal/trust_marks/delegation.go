@@ -112,6 +112,10 @@ func verifyDelegation(ctx context.Context, cfg model.Configuration, mark model.T
 		cfg.LogError(ctx, "failed to unmarshal the delegation header", slog.String("error", model.TruncateForResponse(err.Error())))
 		return fmt.Errorf("the trust mark's delegation has a header that is not a JSON object")
 	}
+	if err := entity_statement.VerifyNoCriticalHeader(head); err != nil {
+		cfg.LogError(ctx, "the delegation header carries a critical extension", slog.String("error", err.Error()))
+		return fmt.Errorf("the trust mark's delegation header is refused: %s", err.Error())
+	}
 
 	typ, ok := head["typ"].(string)
 	if !ok || !namesDelegationType(typ) {

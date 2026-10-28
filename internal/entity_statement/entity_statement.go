@@ -49,26 +49,30 @@ func ValidateStatementHeader(headMap map[string]any) error {
 		return fmt.Errorf("entity statements must be signed, the 'alg' header must not be 'none'")
 	}
 
-	if crit, present := headMap["crit"]; present {
-		entries, ok := crit.([]any)
+	return VerifyNoCriticalHeader(headMap)
+}
+
+func VerifyNoCriticalHeader(headMap map[string]any) error {
+	crit, present := headMap["crit"]
+	if !present {
+		return nil
+	}
+	entries, ok := crit.([]any)
+	if !ok {
+		return fmt.Errorf("the 'crit' header must be an array of strings")
+	}
+	if len(entries) == 0 {
+		return fmt.Errorf("the 'crit' header must not be the empty array")
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		name, ok := entry.(string)
 		if !ok {
 			return fmt.Errorf("the 'crit' header must be an array of strings")
 		}
-		if len(entries) == 0 {
-			return fmt.Errorf("the 'crit' header must not be the empty array")
-		}
-		names := make([]string, 0, len(entries))
-		for _, entry := range entries {
-			name, ok := entry.(string)
-			if !ok {
-				return fmt.Errorf("the 'crit' header must be an array of strings")
-			}
-			names = append(names, name)
-		}
-		return fmt.Errorf("the 'crit' header lists %v, which this implementation does not understand", names)
+		names = append(names, name)
 	}
-
-	return nil
+	return fmt.Errorf("the 'crit' header lists %s, which this implementation does not understand", truncateHeaderValue(fmt.Sprint(names)))
 }
 
 func VerifyIssuedSignature(token, kid, alg string, signer crypto.Signer) error {

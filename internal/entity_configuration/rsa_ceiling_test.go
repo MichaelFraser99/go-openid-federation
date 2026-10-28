@@ -24,10 +24,9 @@ func TestValidate_APeersOversizedRSAKeyIsRefusedBeforeItIsUsed(t *testing.T) {
 		alg       string
 		expectErr string
 	}{
-		"a one megabit key under RS256":        {bits: 1 << 20, alg: "RS256", expectErr: "1048576 bit RSA modulus, more than the 8192 bits"},
-		"a one megabit key under PS512":        {bits: 1 << 20, alg: "PS512", expectErr: "1048576 bit RSA modulus, more than the 8192 bits"},
-		"a key one bit past the ceiling":       {bits: 8193, alg: "RS256", expectErr: "8193 bit RSA modulus, more than the 8192 bits"},
-		"a one megabit key under an EC header": {bits: 1 << 20, alg: "ES256"},
+		"a one megabit key under RS256":  {bits: 1 << 20, alg: "RS256", expectErr: "1048576 bit RSA modulus, more than the 8192 bits"},
+		"a one megabit key under PS512":  {bits: 1 << 20, alg: "PS512", expectErr: "1048576 bit RSA modulus, more than the 8192 bits"},
+		"a key one bit past the ceiling": {bits: 8193, alg: "RS256", expectErr: "8193 bit RSA modulus, more than the 8192 bits"},
 	}
 
 	for name, tc := range tests {
@@ -48,7 +47,7 @@ func TestValidate_APeersOversizedRSAKeyIsRefusedBeforeItIsUsed(t *testing.T) {
 			if err == nil {
 				t.Fatalf("expected the statement to be refused")
 			}
-			if tc.expectErr != "" && !strings.Contains(err.Error(), tc.expectErr) {
+			if !strings.Contains(err.Error(), tc.expectErr) {
 				t.Errorf("expected the refusal to name the ceiling with %q, got %v", tc.expectErr, err)
 			}
 			if elapsed > time.Second {

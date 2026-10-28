@@ -54,16 +54,20 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 
 	response, err := cfg.HttpClient.Do(request)
 	if err != nil {
-		cfg.LogInfo(ctx, "failed to reach the issuer's federation fetch endpoint", slog.String("issuer", string(issuer.Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, nil, fmt.Errorf("%w%s: %w", model.ErrTemporarilyUnavailable, "this server did not complete the request", ctxErr)
+		if ended := fetchEnded(ctx, fetchCtx, cfg, issuer); ended != nil {
+			return nil, nil, ended
 		}
+		cfg.LogInfo(ctx, "failed to reach the issuer's federation fetch endpoint", slog.String("issuer", string(issuer.Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
 		if classified := model.ReclassifyWithDescription(err, "failed to reach the issuer's federation fetch endpoint"); classified != nil {
 			return nil, nil, classified
 		}
 		return nil, nil, model.NewInvalidTrustChainError("failed to reach the issuer's federation fetch endpoint")
 	}
 	defer response.Body.Close() //nolint:errcheck
+
+	if err := fetchEnded(ctx, fetchCtx, cfg, issuer); err != nil {
+		return nil, nil, err
+	}
 
 	if response.StatusCode != http.StatusOK {
 		cfg.LogInfo(ctx, "non-200 response from the issuer's federation fetch endpoint", slog.String("issuer", string(issuer.Sub)), slog.String("status", model.TruncateForResponse(response.Status)))
@@ -84,13 +88,8 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 		}
 		return nil, nil, model.NewInvalidTrustChainError("failed to read the issuer's federation fetch response body")
 	}
-	if fetchCtx.Err() != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			cfg.LogInfo(ctx, "stopped reading the issuer's federation fetch response because this request ended", slog.String("issuer", string(issuer.Sub)))
-			return nil, nil, fmt.Errorf("%w%s: %w", model.ErrTemporarilyUnavailable, "this server did not complete the request", ctxErr)
-		}
-		cfg.LogInfo(ctx, "the issuer's federation fetch response did not arrive within the peer deadline", slog.String("issuer", string(issuer.Sub)))
-		return nil, nil, model.NewInvalidTrustChainError("the issuer's federation fetch response did not arrive within the peer deadline")
+	if err := fetchEnded(ctx, fetchCtx, cfg, issuer); err != nil {
+		return nil, nil, err
 	}
 	if int64(len(responseBytes)) > limit {
 		cfg.LogInfo(ctx, "the issuer's federation fetch response exceeded the response limit", slog.String("issuer", string(issuer.Sub)), slog.Int64("limit", limit))
@@ -332,4 +331,16 @@ func rawJWKSClaim(statement string) any {
 		return nil
 	}
 	return bodyMap["jwks"]
+}
+
+func fetchEnded(ctx, fetchCtx context.Context, cfg model.Configuration, issuer model.EntityStatement) error {
+	if fetchCtx.Err() == nil {
+		return nil
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		cfg.LogInfo(ctx, "stopped fetching from the issuer's federation fetch endpoint because this request ended", slog.String("issuer", string(issuer.Sub)))
+		return fmt.Errorf("%w%s: %w", model.ErrTemporarilyUnavailable, "this server did not complete the request", ctxErr)
+	}
+	cfg.LogInfo(ctx, "the issuer's federation fetch response did not arrive within the peer deadline", slog.String("issuer", string(issuer.Sub)))
+	return model.NewInvalidTrustChainError("the issuer's federation fetch response did not arrive within the peer deadline")
 }

@@ -39,7 +39,29 @@ func operandSliceFrom(operatorValue any) ([]any, error) {
 	return anySlice, nil
 }
 
+const operandWalkBudget = 100_000
+
+type operandWalk struct {
+	remaining int
+}
+
+func newOperandWalk() *operandWalk {
+	return &operandWalk{remaining: operandWalkBudget}
+}
+
+func (w *operandWalk) step() bool {
+	w.remaining--
+	return w.remaining >= 0
+}
+
 func normaliseOperand(value any) (any, bool) {
+	return newOperandWalk().normalise(value)
+}
+
+func (w *operandWalk) normalise(value any) (any, bool) {
+	if !w.step() {
+		return nil, false
+	}
 	switch typed := value.(type) {
 	case nil, bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
 		return value, true
@@ -59,7 +81,7 @@ func normaliseOperand(value any) (any, bool) {
 		}
 		normalised := make([]any, len(typed))
 		for i, member := range typed {
-			replacement, ok := normaliseOperand(member)
+			replacement, ok := w.normalise(member)
 			if !ok {
 				return nil, false
 			}
@@ -75,7 +97,7 @@ func normaliseOperand(value any) (any, bool) {
 			if !utf8.ValidString(key) {
 				return nil, false
 			}
-			replacement, ok := normaliseOperand(member)
+			replacement, ok := w.normalise(member)
 			if !ok {
 				return nil, false
 			}
@@ -101,14 +123,15 @@ func canonicalOperandKey(value any) (string, bool) {
 	return string(raw), true
 }
 
-const operandWalkLimit = 100
-
 func operandCanMatch(value any) bool {
-	return operandValueCanMatch(reflect.ValueOf(value), 0)
+	return newOperandWalk().canMatch(reflect.ValueOf(value))
 }
 
-func operandValueCanMatch(value reflect.Value, depth int) bool {
-	if depth > operandWalkLimit {
+func (w *operandWalk) canMatch(value reflect.Value) bool {
+	if value.Kind() == reflect.Interface && !value.IsNil() {
+		return w.canMatch(value.Elem())
+	}
+	if !w.step() {
 		return false
 	}
 	switch value.Kind() {
@@ -121,22 +144,22 @@ func operandValueCanMatch(value reflect.Value, depth int) bool {
 		if value.IsNil() {
 			return true
 		}
-		return operandValueCanMatch(value.Elem(), depth+1)
+		return w.canMatch(value.Elem())
 	case reflect.Slice, reflect.Array:
 		for i := range value.Len() {
-			if !operandValueCanMatch(value.Index(i), depth+1) {
+			if !w.canMatch(value.Index(i)) {
 				return false
 			}
 		}
 	case reflect.Map:
 		for iter := value.MapRange(); iter.Next(); {
-			if !operandValueCanMatch(iter.Key(), depth+1) || !operandValueCanMatch(iter.Value(), depth+1) {
+			if !w.canMatch(iter.Key()) || !w.canMatch(iter.Value()) {
 				return false
 			}
 		}
 	case reflect.Struct:
 		for i := range value.NumField() {
-			if !operandValueCanMatch(value.Field(i), depth+1) {
+			if !w.canMatch(value.Field(i)) {
 				return false
 			}
 		}
@@ -144,6 +167,133 @@ func operandValueCanMatch(value reflect.Value, depth int) bool {
 		return value.IsNil()
 	}
 	return true
+}
+
+func operandHash(value any) uint64 {
+	hash, ok := newOperandWalk().hash(reflect.ValueOf(value))
+	if !ok {
+		return 0
+	}
+	return hash
+}
+
+func mixOperandHash(hash, value uint64) uint64 {
+	hash ^= value
+	hash *= 1099511628211
+	return hash
+}
+
+func mixOperandHashString(hash uint64, value string) uint64 {
+	for i := range len(value) {
+		hash = mixOperandHash(hash, uint64(value[i]))
+	}
+	return mixOperandHash(hash, uint64(len(value)))
+}
+
+func operandFloatBits(value float64) uint64 {
+	if value == 0 {
+		value = 0
+	}
+	return math.Float64bits(value)
+}
+
+func (w *operandWalk) hash(value reflect.Value) (uint64, bool) {
+	if value.Kind() == reflect.Interface && !value.IsNil() {
+		return w.hash(value.Elem())
+	}
+	if !w.step() {
+		return 0, false
+	}
+	hash := uint64(14695981039346656037)
+	if !value.IsValid() {
+		return hash, true
+	}
+	hash = mixOperandHashString(hash, value.Type().String())
+	switch value.Kind() {
+	case reflect.Bool:
+		if value.Bool() {
+			hash = mixOperandHash(hash, 1)
+		}
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		hash = mixOperandHash(hash, uint64(value.Int()))
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		hash = mixOperandHash(hash, value.Uint())
+	case reflect.Float32, reflect.Float64:
+		hash = mixOperandHash(hash, operandFloatBits(value.Float()))
+	case reflect.Complex64, reflect.Complex128:
+		held := value.Complex()
+		hash = mixOperandHash(mixOperandHash(hash, operandFloatBits(real(held))), operandFloatBits(imag(held)))
+	case reflect.String:
+		hash = mixOperandHashString(hash, value.String())
+	case reflect.Interface, reflect.Pointer:
+		if value.IsNil() {
+			return hash, true
+		}
+		inner, ok := w.hash(value.Elem())
+		if !ok {
+			return 0, false
+		}
+		hash = mixOperandHash(hash, inner)
+	case reflect.Slice, reflect.Array:
+		if value.Kind() == reflect.Slice && value.IsNil() {
+			return hash, true
+		}
+		hash = mixOperandHash(hash, uint64(value.Len()))
+		for i := range value.Len() {
+			inner, ok := w.hash(value.Index(i))
+			if !ok {
+				return 0, false
+			}
+			hash = mixOperandHash(hash, inner)
+		}
+	case reflect.Map:
+		if value.IsNil() {
+			return hash, true
+		}
+		var entries uint64
+		for iter := value.MapRange(); iter.Next(); {
+			key, ok := w.hash(iter.Key())
+			if !ok {
+				return 0, false
+			}
+			member, ok := w.hash(iter.Value())
+			if !ok {
+				return 0, false
+			}
+			entries += mixOperandHash(mixOperandHash(14695981039346656037, key), member)
+		}
+		hash = mixOperandHash(mixOperandHash(hash, uint64(value.Len())), entries)
+	case reflect.Struct:
+		for i := range value.NumField() {
+			inner, ok := w.hash(value.Field(i))
+			if !ok {
+				return 0, false
+			}
+			hash = mixOperandHash(hash, inner)
+		}
+	}
+	return hash, true
+}
+
+type unkeyedOperands map[uint64][]any
+
+func (u unkeyedOperands) contains(value any, hash uint64) bool {
+	return slices.ContainsFunc(u[hash], func(candidate any) bool {
+		operandWork.Add(1)
+		return reflect.DeepEqual(candidate, value)
+	})
+}
+
+func (u unkeyedOperands) add(value any, hash uint64) {
+	u[hash] = append(u[hash], value)
+}
+
+func (u unkeyedOperands) count() int {
+	total := 0
+	for _, bucket := range u {
+		total += len(bucket)
+	}
+	return total
 }
 
 func operandsEqual(left, right any) bool {
@@ -163,11 +313,11 @@ func operandsEqual(left, right any) bool {
 
 type operandSet struct {
 	keyed   map[string]struct{}
-	unkeyed []any
+	unkeyed unkeyedOperands
 }
 
 func newOperandSet(values []any) operandSet {
-	set := operandSet{keyed: make(map[string]struct{}, len(values))}
+	set := operandSet{keyed: make(map[string]struct{}, len(values)), unkeyed: unkeyedOperands{}}
 	for _, value := range values {
 		if key, ok := canonicalOperandKey(value); ok {
 			set.keyed[key] = struct{}{}
@@ -176,7 +326,7 @@ func newOperandSet(values []any) operandSet {
 		if !operandCanMatch(value) {
 			continue
 		}
-		set.unkeyed = append(set.unkeyed, value)
+		set.unkeyed.add(value, operandHash(value))
 	}
 	return set
 }
@@ -189,14 +339,11 @@ func (s operandSet) contains(value any) bool {
 	if !operandCanMatch(value) {
 		return false
 	}
-	return slices.ContainsFunc(s.unkeyed, func(candidate any) bool {
-		operandWork.Add(1)
-		return reflect.DeepEqual(candidate, value)
-	})
+	return s.unkeyed.contains(value, operandHash(value))
 }
 
 func (s operandSet) fallbackCount() int {
-	return len(s.unkeyed)
+	return s.unkeyed.count()
 }
 
 func newOperandSetFromReflect(values reflect.Value) operandSet {
@@ -244,11 +391,11 @@ func isSubsetOfOperands(subset, superset []any) bool {
 
 type operandAccumulator struct {
 	keyed   map[string]struct{}
-	unkeyed []any
+	unkeyed unkeyedOperands
 }
 
 func newOperandAccumulator(capacity int) *operandAccumulator {
-	return &operandAccumulator{keyed: make(map[string]struct{}, capacity)}
+	return &operandAccumulator{keyed: make(map[string]struct{}, capacity), unkeyed: unkeyedOperands{}}
 }
 
 func (a *operandAccumulator) add(value any) bool {
@@ -262,12 +409,11 @@ func (a *operandAccumulator) add(value any) bool {
 	if !operandCanMatch(value) {
 		return true
 	}
-	if slices.ContainsFunc(a.unkeyed, func(candidate any) bool {
-		return reflect.DeepEqual(candidate, value)
-	}) {
+	hash := operandHash(value)
+	if a.unkeyed.contains(value, hash) {
 		return false
 	}
-	a.unkeyed = append(a.unkeyed, value)
+	a.unkeyed.add(value, hash)
 	return true
 }
 

@@ -155,7 +155,10 @@ func TestServer_Fetch_DoesNotReflectIssuanceFailureDetail(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to build the signer: %v", err)
 			}
-			subordinateJWK := distinctSubordinateKey(t)
+			subordinateJWK, err := jwk.PublicJwk(working.Public())
+			if err != nil {
+				t.Fatalf("failed to build the public jwk: %v", err)
+			}
 			var signer crypto.Signer = working
 			if tc.refuse != nil {
 				signer = refusingSigner{public: working.Public(), err: tc.refuse}
@@ -166,11 +169,11 @@ func TestServer_Fetch_DoesNotReflectIssuanceFailureDetail(t *testing.T) {
 				SubordinateStatementLifetime: tc.lifetime,
 			}
 			intermediate.AddSubordinate("https://leaf.example.com", &model.SubordinateConfiguration{
-				JWKs: josemodel.Jwks{Keys: []map[string]any{subordinateJWK}},
+				JWKs: josemodel.Jwks{Keys: []map[string]any{*subordinateJWK}},
 			})
 
 			fetchServer := startFetchServer(t, model.ServerConfiguration{
-				SignerConfiguration:       model.SignerConfiguration{Algorithm: "ES256", Signer: signer, KeyID: "server"},
+				SignerConfiguration:       model.SignerConfiguration{Algorithm: "ES256", Signer: signer, KeyID: (*subordinateJWK)["kid"].(string)},
 				IntermediateConfiguration: intermediate,
 			})
 

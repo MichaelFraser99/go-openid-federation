@@ -151,19 +151,17 @@ Naming the server's own identifier answers `invalid_request`, as section 8.1.2 r
 | an explicit `:443`, with or without leading zeros | RFC 3986 section 6.2.3 removes a default port |
 | a percent encoded unreserved character, such as `/t%61` for `/ta` | RFC 3986 section 6.2.2.2 makes them equivalent |
 | a trailing slash, a doubled slash, or dot segments resolving to the same path | RFC 3986 section 6.2.2.3 |
+| the path in a different case, such as `/TA` for `/ta` | not equivalent under RFC 3986, but a store whose collation is case insensitive resolves it to the server's own row |
 
 Refusing extra spellings never makes the server accept something it should not, which is why the departure from section 16 is safe here. It applies to **this guard only**. Identifier comparison everywhere else, policy attribution included, remains exact.
 
-Two things it deliberately does not do. A percent encoded **reserved** character stays encoded, because `%2F` is not a `/`. And the path is not case folded, because RFC 3986 makes no such equivalence.
+A percent encoded **reserved** character stays encoded, because `%2F` is not a `/`.
 
-A second check sits behind that one and does not depend on spelling. After the subordinate store returns a record, the server refuses it with `invalid_subject` if the record holds one of the server's own federation keys. Those are the keys in the configured `EntityConfiguration.JWKs` and the current signing key. Keys are compared by their public values, not by `kid`, and an encoding with leading zero octets matches. This catches a store whose collation is case insensitive and resolves `/TA` onto the server's own `/ta` row. `/extended-list` leaves such an entry out rather than failing the listing.
+Folding path case refuses more than any of the other rows, because RFC 3986 makes paths case sensitive. A genuine subordinate whose identifier differs from the server's own only in path case is refused, which no reasonable deployment does. The alternative is a server that signs a statement about itself whenever its store compares identifiers without regard to case.
 
-Two consequences:
+A subordinate may hold the same federation keys as the server that vouches for it. One operator can run several entities under one signing key, and nothing in the specification forbids it, so the server does not refuse a record for the keys it holds.
 
-- A key the server has rotated away from, and no longer configures, is not in that set. So a record still holding only a retired key is not caught. Keep the server's own identifier out of your subordinate store.
-- A genuine subordinate that shares a federation key with this server is refused too. A subordinate holding its superior's signing key can sign statements as the superior, so vouching for it would mean nothing.
-
-> **Breaking change.** A `sub` that spells the server's own identifier differently was previously served a subordinate statement whenever the subordinate store resolved that spelling. Those requests now answer `invalid_request`. A subordinate whose record holds one of the server's own federation keys, under any spelling, now answers `invalid_subject`.
+> **Breaking change.** A `sub` that spells the server's own identifier differently was previously served a subordinate statement whenever the subordinate store resolved that spelling. Those requests now answer `invalid_request`, including a path that differs from the server's own only in case.
 
 **`/list`**
 

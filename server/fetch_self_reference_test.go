@@ -20,19 +20,6 @@ import (
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
-func distinctSubordinateKey(t *testing.T) map[string]any {
-	t.Helper()
-	signer, err := jws.GetSigner(jwa.ES256, nil)
-	if err != nil {
-		t.Fatalf("expected no error creating signer, got %q", err.Error())
-	}
-	public, err := jwk.PublicJwk(signer.Public())
-	if err != nil {
-		t.Fatalf("expected no error creating public jwk, got %q", err.Error())
-	}
-	return *public
-}
-
 func selfReferenceServer(t *testing.T, own model.EntityIdentifier, setLegacyIss, registerItself, extendedList bool) *httptest.Server {
 	t.Helper()
 	signer, err := jws.GetSigner(jwa.ES256, nil)
@@ -167,7 +154,7 @@ func TestExtendedList_OmitsTheServersOwnEntryRatherThanFailingTheListing(t *test
 
 	intermediate := &model.IntermediateConfiguration{SubordinateCacheTime: 5 * time.Minute}
 	intermediate.AddSubordinate(own, &model.SubordinateConfiguration{JWKs: josemodel.Jwks{Keys: []map[string]any{*public}}})
-	intermediate.AddSubordinate("https://genuine.example.com", &model.SubordinateConfiguration{JWKs: josemodel.Jwks{Keys: []map[string]any{distinctSubordinateKey(t)}}})
+	intermediate.AddSubordinate("https://genuine.example.com", &model.SubordinateConfiguration{JWKs: josemodel.Jwks{Keys: []map[string]any{*public}}})
 
 	srv := NewServer(model.ServerConfiguration{
 		SignerConfiguration: model.SignerConfiguration{
@@ -261,7 +248,7 @@ func TestFetch_RefusesEverySpellingOfItsOwnIdentifier(t *testing.T) {
 
 			intermediate := &model.IntermediateConfiguration{SubordinateCacheTime: 5 * time.Minute}
 			intermediate.AddSubordinate(model.EntityIdentifier(test.asked), &model.SubordinateConfiguration{
-				JWKs: josemodel.Jwks{Keys: []map[string]any{distinctSubordinateKey(t)}},
+				JWKs: josemodel.Jwks{Keys: []map[string]any{*public}},
 			})
 
 			srv := NewServer(model.ServerConfiguration{
@@ -305,10 +292,9 @@ func TestExtendedList_OmitsTheServersOwnEntryUnderAnyEquivalentSpelling(t *testi
 	tests := map[string]struct {
 		own       model.EntityIdentifier
 		respelled string
-		fetchCode string
 	}{
-		"a spelling RFC 3986 makes equivalent":       {own: "https://ta.example.com", respelled: "https://TA.example.com/", fetchCode: "invalid_request"},
-		"a path case a case-insensitive store folds": {own: "https://ta.example.com/ta", respelled: "https://ta.example.com/TA", fetchCode: "invalid_subject"},
+		"a spelling RFC 3986 makes equivalent":       {own: "https://ta.example.com", respelled: "https://TA.example.com/"},
+		"a path case a case-insensitive store folds": {own: "https://ta.example.com/ta", respelled: "https://ta.example.com/TA"},
 	}
 
 	for name, tc := range tests {
@@ -324,7 +310,7 @@ func TestExtendedList_OmitsTheServersOwnEntryUnderAnyEquivalentSpelling(t *testi
 
 			intermediate := &model.IntermediateConfiguration{SubordinateCacheTime: 5 * time.Minute}
 			intermediate.AddSubordinate(model.EntityIdentifier(tc.respelled), &model.SubordinateConfiguration{JWKs: josemodel.Jwks{Keys: []map[string]any{*public}}})
-			intermediate.AddSubordinate("https://genuine.example.com", &model.SubordinateConfiguration{JWKs: josemodel.Jwks{Keys: []map[string]any{distinctSubordinateKey(t)}}})
+			intermediate.AddSubordinate("https://genuine.example.com", &model.SubordinateConfiguration{JWKs: josemodel.Jwks{Keys: []map[string]any{*public}}})
 
 			srv := NewServer(model.ServerConfiguration{
 				SignerConfiguration: model.SignerConfiguration{
@@ -372,7 +358,7 @@ func TestExtendedList_OmitsTheServersOwnEntryUnderAnyEquivalentSpelling(t *testi
 			for _, entry := range listing.ImmediateSubordinateEntities {
 				_, issued := entry["subordinate_statement"]
 				if entry["id"] == tc.respelled && issued {
-					t.Errorf("[8.1.2] the record stored under %q is this server's own, so it must carry no subordinate statement", tc.respelled)
+					t.Errorf("[8.1.2] %q names this server's own entity, so it must carry no subordinate statement", tc.respelled)
 				}
 				if entry["id"] == "https://genuine.example.com" && !issued {
 					t.Error("a genuine subordinate must still get its statement")
@@ -388,8 +374,8 @@ func TestExtendedList_OmitsTheServersOwnEntryUnderAnyEquivalentSpelling(t *testi
 			if err != nil {
 				t.Fatalf("failed to read the response body: %v", err)
 			}
-			if !strings.Contains(string(raw), `"error":"`+tc.fetchCode+`"`) {
-				t.Errorf("[8.1.2] expected /fetch to refuse the server's own record with %s, got %d %s", tc.fetchCode, fetched.StatusCode, raw)
+			if !strings.Contains(string(raw), `"error":"invalid_request"`) {
+				t.Errorf("[8.1.2] expected /fetch to refuse %q as the server's own identifier, got %d %s", tc.respelled, fetched.StatusCode, raw)
 			}
 		})
 	}

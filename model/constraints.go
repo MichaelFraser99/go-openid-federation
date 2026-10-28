@@ -114,6 +114,9 @@ func parseDomainNameConstraints(name string, value any) ([]string, error) {
 	if !ok {
 		return nil, fmt.Errorf("'naming_constraints' member '%s' must be an array of strings", name)
 	}
+	if name == "permitted" && len(entries) == 0 {
+		return nil, fmt.Errorf("'naming_constraints' member 'permitted' must not be empty, because it would permit no entity")
+	}
 	names := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		domain, ok := entry.(string)

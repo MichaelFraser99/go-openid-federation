@@ -46,21 +46,22 @@ func TestResolveMetadata_EnforcesNamingConstraints(t *testing.T) {
 		grandparent map[string]any
 		expectErr   string
 	}{
-		"a domain covering every subordinate":            {grandparent: naming(map[string]any{"permitted": []any{".example.com"}})},
-		"a domain does not cover its own apex":           {grandparent: naming(map[string]any{"permitted": []any{".leaf.example.com", ".intermediate.example.com"}}), expectErr: "https://leaf.example.com is outside the naming constraints"},
-		"a host permits only that host":                  {grandparent: naming(map[string]any{"permitted": []any{"leaf.example.com"}}), expectErr: "https://intermediate.example.com is outside the naming constraints"},
-		"a host does not cover its subdomains":           {grandparent: naming(map[string]any{"permitted": []any{"example.com"}}), expectErr: "is outside the naming constraints"},
-		"two hosts permit both subordinates":             {grandparent: naming(map[string]any{"permitted": []any{"leaf.example.com", "intermediate.example.com"}})},
-		"an excluded intermediate":                       {grandparent: naming(map[string]any{"excluded": []any{"intermediate.example.com"}}), expectErr: "https://intermediate.example.com is outside the naming constraints"},
-		"an excluded subject":                            {grandparent: naming(map[string]any{"excluded": []any{"leaf.example.com"}}), expectErr: "https://leaf.example.com is outside the naming constraints"},
-		"an exclusion wins over a permission":            {grandparent: naming(map[string]any{"permitted": []any{".example.com"}, "excluded": []any{"leaf.example.com"}}), expectErr: "https://leaf.example.com is outside the naming constraints"},
-		"an exclusion matches whatever its case":         {grandparent: naming(map[string]any{"excluded": []any{"LEAF.Example.COM"}}), expectErr: "https://leaf.example.com is outside the naming constraints"},
-		"an exclusion matches with a trailing dot":       {grandparent: naming(map[string]any{"excluded": []any{"leaf.example.com."}}), expectErr: "https://leaf.example.com is outside the naming constraints"},
-		"an empty permitted list permits nothing":        {grandparent: naming(map[string]any{"permitted": []any{}}), expectErr: "is outside the naming constraints"},
-		"an exclusion elsewhere permits everything here": {grandparent: naming(map[string]any{"excluded": []any{".other.org"}})},
-		"the anchor itself is not a subordinate":         {grandparent: naming(map[string]any{"excluded": []any{"ta.example.com"}})},
-		"a constraint covers only the entities below it": {immediate: naming(map[string]any{"permitted": []any{"leaf.example.com"}})},
-		"each constraint is applied independently":       {immediate: naming(map[string]any{"permitted": []any{"leaf.example.com"}}), grandparent: naming(map[string]any{"excluded": []any{"leaf.example.com"}}), expectErr: "https://leaf.example.com is outside the naming constraints set by https://ta.example.com"},
+		"a domain covering every subordinate":             {grandparent: naming(map[string]any{"permitted": []any{".example.com"}})},
+		"a domain does not cover its own apex":            {grandparent: naming(map[string]any{"permitted": []any{".leaf.example.com", ".intermediate.example.com"}}), expectErr: "https://leaf.example.com is outside the naming constraints"},
+		"a host permits only that host":                   {grandparent: naming(map[string]any{"permitted": []any{"leaf.example.com"}}), expectErr: "https://intermediate.example.com is outside the naming constraints"},
+		"a host does not cover its subdomains":            {grandparent: naming(map[string]any{"permitted": []any{"example.com"}}), expectErr: "is outside the naming constraints"},
+		"two hosts permit both subordinates":              {grandparent: naming(map[string]any{"permitted": []any{"leaf.example.com", "intermediate.example.com"}})},
+		"an excluded intermediate":                        {grandparent: naming(map[string]any{"excluded": []any{"intermediate.example.com"}}), expectErr: "https://intermediate.example.com is outside the naming constraints"},
+		"an excluded subject":                             {grandparent: naming(map[string]any{"excluded": []any{"leaf.example.com"}}), expectErr: "https://leaf.example.com is outside the naming constraints"},
+		"an exclusion wins over a permission":             {grandparent: naming(map[string]any{"permitted": []any{".example.com"}, "excluded": []any{"leaf.example.com"}}), expectErr: "https://leaf.example.com is outside the naming constraints"},
+		"an exclusion matches whatever its case":          {grandparent: naming(map[string]any{"excluded": []any{"LEAF.Example.COM"}}), expectErr: "https://leaf.example.com is outside the naming constraints"},
+		"an exclusion matches with a trailing dot":        {grandparent: naming(map[string]any{"excluded": []any{"leaf.example.com."}}), expectErr: "https://leaf.example.com is outside the naming constraints"},
+		"an empty permitted list is refused as malformed": {grandparent: naming(map[string]any{"permitted": []any{}}), expectErr: "'permitted' must not be empty"},
+		"an empty excluded list excludes nothing":         {grandparent: naming(map[string]any{"excluded": []any{}})},
+		"an exclusion elsewhere permits everything here":  {grandparent: naming(map[string]any{"excluded": []any{".other.org"}})},
+		"the anchor itself is not a subordinate":          {grandparent: naming(map[string]any{"excluded": []any{"ta.example.com"}})},
+		"a constraint covers only the entities below it":  {immediate: naming(map[string]any{"permitted": []any{"leaf.example.com"}})},
+		"each constraint is applied independently":        {immediate: naming(map[string]any{"permitted": []any{"leaf.example.com"}}), grandparent: naming(map[string]any{"excluded": []any{"leaf.example.com"}}), expectErr: "https://leaf.example.com is outside the naming constraints set by https://ta.example.com"},
 	}
 
 	for name, tc := range tests {

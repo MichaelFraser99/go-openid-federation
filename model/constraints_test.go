@@ -17,7 +17,8 @@ func TestParseConstraints_HoldsTheClaimToItsSyntax(t *testing.T) {
 		"unknown members are ignored":               {value: map[string]any{"https://example.com/extension": "x", "naming_constraints": map[string]any{"https://example.com/sub": 1}}},
 		"a max_path_length of zero":                 {value: map[string]any{"max_path_length": float64(0)}},
 		"an empty allowed_entity_types":             {value: map[string]any{"allowed_entity_types": []any{}}},
-		"an empty permitted list":                   {value: map[string]any{"naming_constraints": map[string]any{"permitted": []any{}}}},
+		"an empty permitted list":                   {value: map[string]any{"naming_constraints": map[string]any{"permitted": []any{}}}, expectErr: "'permitted' must not be empty"},
+		"an empty excluded list":                    {value: map[string]any{"naming_constraints": map[string]any{"excluded": []any{}}}},
 		"a string":                                  {value: "x", expectErr: "'constraints' claim must be a JSON object"},
 		"an array":                                  {value: []any{float64(1)}, expectErr: "'constraints' claim must be a JSON object"},
 		"null":                                      {value: nil, expectErr: "'constraints' claim must be a JSON object"},
@@ -108,7 +109,7 @@ func TestConstraints_RoundTripKeepsEveryDistinction(t *testing.T) {
 	tests := map[string]map[string]any{
 		"every member":                     {"max_path_length": float64(2), "naming_constraints": map[string]any{"permitted": []any{".example.com"}, "excluded": []any{"east.example.com"}}, "allowed_entity_types": []any{"openid_provider"}},
 		"an empty allowed_entity_types":    {"allowed_entity_types": []any{}},
-		"an empty permitted list":          {"naming_constraints": map[string]any{"permitted": []any{}}},
+		"an empty excluded list":           {"naming_constraints": map[string]any{"excluded": []any{}}},
 		"naming constraints with no lists": {"naming_constraints": map[string]any{}},
 		"no members":                       {},
 	}

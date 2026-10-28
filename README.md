@@ -549,7 +549,9 @@ Everything else compares by `reflect.DeepEqual`, which is exact on Go types and 
 - A string holding bytes that are not valid UTF-8, anywhere in the value, including an object member name. `encoding/json` substitutes U+FFFD rather than failing, so the encoding would lose the distinction.
 - A number with no JSON form. An infinity compares equal to itself. A `NaN` is equal to nothing, not even itself, as in Go and IEEE 754, so each one survives deduplication and satisfies no requirement.
 
-Comparison on that path is a scan, so a policy built in Go from a large number of these values costs more than a policy of JSON values. Published policies hold JSON values by definition, so this affects only a consumer applying a policy it never serialises.
+On that path a set buckets values by a hash that equal values always share, and compares with `reflect.DeepEqual` only within a bucket, so a policy built in Go from many such values is still linear.
+
+A value that refers to itself, or that shares so much structure that walking it would visit more than 100,000 nodes, matches nothing, not even itself, in the same way a `NaN` does. A Go value can do this and a JSON value cannot: a decoded statement holds at most `MaxStatementValues` values, 10,000 by default. If you raise `MaxStatementValues` above 100,000, a single operand larger than that from a peer matches nothing either, so two equal operands of that size conflict. Earlier releases recursed until the stack overflowed on a self-referencing value, which is fatal to the process and cannot be recovered.
 
 All seven operators from the specification are implemented: `value`, `add`, `default`, `one_of`, `subset_of`, `superset_of` and `essential`.
 

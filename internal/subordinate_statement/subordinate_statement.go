@@ -10,10 +10,12 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/MichaelFraser99/go-jose/jwa"
+	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
@@ -212,6 +214,16 @@ func validate(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 
 // todo: check this conforms to the errors listed in openid federation (spoiler alert - it doesn't)
 // New takes a given subject Entity Identifier, set of authority hint Entity Identifiers, populated Entity Statement, and key material (with associated key ID and algorithm) and produces a signed Entity Configuration
+func ownFederationKeys(configuration model.ServerConfiguration) []map[string]any {
+	keys := slices.Clone(configuration.EntityConfiguration.JWKs.Keys)
+	if configuration.SignerConfiguration.Signer != nil {
+		if signing, err := jwk.PublicJwk(configuration.SignerConfiguration.Signer.Public()); err == nil {
+			keys = append(keys, *signing)
+		}
+	}
+	return keys
+}
+
 func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordinateRetriever func() (*model.SubordinateConfiguration, *model.SignerConfiguration, error), configuration model.ServerConfiguration) (*string, error) {
 	if configuration.IntermediateConfiguration == nil {
 		return nil, fmt.Errorf("no intermediate configuration provided")
@@ -227,6 +239,11 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 	}
 	if subjectSubordinateConfiguration == nil {
 		return nil, model.NewNotFoundError("unknown entity identifier")
+	}
+
+	if model.SharesAPublicKey(subjectSubordinateConfiguration.JWKs.Keys, ownFederationKeys(configuration)) {
+		configuration.LogError(ctx, "the record retrieved for a subject holds one of this entity's own federation keys, so no subordinate statement is issued for it", slog.String("subject", string(subjectIdentifier)))
+		return nil, model.NewInvalidSubjectError("the record retrieved for this subject holds one of this entity's own federation keys, so no subordinate statement can be issued for it")
 	}
 
 	if len(subjectSubordinateConfiguration.JWKs.Keys) == 0 {

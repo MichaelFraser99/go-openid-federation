@@ -154,9 +154,16 @@ Naming the server's own identifier answers `invalid_request`, as section 8.1.2 r
 
 Refusing extra spellings never makes the server accept something it should not, which is why the departure from section 16 is safe here. It applies to **this guard only**. Identifier comparison everywhere else, policy attribution included, remains exact.
 
-Two things it deliberately does not do. A percent encoded **reserved** character stays encoded, because `%2F` is not a `/`. And the path is not case folded, because RFC 3986 makes no such equivalence — a store whose collation is case insensitive could still resolve `/TA` to its own `/ta` row, so if your store behaves that way, keep the server's own identifier out of it.
+Two things it deliberately does not do. A percent encoded **reserved** character stays encoded, because `%2F` is not a `/`. And the path is not case folded, because RFC 3986 makes no such equivalence.
 
-> **Breaking change.** A `sub` that spells the server's own identifier differently was previously served a subordinate statement whenever the subordinate store resolved that spelling. Those requests now answer `invalid_request`.
+A second check sits behind that one and does not depend on spelling. After the subordinate store returns a record, the server refuses it with `invalid_subject` if the record holds one of the server's own federation keys. Those are the keys in the configured `EntityConfiguration.JWKs` and the current signing key. Keys are compared by their public values, not by `kid`, and an encoding with leading zero octets matches. This catches a store whose collation is case insensitive and resolves `/TA` onto the server's own `/ta` row. `/extended-list` leaves such an entry out rather than failing the listing.
+
+Two consequences:
+
+- A key the server has rotated away from, and no longer configures, is not in that set. So a record still holding only a retired key is not caught. Keep the server's own identifier out of your subordinate store.
+- A genuine subordinate that shares a federation key with this server is refused too. A subordinate holding its superior's signing key can sign statements as the superior, so vouching for it would mean nothing.
+
+> **Breaking change.** A `sub` that spells the server's own identifier differently was previously served a subordinate statement whenever the subordinate store resolved that spelling. Those requests now answer `invalid_request`. A subordinate whose record holds one of the server's own federation keys, under any spelling, now answers `invalid_subject`.
 
 **`/list`**
 

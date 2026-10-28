@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 type longLogValuer struct{ text string }
@@ -73,6 +74,68 @@ func TestConfiguration_LogsBoundEveryValue(t *testing.T) {
 				want, _ := json.Marshal(tc.expect)
 				if string(got) != string(want) {
 					t.Errorf("expected %s, got %s", want, got)
+				}
+			})
+		}
+	}
+}
+
+type countingMarshaler struct{ calls *int }
+
+func (c countingMarshaler) MarshalJSON() ([]byte, error) {
+	*c.calls++
+	return []byte(`"counted"`), nil
+}
+
+func TestConfiguration_LogsDoNoWorkForADisabledLevel(t *testing.T) {
+	tests := map[string]struct {
+		level      slog.Level
+		logError   bool
+		expectWork bool
+	}{
+		"info with info enabled":   {level: slog.LevelInfo, expectWork: true},
+		"info with only errors on": {level: slog.LevelError},
+		"error with errors on":     {level: slog.LevelError, logError: true, expectWork: true},
+		"error above every level":  {level: slog.LevelError + 4, logError: true},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			var logs bytes.Buffer
+			calls := 0
+			cfg := Configuration{Logger: slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: tc.level}))}
+			if tc.logError {
+				cfg.LogError(context.Background(), "message", slog.Any("v", countingMarshaler{calls: &calls}))
+			} else {
+				cfg.LogInfo(context.Background(), "message", slog.Any("v", countingMarshaler{calls: &calls}))
+			}
+			if !tc.expectWork && (calls != 0 || logs.Len() != 0) {
+				t.Errorf("a disabled level marshalled the value %d times and wrote %d bytes", calls, logs.Len())
+			}
+			if tc.expectWork && calls == 0 {
+				t.Errorf("an enabled level did not bound the value")
+			}
+		})
+	}
+}
+
+func TestTruncateLoggedValue_CutsOnACharacterBoundary(t *testing.T) {
+	tests := map[string]string{
+		"a two byte character":   "é",
+		"a three byte character": "€",
+		"a four byte character":  "😀",
+	}
+
+	for name, character := range tests {
+		for offset := 1; offset < len(character); offset++ {
+			t.Run(name, func(t *testing.T) {
+				prefix := strings.Repeat("a", MaxLoggedValueBytes-offset)
+				truncated := truncateLoggedValue(prefix + character + strings.Repeat("b", 64))
+				if !utf8.ValidString(truncated) {
+					t.Fatalf("the truncated value is not valid UTF-8: it ends %q", truncated[len(truncated)-8:])
+				}
+				if truncated != prefix+"..." {
+					t.Errorf("expected the cut just before the character, got a value of %d bytes", len(truncated))
 				}
 			})
 		}

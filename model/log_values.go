@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"unicode/utf8"
 )
 
 const MaxLoggedValueBytes = 1024
@@ -12,7 +13,11 @@ func truncateLoggedValue(value string) string {
 	if len(value) <= MaxLoggedValueBytes {
 		return value
 	}
-	return value[:MaxLoggedValueBytes] + "..."
+	cut := MaxLoggedValueBytes
+	for cut > 0 && !utf8.RuneStart(value[cut]) {
+		cut--
+	}
+	return value[:cut] + "..."
 }
 
 func boundLogArgs(args []any) []any {

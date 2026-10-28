@@ -159,13 +159,13 @@ func (cfg *Configuration) PeerResponseLimit() int64 {
 
 func (cfg *Configuration) LogInfo(ctx context.Context, msg string, args ...any) {
 	if cfg.Logger != nil {
-		cfg.Logger.InfoContext(ctx, msg, args...)
+		cfg.Logger.InfoContext(ctx, msg, boundLogArgs(args)...)
 	}
 }
 
 func (cfg *Configuration) LogError(ctx context.Context, msg string, args ...any) {
 	if cfg.Logger != nil {
-		cfg.Logger.ErrorContext(ctx, msg, args...)
+		cfg.Logger.ErrorContext(ctx, msg, boundLogArgs(args)...)
 	}
 }
 

@@ -243,7 +243,7 @@ Use `Configure` to mount the endpoints. It wraps every route it registers, so a 
 | Field | Purpose |
 | --- | --- |
 | `HttpClient` | Client used for outbound federation requests. Required for trust-chain resolution and other remote federation lookups; callers should provide an SSRF-safe client that enforces their network policy for untrusted entity identifiers |
-| `Logger` | Optional `*slog.Logger`. Logging is skipped when nil |
+| `Logger` | Optional `*slog.Logger`. Logging is skipped when nil. Each value the library logs is truncated to `model.MaxLoggedValueBytes` (1 KiB), because many of them are chosen by a caller or a peer |
 | `EntityTypes` | Extension entity types, merged over the built-in definitions |
 | `DiscardUnrecognisedEntityTypes` | Removes entity types absent from the registry. Defaults to preserving them |
 | `SignerConfiguration` | The entity's signing key, key ID and algorithm |

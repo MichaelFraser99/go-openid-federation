@@ -39,6 +39,14 @@ func TestFilterByTrusted_AnUnverifiableTrustMarkIsBoundedInTheLog(t *testing.T) 
 			reference: "8.3",
 			mark:      func(*testing.T, *rvFed) string { return "!!!." + padding + marker + ".sig" },
 		},
+		{
+			name:      "a mark with a body that is not JSON",
+			reference: "8.3",
+			mark: func(*testing.T, *rvFed) string {
+				encode := base64.RawURLEncoding.EncodeToString
+				return encode([]byte(`{"alg":"RS256","kid":"k","typ":"trust-mark+jwt"}`)) + "." + encode([]byte(padding+marker)) + ".sig"
+			},
+		},
 	}
 
 	for _, tc := range tests {
@@ -67,6 +75,9 @@ func TestFilterByTrusted_AnUnverifiableTrustMarkIsBoundedInTheLog(t *testing.T) 
 			}
 			if logs.Len() >= len(mark) {
 				t.Errorf("[%s] the log is %d bytes against an %d byte trust mark, so the mark itself is being logged whole", tc.reference, logs.Len(), len(mark))
+			}
+			if strings.Contains(logs.String(), marker) {
+				t.Errorf("[%s] the tail of the trust mark reached the log, so what the peer chose is not bounded there", tc.reference)
 			}
 		})
 	}

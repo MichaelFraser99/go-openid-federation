@@ -127,6 +127,9 @@ func validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode JWT header: %s", err.Error())
 	}
+	if err := model.VerifyJSONValueCount(head, cfg.StatementValuesLimit()); err != nil {
+		return nil, fmt.Errorf("the JWT header %s", err.Error())
+	}
 	var headMap map[string]any
 	err = json.Unmarshal(head, &headMap)
 	if err != nil {
@@ -137,10 +140,16 @@ func validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode JWT body: %s", err.Error())
 	}
+	if err := model.VerifyJSONValueCount(body, cfg.StatementValuesLimit()); err != nil {
+		return nil, fmt.Errorf("the JWT body %s", err.Error())
+	}
 	var bodyMap map[string]any
 	err = json.Unmarshal(body, &bodyMap)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JWT body: %s", err.Error())
+	}
+	if err := model.VerifyTrustMarkValueCount(bodyMap, cfg.StatementValuesLimit()); err != nil {
+		return nil, fmt.Errorf("the JWT body %s", err.Error())
 	}
 
 	if err = entity_statement.ValidateStatementHeader(headMap); err != nil {

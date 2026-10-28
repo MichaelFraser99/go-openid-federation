@@ -213,6 +213,26 @@ func visitLimit(cfg model.Configuration) int {
 	return depth * entities
 }
 
+func suppliedChainEntriesLimit(cfg model.Configuration, anchorIncluded bool) int {
+	depth := cfg.TrustChainDepthLimit()
+	if !anchorIncluded || depth == math.MaxInt {
+		return depth
+	}
+	return depth + 1
+}
+
+func verifySuppliedChainLength(ctx context.Context, cfg model.Configuration, trustChain []string, anchorIncluded bool) error {
+	limit := suppliedChainEntriesLimit(cfg, anchorIncluded)
+	if len(trustChain) <= limit {
+		return nil
+	}
+	cfg.LogInfo(ctx, "trust chain holds more entries than this resolver will process", slog.Int("chain_length", len(trustChain)), slog.Int("max_entries", limit), slog.Bool("anchor_included", anchorIncluded))
+	if anchorIncluded {
+		return model.NewInvalidTrustChainError(fmt.Sprintf("the trust chain holds %d entries, more than the %d this resolver will process", len(trustChain), limit))
+	}
+	return model.NewInvalidTrustChainError(fmt.Sprintf("the trust chain holds %d entries without the trust anchor's entity configuration, more than the %d this resolver will process", len(trustChain), limit))
+}
+
 func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target model.EntityIdentifier, checked []model.EntityIdentifier, path []model.EntityStatement, signedPath []string, cache *resolvecache.Cache) ([]string, []model.EntityStatement, bool, error) {
 	return chainUpOne(ctx, cfg, subject, target, checked, path, signedPath, cache, newWalkMemo())
 }
@@ -280,6 +300,13 @@ func chainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 		return signedPath, path, false, nil
 	}
 
+	if hints := len(subjectEntityStatement.AuthorityHints); hints > cfg.AuthorityHintsLimit() {
+		cfg.LogInfo(ctx, "entity configuration lists more authority_hints than this resolver will inspect", slog.String("subject", model.TruncateForResponse(string(subject))), slog.Int("authority_hints", hints), slog.Int("max_authority_hints", cfg.AuthorityHintsLimit()))
+		walk.record(subjectWalkKey, false)
+		cache.RecordDeadEnd(subjectKey)
+		return signedPath[:len(signedPath)-1], path[:len(path)-1], false, model.NewInvalidTrustChainError(fmt.Sprintf("the entity configuration for %s lists %d authority_hints, more than the %d this resolver will inspect", model.TruncateForResponse(string(subject)), hints, cfg.AuthorityHintsLimit()))
+	}
+
 	cfg.LogInfo(ctx, "evaluating chain options", slog.String("subject", model.TruncateForResponse(string(subject))), slog.Int("depth", len(path)), slog.Int("authority_hints", len(subjectEntityStatement.AuthorityHints)))
 	tainted := false
 	depthRefused := false
@@ -345,6 +372,16 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 		return nil, model.NewInvalidTrustChainError("trust chain must have at least 1 entry")
 	}
 
+	if err := verifySuppliedChainLength(ctx, cfg, trustChain, true); err != nil {
+		return nil, err
+	}
+	for i, entry := range trustChain {
+		if err := model.VerifyTokenValueCount(entry, cfg.StatementValuesLimit()); err != nil {
+			cfg.LogInfo(ctx, "trust chain entry exceeds the value limit", slog.Int("entry", i), slog.Int("limit", cfg.StatementValuesLimit()))
+			return nil, model.NewInvalidTrustChainError(fmt.Sprintf("trust chain entry %d %s", i, err.Error()))
+		}
+	}
+
 	_, sub, iss, err := entity_statement.ExtractDetails(trustChain[len(trustChain)-1])
 	if err != nil {
 		cfg.LogInfo(ctx, "failed to extract details from final chain entry", slog.String("error", model.TruncateForResponse(err.Error())))
@@ -377,6 +414,9 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 		}
 		processedChain = append(processedChain, *response)
 	} else {
+		if err := verifySuppliedChainLength(ctx, cfg, trustChain, false); err != nil {
+			return nil, err
+		}
 		if *parsedIss != trustAnchorEntityIdentifier {
 			cfg.LogInfo(ctx, "trust chain does not end in a statement issued by the requested trust anchor", slog.String("requested", string(trustAnchorEntityIdentifier)), slog.String("chain_ends_in", string(*parsedIss)))
 			return nil, model.NewInvalidTrustAnchorError("the trust chain does not end in a statement issued by the requested trust anchor")

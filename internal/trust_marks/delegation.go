@@ -103,6 +103,10 @@ func verifyDelegation(ctx context.Context, cfg model.Configuration, mark model.T
 		cfg.LogError(ctx, "failed to decode the delegation header", slog.String("error", err.Error()))
 		return fmt.Errorf("the trust mark's delegation has a header that cannot be decoded")
 	}
+	if err := model.VerifyJSONValueCount(headBytes, cfg.StatementValuesLimit()); err != nil {
+		cfg.LogError(ctx, "the delegation header exceeds the value limit", slog.Int("limit", cfg.StatementValuesLimit()))
+		return fmt.Errorf("the trust mark's delegation header %s", err.Error())
+	}
 	var head map[string]any
 	if err := json.Unmarshal(headBytes, &head); err != nil {
 		cfg.LogError(ctx, "failed to unmarshal the delegation header", slog.String("error", model.TruncateForResponse(err.Error())))
@@ -130,6 +134,10 @@ func verifyDelegation(ctx context.Context, cfg model.Configuration, mark model.T
 	if err != nil {
 		cfg.LogError(ctx, "failed to decode the delegation body", slog.String("error", err.Error()))
 		return fmt.Errorf("the trust mark's delegation has a body that cannot be decoded")
+	}
+	if err := model.VerifyJSONValueCount(bodyBytes, cfg.StatementValuesLimit()); err != nil {
+		cfg.LogError(ctx, "the delegation body exceeds the value limit", slog.Int("limit", cfg.StatementValuesLimit()))
+		return fmt.Errorf("the trust mark's delegation body %s", err.Error())
 	}
 	var body map[string]any
 	if err := json.Unmarshal(bodyBytes, &body); err != nil {

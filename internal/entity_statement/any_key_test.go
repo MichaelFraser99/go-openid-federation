@@ -2,6 +2,8 @@ package entity_statement
 
 import (
 	"crypto"
+	"encoding/base64"
+	"math/big"
 	"strings"
 	"testing"
 
@@ -138,6 +140,15 @@ func TestVerifyAgainstAnyKey(t *testing.T) {
 	}
 }
 
+func sizedRSAKey(bits int, alg any) map[string]any {
+	modulus := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), uint(bits)), big.NewInt(1))
+	key := map[string]any{"kid": "sized", "kty": "RSA", "n": base64.RawURLEncoding.EncodeToString(modulus.Bytes()), "e": "AQAB"}
+	if alg != nil {
+		key["alg"] = alg
+	}
+	return key
+}
+
 func TestKeyCanVerify_HonoursWhatTheKeySaysAboutItself(t *testing.T) {
 	rsaKey := selectorKey(t)
 	ecSigner, err := jws.GetSigner(jwa.ES256, nil)
@@ -178,6 +189,9 @@ func TestKeyCanVerify_HonoursWhatTheKeySaysAboutItself(t *testing.T) {
 		{name: "a key of a type the signing library cannot use", reference: "RFC 7517 5", key: map[string]any{"kid": "ed", "kty": "OKP", "crv": "Ed25519", "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}},
 		{name: "a symmetric key", reference: "RFC 7518 6.4.1", key: map[string]any{"kid": "oct", "kty": "oct", "k": "AQAB"}},
 		{name: "a key with no kty", reference: "RFC 7517 4.1", key: map[string]any{"kid": "broken"}},
+		{name: "an 8192 bit RSA key published for RS256", reference: "#214", key: sizedRSAKey(8192, "RS256"), usable: true},
+		{name: "an 8193 bit RSA key published for RS256", reference: "#214", key: sizedRSAKey(8193, "RS256")},
+		{name: "an 8193 bit RSA key with no published algorithm", reference: "#214", key: sizedRSAKey(8193, nil)},
 	}
 
 	for _, tc := range tests {

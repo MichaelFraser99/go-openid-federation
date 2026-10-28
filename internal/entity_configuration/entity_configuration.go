@@ -336,7 +336,7 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 			(*apkJWK)["alg"] = signerConfiguration.Algorithm
 
 			if err := model.VerifyKeyStrength(*apkJWK, signerConfiguration.Algorithm); err != nil {
-				cfg.LogError(ctx, "not publishing a subordinate signer key because RFC 7518 requires a larger modulus for the algorithm it signs with, so statements it signs cannot be verified", slog.String("kid", model.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
+				cfg.LogError(ctx, "not publishing a subordinate signer key because its modulus is outside the sizes this library verifies for the algorithm it signs with, so statements it signs cannot be verified", slog.String("kid", model.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
 				continue
 			}
 

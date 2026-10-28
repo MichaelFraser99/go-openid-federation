@@ -255,7 +255,7 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		}
 		if declared, ok := k["alg"].(string); ok {
 			if err := model.VerifyKeyStrength(k, declared); err != nil {
-				configuration.LogError(ctx, "dropping a registered key from a subordinate statement because RFC 7518 requires a larger modulus for the algorithm it is registered for", slog.String("subject", string(subjectIdentifier)), slog.String("kid", model.TruncateForResponse(sKid)), slog.String("error", err.Error()))
+				configuration.LogError(ctx, "dropping a registered key from a subordinate statement because its modulus is outside the sizes this library verifies for the algorithm it is registered for", slog.String("subject", string(subjectIdentifier)), slog.String("kid", model.TruncateForResponse(sKid)), slog.String("error", err.Error()))
 				continue
 			}
 		}

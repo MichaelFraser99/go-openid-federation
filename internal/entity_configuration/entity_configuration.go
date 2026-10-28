@@ -206,11 +206,6 @@ func validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 		return nil, fmt.Errorf("'sub' claim does not match the original entity identifier")
 	}
 
-	if hints := len(entityConfiguration.AuthorityHints); hints > cfg.AuthorityHintsLimit() {
-		cfg.LogInfo(ctx, "entity configuration lists more authority_hints than this resolver will inspect", slog.String("subject", string(entityIdentifier)), slog.Int("authority_hints", hints), slog.Int("limit", cfg.AuthorityHintsLimit()))
-		return nil, fmt.Errorf("lists %d authority_hints, more than the %d this resolver will inspect", hints, cfg.AuthorityHintsLimit())
-	}
-
 	model.LogPrivateKeyMembersInRawSet(ctx, &cfg, entityConfiguration.Sub, entityConfiguration.Sub, jwks)
 
 	if entityConfiguration.Metadata != nil {

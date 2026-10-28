@@ -120,9 +120,10 @@ func TestConfiguration_StatementBoundsDefaultWhenUnset(t *testing.T) {
 		expectValues int
 		expectHints  int
 	}{
-		"unset applies the defaults":    {expectValues: DefaultMaxStatementValues, expectHints: DefaultMaxAuthorityHints},
-		"negative applies the defaults": {cfg: Configuration{MaxStatementValues: -1, MaxAuthorityHints: -1}, expectValues: DefaultMaxStatementValues, expectHints: DefaultMaxAuthorityHints},
-		"configured values apply":       {cfg: Configuration{MaxStatementValues: 7, MaxAuthorityHints: 3}, expectValues: 7, expectHints: 3},
+		"unset applies the defaults":        {expectValues: DefaultMaxStatementValues, expectHints: DefaultMaxAuthorityHints},
+		"negative applies the defaults":     {cfg: Configuration{MaxStatementValues: -1, MaxAuthorityHints: -1}, expectValues: DefaultMaxStatementValues, expectHints: DefaultMaxAuthorityHints},
+		"configured values apply":           {cfg: Configuration{MaxStatementValues: 7, MaxAuthorityHints: 3}, expectValues: 7, expectHints: 3},
+		"a configured limit of one applies": {cfg: Configuration{MaxStatementValues: 1, MaxAuthorityHints: 1}, expectValues: 1, expectHints: 1},
 	}
 
 	for name, tc := range tests {
@@ -146,6 +147,24 @@ func trustMarkSplit(headValues, bodyValues int) map[string]any {
 	return map[string]any{"trust_mark_type": "t", "trust_mark": encode([]byte(jsonArrayOf(headValues))) + "." + encode([]byte(jsonArrayOf(bodyValues))) + "." + encode([]byte("sig"))}
 }
 
+func trustMarkToken(headValues, bodyValues int) string {
+	encode := base64.RawURLEncoding.EncodeToString
+	return encode([]byte(jsonArrayOf(headValues))) + "." + encode([]byte(jsonArrayOf(bodyValues))) + "." + encode([]byte("sig"))
+}
+
+func trustMarkDelegating(delegation string) map[string]any {
+	encode := base64.RawURLEncoding.EncodeToString
+	body, err := json.Marshal(map[string]any{"delegation": delegation})
+	if err != nil {
+		panic(err)
+	}
+	return map[string]any{"trust_mark_type": "t", "trust_mark": encode([]byte("[]")) + "." + encode(body) + "." + encode([]byte("sig"))}
+}
+
+func undecodableHeaderMark(bodyValues int) map[string]any {
+	return map[string]any{"trust_mark_type": "t", "trust_mark": "!!!." + base64.RawURLEncoding.EncodeToString([]byte(jsonArrayOf(bodyValues))) + ".sig"}
+}
+
 func trustMarkHolding(values int) map[string]any {
 	return trustMarkSplit(1, values-1)
 }
@@ -155,15 +174,23 @@ func TestVerifyTrustMarkValueCount_SharesOneBudgetAcrossEveryMark(t *testing.T) 
 		marks     []any
 		expectErr bool
 	}{
-		"no trust marks":                         {},
-		"one mark at the limit":                  {marks: []any{trustMarkHolding(10)}},
-		"one mark past the limit":                {marks: []any{trustMarkHolding(11)}, expectErr: true},
-		"marks that together reach the limit":    {marks: []any{trustMarkHolding(4), trustMarkHolding(6)}},
-		"marks that together pass the limit":     {marks: []any{trustMarkHolding(6), trustMarkHolding(6)}, expectErr: true},
-		"many small marks past the limit":        {marks: []any{trustMarkHolding(2), trustMarkHolding(2), trustMarkHolding(2), trustMarkHolding(2), trustMarkHolding(2), trustMarkHolding(2)}, expectErr: true},
-		"headers count against the budget":       {marks: []any{trustMarkSplit(9, 1), trustMarkSplit(1, 1)}, expectErr: true},
-		"headers and bodies reach the limit":     {marks: []any{trustMarkSplit(4, 1), trustMarkSplit(4, 1)}},
-		"entries that are not marks are skipped": {marks: []any{"x", 1, map[string]any{"trust_mark": 3}, map[string]any{"trust_mark": "a.b"}, map[string]any{"trust_mark": "a.!!.c"}, trustMarkHolding(10)}},
+		"no trust marks":                                  {},
+		"one mark at the limit":                           {marks: []any{trustMarkHolding(10)}},
+		"one mark past the limit":                         {marks: []any{trustMarkHolding(11)}, expectErr: true},
+		"marks that together reach the limit":             {marks: []any{trustMarkHolding(4), trustMarkHolding(6)}},
+		"marks that together pass the limit":              {marks: []any{trustMarkHolding(6), trustMarkHolding(6)}, expectErr: true},
+		"many small marks past the limit":                 {marks: []any{trustMarkHolding(2), trustMarkHolding(2), trustMarkHolding(2), trustMarkHolding(2), trustMarkHolding(2), trustMarkHolding(2)}, expectErr: true},
+		"headers count against the budget":                {marks: []any{trustMarkSplit(9, 1), trustMarkSplit(1, 1)}, expectErr: true},
+		"headers and bodies reach the limit":              {marks: []any{trustMarkSplit(4, 1), trustMarkSplit(4, 1)}},
+		"entries that are not marks are skipped":          {marks: []any{"x", 1, map[string]any{"trust_mark": 3}, map[string]any{"trust_mark": "a.b"}, map[string]any{"trust_mark": "a.!!.c"}, trustMarkHolding(10)}},
+		"entries that are not marks do not end the count": {marks: []any{map[string]any{"trust_mark": "a.b"}, map[string]any{"trust_mark": "a.!!.c"}, trustMarkHolding(6), trustMarkHolding(5)}, expectErr: true},
+		"an undecodable header does not end the count":    {marks: []any{undecodableHeaderMark(11)}, expectErr: true},
+		"a delegation within the budget":                  {marks: []any{trustMarkDelegating(trustMarkToken(3, 4))}},
+		"a delegation past the budget":                    {marks: []any{trustMarkDelegating(trustMarkToken(4, 4))}, expectErr: true},
+		"a delegation header past the budget":             {marks: []any{trustMarkDelegating(trustMarkToken(8, 1))}, expectErr: true},
+		"delegations across marks share the budget":       {marks: []any{trustMarkDelegating(trustMarkToken(1, 1)), trustMarkDelegating(trustMarkToken(1, 1))}},
+		"delegations across marks pass the budget":        {marks: []any{trustMarkDelegating(trustMarkToken(1, 1)), trustMarkDelegating(trustMarkToken(1, 2))}, expectErr: true},
+		"a delegation that is not a JWT is not counted":   {marks: []any{trustMarkDelegating("not.a"), trustMarkHolding(7)}},
 	}
 
 	for name, tc := range tests {
@@ -190,12 +217,13 @@ func TestVerifyTokenValueCount_ChecksTheHeaderAndTheBody(t *testing.T) {
 		token    string
 		expected string
 	}{
-		"both within the limit":       {token: encode(jsonArrayOf(10)) + "." + encode(jsonArrayOf(10)) + ".sig"},
-		"a header past the limit":     {token: encode(jsonArrayOf(11)) + "." + encode(jsonArrayOf(1)) + ".sig", expected: "has a header that holds more than the 10 JSON values"},
-		"a body past the limit":       {token: encode(jsonArrayOf(1)) + "." + encode(jsonArrayOf(11)) + ".sig", expected: "has a body that holds more than the 10 JSON values"},
-		"too few segments":            {token: encode(jsonArrayOf(11)) + "." + encode(jsonArrayOf(11))},
-		"too many segments":           {token: encode(jsonArrayOf(11)) + "." + encode(jsonArrayOf(11)) + ".a.b"},
-		"a header that is not base64": {token: "!!!." + encode(jsonArrayOf(1)) + ".sig"},
+		"both within the limit":                                   {token: encode(jsonArrayOf(10)) + "." + encode(jsonArrayOf(10)) + ".sig"},
+		"a header past the limit":                                 {token: encode(jsonArrayOf(11)) + "." + encode(jsonArrayOf(1)) + ".sig", expected: "has a header that holds more than the 10 JSON values"},
+		"a body past the limit":                                   {token: encode(jsonArrayOf(1)) + "." + encode(jsonArrayOf(11)) + ".sig", expected: "has a body that holds more than the 10 JSON values"},
+		"too few segments":                                        {token: encode(jsonArrayOf(11)) + "." + encode(jsonArrayOf(11))},
+		"too many segments":                                       {token: encode(jsonArrayOf(11)) + "." + encode(jsonArrayOf(11)) + ".a.b"},
+		"a header that is not base64":                             {token: "!!!." + encode(jsonArrayOf(1)) + ".sig"},
+		"a body past the limit after a header that is not base64": {token: "!!!." + encode(jsonArrayOf(11)) + ".sig", expected: "has a body that holds more than the 10 JSON values"},
 	}
 
 	for name, tc := range tests {

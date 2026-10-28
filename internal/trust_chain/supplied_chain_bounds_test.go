@@ -2,7 +2,7 @@ package trust_chain
 
 import (
 	"errors"
-	"fmt"
+	"math"
 	"strings"
 	"testing"
 
@@ -42,23 +42,49 @@ func TestResolveMetadata_ASuppliedChainIsBoundedBeforeAnyEntryIsDecoded(t *testi
 	}
 }
 
-func TestResolveMetadata_TheLongestChainThisResolverBuildsIsNotRefusedForItsLength(t *testing.T) {
-	tests := []int{2, 3, 5}
+func TestResolveMetadata_ASuppliedChainIsHeldToTheDepthAWalkIsHeldTo(t *testing.T) {
+	tests := map[string]struct {
+		entities     int
+		depth        int
+		omitAnchor   bool
+		expectRefuse string
+	}{
+		"two entities at a depth of two":                         {entities: 2, depth: 2},
+		"three entities at a depth of three":                     {entities: 3, depth: 3},
+		"five entities at a depth of five":                       {entities: 5, depth: 5},
+		"four entities at a depth of three":                      {entities: 4, depth: 3, expectRefuse: "the trust chain holds 5 entries, more than the 4"},
+		"four entities without the anchor at a depth of four":    {entities: 4, depth: 4, omitAnchor: true},
+		"four entities without the anchor at a depth of three":   {entities: 4, depth: 3, omitAnchor: true, expectRefuse: "the trust chain holds 4 entries without the trust anchor's entity configuration, more than the 3"},
+		"four entities at an unlimited depth":                    {entities: 4, depth: math.MaxInt},
+		"four entities without the anchor at an unlimited depth": {entities: 4, depth: math.MaxInt, omitAnchor: true},
+	}
 
-	for _, depth := range tests {
-		t.Run(fmt.Sprintf("a chain of %d entities", depth), func(t *testing.T) {
-			tp := newTopo(t, linearChainGraph(depth))
-			cfg := model.Configuration{HttpClient: tp.server.Client(), MaxTrustChainDepth: depth}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			tp := newTopo(t, linearChainGraph(tc.entities))
+			built := model.Configuration{HttpClient: tp.server.Client(), MaxTrustChainDepth: tc.entities}
 
-			chain, _, _, err := BuildTrustChain(t.Context(), cfg, tp.id["n0"], tp.id["ta"], resolvecache.New())
+			chain, _, _, err := BuildTrustChain(t.Context(), built, tp.id["n0"], tp.id["ta"], resolvecache.New())
 			if err != nil {
 				t.Fatalf("failed to build the chain: %v", err)
 			}
-			if len(chain) != depth+1 {
-				t.Fatalf("expected the built chain to hold %d entries, it holds %d", depth+1, len(chain))
+			if len(chain) != tc.entities+1 {
+				t.Fatalf("expected the built chain to hold %d entries, it holds %d", tc.entities+1, len(chain))
 			}
-			if _, err := ResolveMetadata(t.Context(), cfg, tp.id["n0"], tp.id["ta"], chain, resolvecache.New()); err != nil {
-				t.Fatalf("expected the chain this resolver built to resolve, got %v", err)
+			if tc.omitAnchor {
+				chain = chain[:len(chain)-1]
+			}
+
+			cfg := model.Configuration{HttpClient: tp.server.Client(), MaxTrustChainDepth: tc.depth}
+			_, err = ResolveMetadata(t.Context(), cfg, tp.id["n0"], tp.id["ta"], chain, resolvecache.New())
+			if tc.expectRefuse == "" {
+				if err != nil {
+					t.Fatalf("expected a chain of %d entities to resolve at a depth of %d, got %v", tc.entities, tc.depth, err)
+				}
+				return
+			}
+			if !errors.Is(err, model.ErrInvalidTrustChain) || !strings.Contains(err.Error(), tc.expectRefuse) {
+				t.Fatalf("expected an invalid_trust_chain refusal containing %q, got %v", tc.expectRefuse, err)
 			}
 		})
 	}

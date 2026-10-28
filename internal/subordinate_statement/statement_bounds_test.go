@@ -54,6 +54,11 @@ func TestValidate_AStatementHoldingTooManyValuesIsRefusedBeforeItsSignatureIsChe
 			body:       map[string]any{"pad": padding(model.DefaultMaxStatementValues)},
 			expectPart: "the JWT body holds more than", limit: model.DefaultMaxStatementValues,
 		},
+		"a padded header past a configured limit": {
+			cfg:        model.Configuration{MaxStatementValues: 100},
+			head:       map[string]any{"pad": padding(100)},
+			expectPart: "the JWT header holds more than", limit: 100,
+		},
 		"a padded body past a configured limit": {
 			cfg:        model.Configuration{MaxStatementValues: 100},
 			body:       map[string]any{"pad": padding(100)},

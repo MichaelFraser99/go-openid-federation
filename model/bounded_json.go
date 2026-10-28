@@ -66,27 +66,46 @@ func VerifyJSONValueCount(data []byte, limit int) error {
 
 func VerifyTrustMarkValueCount(claims map[string]any, limit int) error {
 	marks, _ := claims["trust_marks"].([]any)
-	total := 0
+	budget := limit
 	for _, entry := range marks {
 		holder, _ := entry.(map[string]any)
 		token, _ := holder["trust_mark"].(string)
-		parts := strings.SplitN(token, ".", 4)
-		if len(parts) != 3 {
+		body, ok := chargeTokenValues(token, &budget)
+		if !ok {
+			return fmt.Errorf("carries trust marks holding more than the %d JSON values a statement may hold", limit)
+		}
+		var markClaims map[string]any
+		if json.Unmarshal(body, &markClaims) != nil {
 			continue
 		}
-		for _, part := range parts[:2] {
-			decoded, err := base64.RawURLEncoding.DecodeString(part)
-			if err != nil {
-				continue
-			}
-			count, exceeded := CountJSONValues(decoded, limit-total)
-			if exceeded {
-				return fmt.Errorf("carries trust marks holding more than the %d JSON values a statement may hold", limit)
-			}
-			total += count
+		delegation, _ := markClaims["delegation"].(string)
+		if _, ok := chargeTokenValues(delegation, &budget); !ok {
+			return fmt.Errorf("carries trust marks holding more than the %d JSON values a statement may hold", limit)
 		}
 	}
 	return nil
+}
+
+func chargeTokenValues(token string, budget *int) (body []byte, withinBudget bool) {
+	parts := strings.SplitN(token, ".", 4)
+	if len(parts) != 3 {
+		return nil, true
+	}
+	for i, part := range parts[:2] {
+		decoded, err := base64.RawURLEncoding.DecodeString(part)
+		if err != nil {
+			continue
+		}
+		count, exceeded := CountJSONValues(decoded, *budget)
+		if exceeded {
+			return nil, false
+		}
+		*budget -= count
+		if i == 1 {
+			body = decoded
+		}
+	}
+	return body, true
 }
 
 func VerifyTokenValueCount(token string, limit int) error {

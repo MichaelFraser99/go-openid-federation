@@ -69,6 +69,7 @@ func TestValidate_AStatementHoldingTooManyValuesIsRefusedBeforeItsSignatureIsChe
 	}{
 		"a padded body past the default":          {bodyPad: model.DefaultMaxStatementValues, expectPart: "JWT body", limit: model.DefaultMaxStatementValues},
 		"a padded header past the default":        {headPad: model.DefaultMaxStatementValues, expectPart: "JWT header", limit: model.DefaultMaxStatementValues},
+		"a padded header past a configured limit": {cfg: model.Configuration{MaxStatementValues: 100}, headPad: 100, expectPart: "JWT header", limit: 100},
 		"a padded body past a configured limit":   {cfg: model.Configuration{MaxStatementValues: 100}, bodyPad: 100, expectPart: "JWT body", limit: 100},
 		"a signed body past a configured limit":   {cfg: model.Configuration{MaxStatementValues: 100}, bodyPad: 100, signed: true, expectPart: "JWT body", limit: 100},
 		"a signed body within a configured limit": {cfg: model.Configuration{MaxStatementValues: 100}, bodyPad: 50, signed: true},
@@ -98,53 +99,26 @@ func TestValidate_AStatementHoldingTooManyValuesIsRefusedBeforeItsSignatureIsChe
 	}
 }
 
-func TestValidate_AnEntityConfigurationListingTooManyAuthorityHintsIsRefused(t *testing.T) {
+func TestValidate_TheAuthorityHintsCapIsNotAppliedWhenAConfigurationIsDecoded(t *testing.T) {
 	const leaf = model.EntityIdentifier("https://leaf.example.com")
 	key := headerJwkKey(t)
 	published := headerJwkPublicJwk(t, key.Public(), "leaf")
 
-	hintsOf := func(n int) []any {
-		hints := make([]any, n)
-		for i := range hints {
-			hints[i] = fmt.Sprintf("https://superior%d.example.com", i)
-		}
-		return hints
+	hints := make([]any, 4)
+	for i := range hints {
+		hints[i] = fmt.Sprintf("https://superior%d.example.com", i)
 	}
-
-	tests := map[string]struct {
-		cfg       model.Configuration
-		hints     int
-		expectErr string
-	}{
-		"the default number of hints is accepted":    {hints: model.DefaultMaxAuthorityHints},
-		"one past the default is refused":            {hints: model.DefaultMaxAuthorityHints + 1, expectErr: fmt.Sprintf("lists %d authority_hints, more than the %d", model.DefaultMaxAuthorityHints+1, model.DefaultMaxAuthorityHints)},
-		"a configured number of hints is accepted":   {cfg: model.Configuration{MaxAuthorityHints: 3}, hints: 3},
-		"one past a configured limit is refused":     {cfg: model.Configuration{MaxAuthorityHints: 3}, hints: 4, expectErr: "lists 4 authority_hints, more than the 3"},
-		"a configured limit above the default holds": {cfg: model.Configuration{MaxAuthorityHints: 100}, hints: model.DefaultMaxAuthorityHints + 1},
-	}
-
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			token := signStatementRaw(t, key, map[string]any{"kid": "leaf", "typ": "entity-statement+jwt", "alg": "RS256"}, map[string]any{
-				"iss":             string(leaf),
-				"sub":             string(leaf),
-				"iat":             time.Now().Add(-time.Minute).UTC().Unix(),
-				"exp":             time.Now().Add(time.Hour).UTC().Unix(),
-				"jwks":            map[string]any{"keys": []any{published}},
-				"metadata":        map[string]any{},
-				"authority_hints": hintsOf(tc.hints),
-			})
-			_, err := Validate(context.Background(), tc.cfg, leaf, token)
-			if tc.expectErr == "" {
-				if err != nil {
-					t.Fatalf("expected %d hints to be accepted, got %v", tc.hints, err)
-				}
-				return
-			}
-			if err == nil || !strings.Contains(err.Error(), tc.expectErr) {
-				t.Fatalf("expected a refusal containing %q, got %v", tc.expectErr, err)
-			}
-		})
+	token := signStatementRaw(t, key, map[string]any{"kid": "leaf", "typ": "entity-statement+jwt", "alg": "RS256"}, map[string]any{
+		"iss":             string(leaf),
+		"sub":             string(leaf),
+		"iat":             time.Now().Add(-time.Minute).UTC().Unix(),
+		"exp":             time.Now().Add(time.Hour).UTC().Unix(),
+		"jwks":            map[string]any{"keys": []any{published}},
+		"metadata":        map[string]any{},
+		"authority_hints": hints,
+	})
+	if _, err := Validate(context.Background(), model.Configuration{MaxAuthorityHints: 3}, leaf, token); err != nil {
+		t.Fatalf("expected a configuration whose hints are not being walked to be accepted, got %v", err)
 	}
 }
 

@@ -47,6 +47,17 @@ func TestValidate_ATrustMarkOrDelegationHoldingTooManyValuesIsRefusedBeforeItsSi
 			bodyPad:  model.DefaultMaxStatementValues,
 			expected: fmt.Sprintf("the trust mark's JWT body holds more than the %d JSON values", model.DefaultMaxStatementValues),
 		},
+		"a trust mark header past a configured limit": {
+			cfg:      model.Configuration{MaxStatementValues: 100},
+			headPad:  100,
+			expected: "the trust mark's JWT header holds more than the 100 JSON values",
+		},
+		"a delegation header past a configured limit": {
+			cfg:        model.Configuration{MaxStatementValues: 100},
+			delegation: true,
+			headPad:    100,
+			expected:   "the trust mark's delegation header holds more than the 100 JSON values",
+		},
 		"a trust mark past a configured limit": {
 			cfg:      model.Configuration{MaxStatementValues: 100},
 			bodyPad:  100,

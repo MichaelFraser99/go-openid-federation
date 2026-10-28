@@ -201,6 +201,10 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		return nil, fmt.Errorf("no intermediate configuration provided")
 	}
 
+	if model.NamesTheSameEntity(subjectIdentifier, configuration.EntityIdentifier) {
+		return nil, model.NewInvalidSubjectError("an entity cannot issue a subordinate statement about itself, as a statement whose 'iss' and 'sub' claims match is an entity configuration")
+	}
+
 	subjectSubordinateConfiguration, signerConfiguration, err := subordinateRetriever()
 	if err != nil {
 		return nil, err
@@ -249,10 +253,6 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 	subordinateStatementLifetime, err := model.ResolveStatementLifetime("SubordinateStatementLifetime", configuration.IntermediateConfiguration.SubordinateStatementLifetime, model.DefaultSubordinateStatementLifetime)
 	if err != nil {
 		return nil, err
-	}
-
-	if subjectIdentifier == configuration.EntityIdentifier {
-		return nil, fmt.Errorf("refusing to publish a subordinate statement about this entity itself, as a statement whose 'iss' and 'sub' claims match is an entity configuration")
 	}
 
 	subordinateStatement := model.EntityStatement{

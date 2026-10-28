@@ -25,7 +25,7 @@ func (s *Server) Fetch(w http.ResponseWriter, r *http.Request) ResponseFunc {
 		return s.RespondWithError(ctx, w, err)
 	}
 
-	if *parsedSub == s.cfg.EntityConfiguration.Iss {
+	if model.NamesTheSameEntity(*parsedSub, s.cfg.EntityIdentifier) {
 		s.cfg.LogInfo(ctx, "provided 'sub' parameter matches server entity identifier")
 		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("an entity cannot issue a subordinate statement for itself"))
 	}

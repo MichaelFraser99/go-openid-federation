@@ -15,6 +15,8 @@ import (
 
 const MinimumRSAKeyBits = 2048
 
+const MaximumRSAKeyBits = 8192
+
 var privateJWKMembers = []string{"d", "p", "q", "dp", "dq", "qi", "oth", "k", "priv"}
 
 func PrivateJWKMembers(key map[string]any) []string {
@@ -228,8 +230,12 @@ func VerifyKeyStrength(key map[string]any, alg string) error {
 	if err != nil {
 		return nil
 	}
-	if bits := new(big.Int).SetBytes(raw).BitLen(); bits < MinimumRSAKeyBits {
+	bits := new(big.Int).SetBytes(raw).BitLen()
+	if bits < MinimumRSAKeyBits {
 		return fmt.Errorf("has a %d bit RSA modulus, and RFC 7518 sections 3.3 and 3.5 require a key of size %d bits or larger with %q", bits, MinimumRSAKeyBits, alg)
+	}
+	if bits > MaximumRSAKeyBits {
+		return fmt.Errorf("has a %d bit RSA modulus, more than the %d bits this library will verify with %q", bits, MaximumRSAKeyBits, alg)
 	}
 	return nil
 }

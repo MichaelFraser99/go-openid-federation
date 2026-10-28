@@ -258,6 +258,7 @@ Use `Configure` to mount the endpoints. It wraps every route it registers, so a 
 | `TrustMarkIssuerRetriever` | Populates `trust_mark_issuers` in the entity configuration |
 | `TrustMarkRetriever` | Enables the trust mark endpoints |
 | `TrustAnchors` | Keys held for each trust anchor this deployment trusts. Optional, but setting it restricts which anchors `/resolve` serves. See [Anchoring a chain a caller supplies](#anchoring-a-chain-a-caller-supplies) |
+| `HostToASCII` | Optional `func(host string) (string, error)` that converts an internationalised host to its ASCII form, so `naming_constraints` can match it. Unset, such a host is refused under any naming constraint. See [Constraints](#constraints) |
 
 The signer's public key is added to the published JWKS, keyed by `kid`, if not already present.
 
@@ -603,6 +604,33 @@ A resolved response expires at the earliest expiry in the chain rather than the 
 
 Trust marks in a resolve response are filtered against the trust anchor's `trust_mark_issuers` claim. A trust mark whose type the anchor does not list, or whose issuer it has not authorised, is dropped from the response. Resolution continues.
 
+### Constraints
+
+The `constraints` claim in each subordinate statement is applied independently, as section 6.2 requires, by `BuildTrustChain` and `ResolveMetadata`, so a chain a caller supplies is held to it too. A chain that fails one is refused with 400 `invalid_trust_chain`.
+
+- `max_path_length` limits the intermediates between the entity that set it and the trust chain subject. For the subordinate statement at position k in the chain, that is k − 1.
+- `naming_constraints` applies the domain name syntax of RFC 5280 section 4.2.1.10 to the host of every entity below the one that set it, including the subject. `.example.com` matches `host.example.com` but not `example.com`. A name with no leading period matches that host only. An excluded name refuses the chain whatever the permitted list says. A `permitted` list that is present but empty permits nothing, which is the literal reading; Go's `crypto/x509` treats an empty permitted set as unconstrained instead. Hosts are compared case-insensitively and without a trailing dot, and the port and path are ignored. Under any naming constraint, a host that is not a well-formed domain name is refused, as RFC 5280 requires: an IP address, a host with an empty label such as `leaf.example.com..`, and a host whose last label is all digits, which some resolvers read as an address.
+- `allowed_entity_types` removes every other entity type from the subject's metadata, after the superior's `metadata` claim is applied and before metadata policy. `federation_entity` is never removed, and an empty list keeps only `federation_entity`.
+
+Section 3.2 step 19 requires the claim to be well formed, so a malformed one refuses the statement, and so the chain. Examples are `max_path_length` that is negative or not an integer, `naming_constraints` holding something other than domain names, and `allowed_entity_types` listing `federation_entity`. A domain name in a constraint must follow the hostname rules: letters, digits and inner hyphens, labels of at most 63 octets, at most 253 octets in all, and a last label that is not all digits. A `max_path_length` above 2,147,483,647 is held at that value, because any limit longer than a chain behaves the same. Members the library does not define are ignored, as section 6.2 requires, and so they are not written back if a parsed statement is serialised again.
+
+`allowed_entity_types` changes resolved metadata, so it is applied by `ResolveMetadata` and `/resolve`. `Client.BuildTrustChain` returns the chain and its parsed statements without resolving anything, so the subject's statement there still carries every entity type it published.
+
+Two limits are worth knowing:
+
+- **An internationalised host under `naming_constraints` is refused unless you supply a converter.** Go's HTTP client turns `https://ëxample.com` into its ASCII form, `xn--xample-ova.com`, before connecting. A plain comparison of the Unicode spelling would therefore let it slip past an exclusion of the ASCII name. The library has no IDNA dependency, so by default it refuses any host that is not ASCII whenever the statement carries naming constraints. To match such hosts instead, set `Configuration.HostToASCII`:
+
+  ```go
+  import "golang.org/x/net/idna"
+
+  cfg.HostToASCII = idna.Lookup.ToASCII
+  ```
+
+  Use the `idna.Lookup` profile, because it is the one `net/http` applies when it connects. A converter that maps a host differently from your HTTP client reopens the gap: the constraint judges one host and the request reaches another. The converter is called only for a host that is not ASCII. A host it fails on, or converts to something that is still not ASCII, is refused.
+- **A path that fails a constraint is not retried.** Constraints arrive in subordinate statements, which `BuildTrustChain` fetches after it has chosen a path. A failing path refuses the resolve even when another path would satisfy every constraint, as any failing subordinate statement does today ([#123](https://github.com/MichaelFraser99/go-openid-federation/issues/123)).
+
+> **Breaking change.** `EntityStatement.Constraints` was `any` and is now `*model.Constraints`, with `MaxPathLength *int`, `NamingConstraints *model.NamingConstraints` and `AllowedEntityTypes []string`. A nil `AllowedEntityTypes` means the member is absent, and an empty non-nil one means `[]`. A chain carrying constraints it does not satisfy, or a malformed `constraints` claim, previously resolved and is now refused.
+
 ### Anchoring a chain a caller supplies
 
 `Client.ResolveMetadata` takes a chain the caller supplies, such as one from a peer's `trust_chain` JWS header. The library does not read that header, so the caller must extract it.
@@ -732,7 +760,7 @@ Entity statements and configurations, subordinate statements, trust chain constr
 
 | Area | Status | Issue |
 |---|---|---|
-| `constraints` claim | Parsed and carried, never enforced | [#50](https://github.com/MichaelFraser99/go-openid-federation/issues/50) |
+| Internationalised hosts under `naming_constraints` | Refused by default; matched only when `Configuration.HostToASCII` is set | [#50](https://github.com/MichaelFraser99/go-openid-federation/issues/50) |
 | The anchor check with no `TrustAnchors` configured | Identifier only, so a caller-supplied chain is not cryptographically anchored | [#189](https://github.com/MichaelFraser99/go-openid-federation/issues/189) |
 | Clock skew tolerance | `model.ClockSkewLeeway` is a constant and cannot be configured | [#141](https://github.com/MichaelFraser99/go-openid-federation/issues/141) |
 | Server configuration validation | A bad `ServerConfiguration` is reported when a peer first fetches, not at startup | [#145](https://github.com/MichaelFraser99/go-openid-federation/issues/145) |

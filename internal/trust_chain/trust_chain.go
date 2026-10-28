@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"net/url"
 	"slices"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_configuration"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
@@ -66,6 +69,10 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 	}
 
 	if err = verifyChainLinks(ctx, cfg, trustChain, parsedTrustChain); err != nil {
+		return nil, nil, nil, err
+	}
+
+	if err = verifyChainConstraints(ctx, cfg, parsedTrustChain); err != nil {
 		return nil, nil, nil, err
 	}
 
@@ -150,6 +157,51 @@ func verifyChainLinks(ctx context.Context, cfg model.Configuration, signedChain 
 		}
 	}
 	return nil
+}
+
+func verifyChainConstraints(ctx context.Context, cfg model.Configuration, parsedChain []model.EntityStatement) error {
+	for k := 1; k < len(parsedChain); k++ {
+		statement := parsedChain[k]
+		if statement.Constraints == nil || statement.Iss == statement.Sub {
+			continue
+		}
+		issuer := model.TruncateForResponse(string(statement.Iss))
+		if limit := statement.Constraints.MaxPathLength; limit != nil {
+			if intermediates := k - 1; intermediates > *limit {
+				cfg.LogInfo(ctx, "trust chain exceeds a max_path_length constraint", slog.String("issuer", issuer), slog.Int("max_path_length", *limit), slog.Int("intermediates", intermediates))
+				return model.NewInvalidTrustChainError(fmt.Sprintf("the subordinate statement issued by %s allows at most %d intermediates below it, and the trust chain has %d", issuer, *limit, intermediates))
+			}
+		}
+		if naming := statement.Constraints.NamingConstraints; naming != nil {
+			for j := 0; j <= k; j++ {
+				subordinate := parsedChain[j].Sub
+				if host, ok := constraintHost(cfg, subordinate); !ok || !naming.Permits(host) {
+					cfg.LogInfo(ctx, "trust chain entity outside a naming_constraints constraint", slog.String("issuer", issuer), slog.String("entity", string(subordinate)))
+					return model.NewInvalidTrustChainError(fmt.Sprintf("the entity identifier %s is outside the naming constraints set by %s", model.TruncateForResponse(string(subordinate)), issuer))
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func constraintHost(cfg model.Configuration, identifier model.EntityIdentifier) (string, bool) {
+	parsed, err := url.Parse(string(identifier))
+	if err != nil {
+		return "", false
+	}
+	host := parsed.Hostname()
+	if strings.ContainsFunc(host, func(r rune) bool { return r >= utf8.RuneSelf }) {
+		if cfg.HostToASCII == nil {
+			return "", false
+		}
+		converted, err := cfg.HostToASCII(host)
+		if err != nil {
+			return "", false
+		}
+		host = converted
+	}
+	return model.NormaliseConstraintHost(host)
 }
 
 func walkNotCompleted(err error) error {
@@ -529,9 +581,19 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 		TrustChain: trustChain,
 	}
 
+	if err := verifyChainConstraints(ctx, cfg, processedChain); err != nil {
+		return nil, err
+	}
+
 	subject := processedChain[0]
 	subject.Metadata = model.ApplySuperiorMetadata(processedChain[0].Metadata, processedChain[1].Metadata)
 	cfg.LogInfo(ctx, "applied immediate superior supplied metadata", slog.String("subject", string(subject.Sub)), slog.String("superior", string(processedChain[1].Iss)))
+
+	for _, statement := range processedChain[1:] {
+		if statement.Constraints != nil && statement.Constraints.AllowedEntityTypes != nil && statement.Iss != statement.Sub {
+			subject.Metadata = subject.Metadata.RetainEntityTypes(statement.Constraints.AllowedEntityTypes)
+		}
+	}
 
 	cfg.LogInfo(ctx, "processing and extracting metadata policy from chain", slog.Int("chain_length", len(processedChain)))
 	finalisedPolicy, err := model.ProcessAndExtractPolicy(processedChain)

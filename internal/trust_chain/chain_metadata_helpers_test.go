@@ -107,6 +107,13 @@ const chainIntermediate = model.EntityIdentifier("https://intermediate.example.c
 
 func chainThroughIntermediate(t *testing.T, immediateExtra, grandparentExtra map[string]any) []string {
 	t.Helper()
+	return chainThroughIntermediateWithMetadata(t, map[string]any{
+		"federation_entity": map[string]any{"contacts": []any{"leaf@leaf.example.com"}},
+	}, immediateExtra, grandparentExtra)
+}
+
+func chainThroughIntermediateWithMetadata(t *testing.T, subjectMetadata, immediateExtra, grandparentExtra map[string]any) []string {
+	t.Helper()
 	subjectKey := chainSigningKey(t)
 	intermediateKey := chainSigningKey(t)
 	anchorKey := chainSigningKey(t)
@@ -119,9 +126,7 @@ func chainThroughIntermediate(t *testing.T, immediateExtra, grandparentExtra map
 		"exp":             now.Add(time.Hour).Unix(),
 		"jwks":            chainJwks(t, subjectKey),
 		"authority_hints": []any{string(chainIntermediate)},
-		"metadata": map[string]any{
-			"federation_entity": map[string]any{"contacts": []any{"leaf@leaf.example.com"}},
-		},
+		"metadata":        subjectMetadata,
 	}
 	immediate := map[string]any{
 		"iss":  string(chainIntermediate),

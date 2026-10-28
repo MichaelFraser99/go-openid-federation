@@ -84,6 +84,14 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 		}
 		return nil, nil, model.NewInvalidTrustChainError("failed to read the issuer's federation fetch response body")
 	}
+	if fetchCtx.Err() != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			cfg.LogInfo(ctx, "stopped reading the issuer's federation fetch response because this request ended", slog.String("issuer", string(issuer.Sub)))
+			return nil, nil, fmt.Errorf("%w%s: %w", model.ErrTemporarilyUnavailable, "this server did not complete the request", ctxErr)
+		}
+		cfg.LogInfo(ctx, "the issuer's federation fetch response did not arrive within the peer deadline", slog.String("issuer", string(issuer.Sub)))
+		return nil, nil, model.NewInvalidTrustChainError("the issuer's federation fetch response did not arrive within the peer deadline")
+	}
 	if int64(len(responseBytes)) > limit {
 		cfg.LogInfo(ctx, "the issuer's federation fetch response exceeded the response limit", slog.String("issuer", string(issuer.Sub)), slog.Int64("limit", limit))
 		return nil, nil, model.NewInvalidTrustChainError(fmt.Sprintf("the issuer's federation fetch response exceeded the %d byte response limit", limit))

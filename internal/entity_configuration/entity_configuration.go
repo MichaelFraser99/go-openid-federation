@@ -84,6 +84,12 @@ func fetch(ctx context.Context, cfg model.Configuration, entityIdentifier model.
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read %q's entity configuration response body: %s", entityIdentifier, err.Error())
 	}
+	if fetchCtx.Err() != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, nil, fmt.Errorf("stopped reading %q's entity configuration: %s", entityIdentifier, ctxErr.Error())
+		}
+		return nil, nil, fmt.Errorf("%q's entity configuration did not arrive within the peer deadline: %s", entityIdentifier, fetchCtx.Err().Error())
+	}
 	if int64(len(responseBytes)) > limit {
 		return nil, nil, fmt.Errorf("%q's entity configuration exceeded the %d byte response limit", entityIdentifier, limit)
 	}

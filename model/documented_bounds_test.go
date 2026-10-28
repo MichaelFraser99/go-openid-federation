@@ -16,6 +16,8 @@ func TestDefaults_AreTheValuesTheReadmeDocuments(t *testing.T) {
 		"a chain is 10 deep":               {documented: 10, actual: DefaultMaxTrustChainDepth},
 		"a request fetches 1024 entities":  {documented: 1024, actual: DefaultMaxEntitiesTraversed},
 		"a decoded value costs 256B":       {documented: 256, actual: DecodedValueCost},
+		"a statement holds 10000 values":   {documented: 10_000, actual: DefaultMaxStatementValues},
+		"an entity lists 64 hints":         {documented: 64, actual: DefaultMaxAuthorityHints},
 	}
 
 	for name, tc := range tests {

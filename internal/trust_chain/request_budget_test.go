@@ -310,7 +310,7 @@ func TestBuildTrustChain_TheDepthBoundAppliesWithoutConfiguration(t *testing.T) 
 func TestBuildTrustChain_TheFetchBoundAppliesWithoutConfiguration(t *testing.T) {
 	var fetches atomic.Int64
 	srv := countingHintGraph(t, sharedDeadEndGraph(model.DefaultMaxEntitiesTraversed, false), &fetches)
-	cfg := model.Configuration{HttpClient: srv.Client()}
+	cfg := model.Configuration{HttpClient: srv.Client(), MaxAuthorityHints: 2 * model.DefaultMaxEntitiesTraversed}
 
 	_, _, _, err := BuildTrustChain(t.Context(), cfg, model.EntityIdentifier(srv.URL+"/subject"), model.EntityIdentifier(srv.URL+"/ta"), resolvecache.New())
 	if err == nil {

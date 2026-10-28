@@ -127,6 +127,9 @@ func validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode JWT header: %s", err.Error())
 	}
+	if err := model.VerifyJSONValueCount(head, cfg.StatementValuesLimit()); err != nil {
+		return nil, fmt.Errorf("the JWT header %s", err.Error())
+	}
 	var headMap map[string]any
 	err = json.Unmarshal(head, &headMap)
 	if err != nil {
@@ -137,10 +140,16 @@ func validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode JWT body: %s", err.Error())
 	}
+	if err := model.VerifyJSONValueCount(body, cfg.StatementValuesLimit()); err != nil {
+		return nil, fmt.Errorf("the JWT body %s", err.Error())
+	}
 	var bodyMap map[string]any
 	err = json.Unmarshal(body, &bodyMap)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JWT body: %s", err.Error())
+	}
+	if err := model.VerifyTrustMarkValueCount(bodyMap, cfg.StatementValuesLimit()); err != nil {
+		return nil, fmt.Errorf("the JWT body %s", err.Error())
 	}
 
 	if err = entity_statement.ValidateStatementHeader(headMap); err != nil {
@@ -195,6 +204,11 @@ func validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 
 	if entityConfiguration.Sub != entityIdentifier {
 		return nil, fmt.Errorf("'sub' claim does not match the original entity identifier")
+	}
+
+	if hints := len(entityConfiguration.AuthorityHints); hints > cfg.AuthorityHintsLimit() {
+		cfg.LogInfo(ctx, "entity configuration lists more authority_hints than this resolver will inspect", slog.String("subject", string(entityIdentifier)), slog.Int("authority_hints", hints), slog.Int("limit", cfg.AuthorityHintsLimit()))
+		return nil, fmt.Errorf("lists %d authority_hints, more than the %d this resolver will inspect", hints, cfg.AuthorityHintsLimit())
 	}
 
 	model.LogPrivateKeyMembersInRawSet(ctx, &cfg, entityConfiguration.Sub, entityConfiguration.Sub, jwks)

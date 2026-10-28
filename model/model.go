@@ -47,6 +47,9 @@ type Configuration struct {
 
 	MaxTrustMarkIssuers int
 
+	MaxStatementValues int
+	MaxAuthorityHints  int
+
 	TrustAnchors map[EntityIdentifier]josemodel.Jwks
 }
 
@@ -85,6 +88,10 @@ const (
 
 const DefaultMaxTrustMarkIssuers = 64
 
+const DefaultMaxStatementValues = 10_000
+
+const DefaultMaxAuthorityHints = 64
+
 const (
 	DefaultMaxTrustChainDepth   = 10
 	DefaultMaxEntitiesTraversed = 1024
@@ -109,6 +116,20 @@ func (cfg *Configuration) TrustMarkIssuerLimit() int {
 		return cfg.MaxTrustMarkIssuers
 	}
 	return DefaultMaxTrustMarkIssuers
+}
+
+func (cfg *Configuration) StatementValuesLimit() int {
+	if cfg.MaxStatementValues > 0 {
+		return cfg.MaxStatementValues
+	}
+	return DefaultMaxStatementValues
+}
+
+func (cfg *Configuration) AuthorityHintsLimit() int {
+	if cfg.MaxAuthorityHints > 0 {
+		return cfg.MaxAuthorityHints
+	}
+	return DefaultMaxAuthorityHints
 }
 
 func (cfg *Configuration) PeerResponseTimeLimit() time.Duration {

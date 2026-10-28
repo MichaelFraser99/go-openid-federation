@@ -273,6 +273,8 @@ When the library resolves a trust chain, it follows federation endpoints derived
 | `Configuration.MaxTrustChainDepth` | `model.DefaultMaxTrustChainDepth`, 10 | Entities on one path from the leaf to a trust anchor |
 | `Configuration.MaxEntitiesTraversed` | `model.DefaultMaxEntitiesTraversed`, 1024 | Entity configurations one request may fetch while walking `authority_hints`, across every chain it builds |
 | `Configuration.MaxTrustMarkIssuers` | `model.DefaultMaxTrustMarkIssuers` | Distinct trust mark issuers resolved for one subject |
+| `Configuration.MaxStatementValues` | `model.DefaultMaxStatementValues`, 10,000 | JSON values in the header or body of one peer statement, trust mark or delegation, and separately in all the trust marks one statement carries |
+| `Configuration.MaxAuthorityHints` | `model.DefaultMaxAuthorityHints`, 64 | `authority_hints` one entity configuration may list |
 
 > **Breaking change.** Two bounds that were absent now apply by default, and both `Server` and `Client` are subject to them.
 >
@@ -283,6 +285,13 @@ When the library resolves a trust chain, it follows federation endpoints derived
 > - Zero no longer means unlimited for either: it selects the default. Set a large value to restore the old behaviour.
 > - A consumer who already set `MaxTrustChainDepth` themselves gets the same 404 as before, but with a description naming the bound rather than one that reads as an unknown trust anchor.
 > - A trust mark whose issuer cannot be walked within the bounds is omitted from the response, as any unverifiable mark is. Section 8.3 requires a response to carry only verified trust marks, so the resolve still succeeds.
+
+> **Breaking change.** Two bounds on what one peer statement may hold now apply by default.
+>
+> - `MaxStatementValues` is new and defaults to 10,000. The library counts the JSON values in a statement before it decodes the statement or checks its signature. A statement over the limit is refused. A signature check first gives no protection here, because an entity configuration is signed with a key from its own `jwks`, so an attacker signs their own padding. Measured on a 1 MiB body of `[0,0,0,…]`: a full decode took 57 ms and 53 MB in about a million allocations, and the refusal takes 0.3 ms and 169 KB. The count adds about 3 µs to a typical 1 KB statement. This repository's largest fixture holds 47 values.
+> - The trust marks embedded in a statement share one separate budget of `MaxStatementValues`. Without it, a statement could carry many marks each just under the limit.
+> - `MaxAuthorityHints` is new and defaults to 64. Section 18.1 recommends a limit on the authority hints a resolver inspects. A superior that lists more is a dead end, so the walk tries the other hints. A subject that lists more is refused with 400 `invalid_trust_chain`, and the Info log names the bound.
+> - Zero or a negative value selects the default for both. A trust mark embedded in a statement is held to the configured value through the shared budget, not to the default.
 
 `MaxRequestPeerBytes` and `MaxPeerResponseTime` answer different questions from the other bounds, which is why they are separate knobs rather than derived ones. The entity and step bounds say how many peers may be contacted; the byte budget estimates how much memory the answers occupy, and the deadline says how long any one peer may take. An operator sizing a container cares about the second, and an operator sizing a request timeout cares about the third, and neither is computable from the counts.
 
@@ -309,6 +318,8 @@ The bounds and the memory of dead ends span one resolve. `Server` builds a chain
 An entity proven not to reach the anchor is remembered for the rest of the request only when the verdict holds for any path to it. A verdict that depended on skipping a superior already on the path being walked, or on a bound cutting the walk short, is kept for that one walk and discarded afterwards: within a walk it is sound, because a superior that could reach the anchor would have reached it before the walk gave up, but another walk may arrive by a path where neither obstacle applies. A failure to fetch an entity configuration is remembered for the whole request, so a peer that is briefly unreachable during the subject's walk stays unreachable for the trust mark issuers' walks.
 
 Subordinate statement fetches are outside both bounds. A request makes up to one per link of each chain it completes, so the bounds limit them only indirectly. See [#138](https://github.com/MichaelFraser99/go-openid-federation/issues/138).
+
+Section 18.1 also recommends that an unauthenticated `/resolve` serve only results the resolver already holds, and not start a walk on demand. This library walks on demand for every caller, because most deployments use `/resolve` without client authentication. So any caller who can reach `/resolve` can spend one request's bounds on a graph of their choice. The bounds above limit what one request costs. They do not limit how many requests a caller makes. Put rate limits in front of `/resolve` if it is reachable from untrusted networks. Authenticated requests are tracked in [#219](https://github.com/MichaelFraser99/go-openid-federation/issues/219).
 
 ### Retriever interfaces
 

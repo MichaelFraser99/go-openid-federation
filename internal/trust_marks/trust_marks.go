@@ -195,6 +195,10 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 		cfg.LogError(ctx, "failed to decode JWT header", slog.String("error", err.Error()), slog.String("trust_mark", model.TruncateForResponse(trustMark)))
 		return nil, fmt.Errorf("failed to decode JWT header: %v", err)
 	}
+	if err := model.VerifyJSONValueCount(headBytes, cfg.StatementValuesLimit()); err != nil {
+		cfg.LogError(ctx, "trust mark header exceeds the value limit", slog.Int("limit", cfg.StatementValuesLimit()))
+		return nil, fmt.Errorf("the trust mark's JWT header %s", err.Error())
+	}
 	var headMap map[string]any
 	if err = json.Unmarshal(headBytes, &headMap); err != nil {
 		cfg.LogError(ctx, "failed to unmarshal JWT header", slog.String("error", err.Error()))
@@ -212,9 +216,13 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 		cfg.LogError(ctx, "failed to decode JWT body", slog.String("error", err.Error()), slog.String("trust_mark", model.TruncateForResponse(trustMark)))
 		return nil, fmt.Errorf("failed to decode JWT body: %v", err)
 	}
+	if err := model.VerifyJSONValueCount(bodyBytes, cfg.StatementValuesLimit()); err != nil {
+		cfg.LogError(ctx, "trust mark body exceeds the value limit", slog.Int("limit", cfg.StatementValuesLimit()))
+		return nil, fmt.Errorf("the trust mark's JWT body %s", err.Error())
+	}
 	var body model.TrustMark
 	if err = json.Unmarshal(bodyBytes, &body); err != nil {
-		cfg.LogError(ctx, "failed to unmarshal JWT body", slog.String("error", err.Error()), slog.String("body", string(bodyBytes)))
+		cfg.LogError(ctx, "failed to unmarshal JWT body", slog.String("error", err.Error()), slog.String("body", model.TruncateForResponse(string(bodyBytes))))
 		return nil, fmt.Errorf("failed to unmarshal JWT body: %v", err)
 	}
 

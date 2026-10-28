@@ -410,6 +410,7 @@ Parsing applies the claim rules from section 3.2 of the specification. Three of 
 - A statement that carries a `crit` claim is rejected, with no opt-in. The library has no way to carry the critical extension claims themselves. See issue #132.
 - A statement that carries a `metadata_policy_crit` claim is rejected. The claim names metadata policy operators that an implementation must understand, and this library understands none beyond the seven standard operators.
 - A trust mark or a trust mark delegation whose JOSE header carries `crit` is refused, as an entity statement header carrying `crit` already is. This library understands no critical header extension. A refused trust mark is left out of a resolve response, and the resolve still succeeds.
+- A trust mark's `iat` and `exp` are held to the range an entity statement's and a delegation's are: a negative value, or one at or above 2^62, is refused, and so is an `exp` that is present but is not a number. Earlier releases converted an out-of-range value in a way that depends on the CPU, so a far-future `exp` became a date in the past on amd64. They also read a non-numeric `exp` as no expiry. `model.TrustMark` now refuses all of these when a consumer decodes one directly, and a refused trust mark is left out of a resolve response.
 
 `EntityStatement` has no field for either `crit` or `metadata_policy_crit`. Both claims are refused on the way in, and the library cannot emit either, so there is no field to set.
 

@@ -1442,19 +1442,26 @@ func (t *TrustMark) UnmarshalJSON(data []byte) error {
 		t.Type = trustMarkType
 	}
 
-	if iat, ok := jsonMap["iat"].(float64); !ok {
+	iatValue, ok := jsonMap["iat"].(float64)
+	if !ok {
 		return fmt.Errorf("missing or invalid required field 'iat'")
-	} else {
-		t.IssuedAt = int64(iat)
 	}
+	iat, err := parseNumericDate("iat", iatValue)
+	if err != nil {
+		return err
+	}
+	t.IssuedAt = iat
 
 	if logoURI, ok := jsonMap["logo_uri"].(string); ok {
 		t.LogoURI = &logoURI
 	}
 
-	if exp, ok := jsonMap["exp"].(float64); ok {
-		expInt := int64(exp)
-		t.Expiry = &expInt
+	if expValue, present := jsonMap["exp"]; present {
+		exp, err := parseNumericDate("exp", expValue)
+		if err != nil {
+			return err
+		}
+		t.Expiry = &exp
 	}
 
 	if ref, ok := jsonMap["ref"].(string); ok {

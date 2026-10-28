@@ -87,7 +87,7 @@ func verifyHTTPSURLValue(key string, v any, allowQuery bool) error {
 	}
 	parsedURL, err := url.Parse(s)
 	if err != nil {
-		return fmt.Errorf("'%s' is not a valid url: %s", key, err.Error())
+		return fmt.Errorf("'%s' is not a valid url", key)
 	}
 	if parsedURL.Scheme != "https" {
 		return fmt.Errorf("'%s' must use the 'https' scheme", key)

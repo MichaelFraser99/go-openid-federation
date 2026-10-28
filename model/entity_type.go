@@ -38,6 +38,11 @@ func (b builtInEntityType) VerifyMetadataPolicy(map[string]PolicyOperators) erro
 }
 
 func (b builtInEntityType) VerifyResolvedMetadata(metadata map[string]any) error {
+	if b.verify != nil {
+		if err := b.verify(metadata); err != nil {
+			return err
+		}
+	}
 	if b.verifyResolved == nil {
 		return nil
 	}
@@ -128,7 +133,10 @@ func (m *Metadata) Verify(registry EntityTypeRegistry, discardUnrecognised bool)
 
 // VerifyResolved runs the registered post-resolution validation for every Entity Type present in
 // the metadata, after any metadata policy has been applied.
-func (m *Metadata) VerifyResolved(registry EntityTypeRegistry) error {
+func (m *Metadata) VerifyResolved(registry EntityTypeRegistry, subject EntityIdentifier) error {
+	if err := m.verifyIssuerMatchesIdentifier(subject); err != nil {
+		return err
+	}
 	merged := registry.withDefaults()
 	for entityType, entityMetadata := range m.byEntityType() {
 		if _, overridden := registry[entityType]; overridden {
@@ -167,6 +175,27 @@ func (m *MetadataPolicy) Verify(registry EntityTypeRegistry, discardUnrecognised
 		}
 		if err := definition.VerifyMetadataPolicy(operators); err != nil {
 			return fmt.Errorf("invalid %s metadata policy: %w", entityType, err)
+		}
+	}
+	return nil
+}
+
+func (m *Metadata) verifyIssuerMatchesIdentifier(subject EntityIdentifier) error {
+	for _, entityType := range []string{"openid_provider", "oauth_authorization_server"} {
+		body, present := m.byEntityType()[entityType]
+		if !present {
+			continue
+		}
+		raw, carried := body["issuer"]
+		if !carried || raw == nil {
+			continue
+		}
+		issuer, isString := raw.(string)
+		if !isString {
+			return fmt.Errorf("invalid resolved %s metadata: 'issuer' must be a string", entityType)
+		}
+		if issuer != string(subject) {
+			return fmt.Errorf("invalid resolved %s metadata: 'issuer' must be the entity identifier", entityType)
 		}
 	}
 	return nil

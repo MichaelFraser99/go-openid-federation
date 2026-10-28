@@ -191,6 +191,18 @@ func TestResolveMetadata_NoValueASuperiorChoseReachesTheResponse(t *testing.T) {
 			}},
 		},
 		{
+			name: "an https url parameter a policy made unparseable",
+			policy: map[string]any{"openid_provider": map[string]any{
+				"authorization_endpoint": map[string]any{"value": "https://" + marker + "/%zz"},
+			}},
+		},
+		{
+			name: "a jwks_uri a policy made unparseable",
+			policy: map[string]any{"openid_provider": map[string]any{
+				"jwks_uri": map[string]any{"value": "https://" + marker + "/%zz"},
+			}},
+		},
+		{
 			name: "an endpoint a policy gave a scheme of its own choosing",
 			policy: map[string]any{"federation_entity": map[string]any{
 				"federation_fetch_endpoint": map[string]any{"value": strings.ToLower(marker) + "://host.example.com/fetch"},

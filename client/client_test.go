@@ -109,7 +109,7 @@ func TestClient_ResolveMetadata(t *testing.T) {
 					t.Fatal("expected result to be non-nil")
 				}
 
-				expectedMetadata := `
+				expectedMetadata := fmt.Sprintf(`
 {
     "openid_provider": {
   "authorization_endpoint":
@@ -133,7 +133,7 @@ func TestClient_ResolveMetadata(t *testing.T) {
     "RS256",
     "ES256"
   ],
-  "issuer": "https://op.umu.se/openid",
+  "issuer": "%s/leaf",
   "signed_jwks_uri": "https://op.umu.se/openid/jwks.jose",
   "logo_uri":
     "https://www.umu.se/img/umu-logo-left-neg-SE.svg",
@@ -155,7 +155,7 @@ func TestClient_ResolveMetadata(t *testing.T) {
     "client_secret_jwt"
   ]
 }
-}`
+}`, testServerURL)
 
 				var expected map[string]any
 				err = json.Unmarshal([]byte(expectedMetadata), &expected)

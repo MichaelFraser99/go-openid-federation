@@ -367,7 +367,7 @@ func TestVerifyResolved_ARegistrationCannotLoosenABuiltIn(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			for entityType := range test.metadata.byEntityType() {
-				if err := test.metadata.VerifyResolved(EntityTypeRegistry{entityType: looseBuiltIn{identifier: entityType}}); err == nil {
+				if err := test.metadata.VerifyResolved(EntityTypeRegistry{entityType: looseBuiltIn{identifier: entityType}}, "https://sub.example.com"); err == nil {
 					t.Errorf("a registration under %s loosened the built-in resolved check", entityType)
 				}
 			}
@@ -380,12 +380,12 @@ func TestVerifyResolved_ARegistrationCanTightenABuiltIn(t *testing.T) {
 		"redirect_uris": []any{"https://rp.example.com/cb"},
 	}}
 
-	if err := metadata.VerifyResolved(nil); err != nil {
+	if err := metadata.VerifyResolved(nil, "https://sub.example.com"); err != nil {
 		t.Fatalf("the built-in check is satisfied, got: %v", err)
 	}
 
 	stricter := EntityTypeRegistry{"openid_relying_party": strictRP{}}
-	if err := metadata.VerifyResolved(stricter); err == nil {
+	if err := metadata.VerifyResolved(stricter, "https://sub.example.com"); err == nil {
 		t.Error("a registration must still be able to add its own resolved requirement")
 	}
 }

@@ -51,6 +51,8 @@ type Configuration struct {
 	MaxAuthorityHints  int
 
 	TrustAnchors map[EntityIdentifier]josemodel.Jwks
+
+	HostToASCII func(host string) (string, error)
 }
 
 func (cfg *Configuration) TrustAnchorsConfigured() bool {
@@ -397,7 +399,7 @@ type EntityStatement struct { //todo: allow for additional claims to be set - th
 	TrustAnchorHints []EntityIdentifier            `json:"trust_anchor_hints,omitempty"`
 	Metadata         *Metadata                     `json:"metadata,omitempty"`
 	MetadataPolicy   *MetadataPolicy               `json:"metadata_policy,omitempty"`
-	Constraints      any                           `json:"constraints,omitempty"` //todo
+	Constraints      *Constraints                  `json:"constraints,omitempty"`
 	TrustMarks       []TrustMarkHolder             `json:"trust_marks,omitempty"`
 	TrustMarkIssuers map[string][]EntityIdentifier `json:"trust_mark_issuers,omitempty"`
 	TrustMarkOwners  map[string]TrustMarkOwner     `json:"trust_mark_owners,omitempty"`
@@ -742,7 +744,11 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 	}
 
 	if constraints, ok := jsonMap["constraints"]; ok {
-		e.Constraints = constraints
+		parsed, err := ParseConstraints(constraints)
+		if err != nil {
+			return err
+		}
+		e.Constraints = parsed
 	}
 
 	if crit, ok := jsonMap["crit"]; ok {

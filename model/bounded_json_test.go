@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/base64"
 	"encoding/json"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -39,7 +40,7 @@ func TestCountJSONValues_AgreesWithTheDecodedCount(t *testing.T) {
 	}
 }
 
-func TestCountJSONValues_StopsReadingOnceTheLimitIsPassed(t *testing.T) {
+func TestCountJSONValues_ReportsOneValueOverTheLimit(t *testing.T) {
 	tests := map[string]struct {
 		document string
 		limit    int
@@ -136,10 +137,17 @@ func TestConfiguration_StatementBoundsDefaultWhenUnset(t *testing.T) {
 	}
 }
 
-func trustMarkHolding(values int) map[string]any {
-	body := "[" + strings.TrimSuffix(strings.Repeat("0,", values-1), ",") + "]"
+func jsonArrayOf(values int) string {
+	return "[" + strings.TrimSuffix(strings.Repeat("0,", values-1), ",") + "]"
+}
+
+func trustMarkSplit(headValues, bodyValues int) map[string]any {
 	encode := base64.RawURLEncoding.EncodeToString
-	return map[string]any{"trust_mark_type": "t", "trust_mark": encode([]byte(`{"alg":"none"}`)) + "." + encode([]byte(body)) + "." + encode([]byte("sig"))}
+	return map[string]any{"trust_mark_type": "t", "trust_mark": encode([]byte(jsonArrayOf(headValues))) + "." + encode([]byte(jsonArrayOf(bodyValues))) + "." + encode([]byte("sig"))}
+}
+
+func trustMarkHolding(values int) map[string]any {
+	return trustMarkSplit(1, values-1)
 }
 
 func TestVerifyTrustMarkValueCount_SharesOneBudgetAcrossEveryMark(t *testing.T) {
@@ -152,7 +160,9 @@ func TestVerifyTrustMarkValueCount_SharesOneBudgetAcrossEveryMark(t *testing.T) 
 		"one mark past the limit":                {marks: []any{trustMarkHolding(11)}, expectErr: true},
 		"marks that together reach the limit":    {marks: []any{trustMarkHolding(4), trustMarkHolding(6)}},
 		"marks that together pass the limit":     {marks: []any{trustMarkHolding(6), trustMarkHolding(6)}, expectErr: true},
-		"many small marks past the limit":        {marks: []any{trustMarkHolding(2), trustMarkHolding(2), trustMarkHolding(2), trustMarkHolding(2), trustMarkHolding(2), trustMarkHolding(1)}, expectErr: true},
+		"many small marks past the limit":        {marks: []any{trustMarkHolding(2), trustMarkHolding(2), trustMarkHolding(2), trustMarkHolding(2), trustMarkHolding(2), trustMarkHolding(2)}, expectErr: true},
+		"headers count against the budget":       {marks: []any{trustMarkSplit(9, 1), trustMarkSplit(1, 1)}, expectErr: true},
+		"headers and bodies reach the limit":     {marks: []any{trustMarkSplit(4, 1), trustMarkSplit(4, 1)}},
 		"entries that are not marks are skipped": {marks: []any{"x", 1, map[string]any{"trust_mark": 3}, map[string]any{"trust_mark": "a.b"}, map[string]any{"trust_mark": "a.!!.c"}, trustMarkHolding(10)}},
 	}
 
@@ -168,6 +178,62 @@ func TestVerifyTrustMarkValueCount_SharesOneBudgetAcrossEveryMark(t *testing.T) 
 			}
 			if err != nil && !strings.Contains(err.Error(), "10 JSON values") {
 				t.Errorf("expected the refusal to name the limit, got %v", err)
+			}
+		})
+	}
+}
+
+func TestVerifyTokenValueCount_ChecksTheHeaderAndTheBody(t *testing.T) {
+	encode := func(document string) string { return base64.RawURLEncoding.EncodeToString([]byte(document)) }
+
+	tests := map[string]struct {
+		token    string
+		expected string
+	}{
+		"both within the limit":       {token: encode(jsonArrayOf(10)) + "." + encode(jsonArrayOf(10)) + ".sig"},
+		"a header past the limit":     {token: encode(jsonArrayOf(11)) + "." + encode(jsonArrayOf(1)) + ".sig", expected: "has a header that holds more than the 10 JSON values"},
+		"a body past the limit":       {token: encode(jsonArrayOf(1)) + "." + encode(jsonArrayOf(11)) + ".sig", expected: "has a body that holds more than the 10 JSON values"},
+		"too few segments":            {token: encode(jsonArrayOf(11)) + "." + encode(jsonArrayOf(11))},
+		"too many segments":           {token: encode(jsonArrayOf(11)) + "." + encode(jsonArrayOf(11)) + ".a.b"},
+		"a header that is not base64": {token: "!!!." + encode(jsonArrayOf(1)) + ".sig"},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := VerifyTokenValueCount(tc.token, 10)
+			if tc.expected == "" {
+				if err != nil {
+					t.Fatalf("expected no refusal, got %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.expected) {
+				t.Fatalf("expected a refusal containing %q, got %v", tc.expected, err)
+			}
+		})
+	}
+}
+
+func TestCountJSONValues_AllocatesForWhatItReadsNotForTheWholeDocument(t *testing.T) {
+	tests := map[string]string{
+		"a long array":         "[" + strings.Repeat("1,", 200_000) + "1]",
+		"a wide object":        "{" + strings.Repeat(`"k":1,`, 100_000) + `"k":1}`,
+		"deeply nested arrays": strings.Repeat("[", 200_000) + strings.Repeat("]", 200_000),
+	}
+
+	for name, document := range tests {
+		t.Run(name, func(t *testing.T) {
+			data := []byte(document)
+			var before, after runtime.MemStats
+			runtime.GC()
+			runtime.ReadMemStats(&before)
+			_, exceeded := CountJSONValues(data, 10)
+			runtime.ReadMemStats(&after)
+			if !exceeded {
+				t.Fatalf("expected the limit of 10 to be exceeded")
+			}
+			if allocated := after.TotalAlloc - before.TotalAlloc; allocated > uint64(len(data)/20) {
+				t.Errorf("counting 11 values of a %d byte document allocated %d bytes, so it read past the limit", len(data), allocated)
 			}
 		})
 	}

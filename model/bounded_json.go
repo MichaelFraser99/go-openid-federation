@@ -74,15 +74,34 @@ func VerifyTrustMarkValueCount(claims map[string]any, limit int) error {
 		if len(parts) != 3 {
 			continue
 		}
-		body, err := base64.RawURLEncoding.DecodeString(parts[1])
+		for _, part := range parts[:2] {
+			decoded, err := base64.RawURLEncoding.DecodeString(part)
+			if err != nil {
+				continue
+			}
+			count, exceeded := CountJSONValues(decoded, limit-total)
+			if exceeded {
+				return fmt.Errorf("carries trust marks holding more than the %d JSON values a statement may hold", limit)
+			}
+			total += count
+		}
+	}
+	return nil
+}
+
+func VerifyTokenValueCount(token string, limit int) error {
+	parts := strings.SplitN(token, ".", 4)
+	if len(parts) != 3 {
+		return nil
+	}
+	for i, name := range []string{"header", "body"} {
+		decoded, err := base64.RawURLEncoding.DecodeString(parts[i])
 		if err != nil {
 			continue
 		}
-		count, exceeded := CountJSONValues(body, limit-total)
-		if exceeded {
-			return fmt.Errorf("carries trust marks holding more than the %d JSON values a statement may hold", limit)
+		if err := VerifyJSONValueCount(decoded, limit); err != nil {
+			return fmt.Errorf("has a %s that %s", name, err.Error())
 		}
-		total += count
 	}
 	return nil
 }

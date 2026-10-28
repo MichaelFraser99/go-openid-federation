@@ -35,7 +35,7 @@ func TestValidate_AStatementHoldingTooManyValuesIsRefusedBeforeItsSignatureIsChe
 		return base64.RawURLEncoding.EncodeToString(raw)
 	}
 	markHolding := func(values int) map[string]any {
-		token := encode(map[string]any{"alg": "RS256"}) + "." + encode(map[string]any{"trust_mark_type": "t", "pad": padding(values - 3)}) + "." + encode("sig")
+		token := encode(map[string]any{"alg": "RS256"}) + "." + encode(map[string]any{"trust_mark_type": "t", "pad": padding(values - 5)}) + "." + encode("sig")
 		return map[string]any{"trust_mark_type": "t", "trust_mark": token}
 	}
 

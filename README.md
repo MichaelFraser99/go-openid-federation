@@ -273,7 +273,7 @@ When the library resolves a trust chain, it follows federation endpoints derived
 | `Configuration.MaxTrustChainDepth` | `model.DefaultMaxTrustChainDepth`, 10 | Entities on one path from the leaf to a trust anchor |
 | `Configuration.MaxEntitiesTraversed` | `model.DefaultMaxEntitiesTraversed`, 1024 | Entity configurations one request may fetch while walking `authority_hints`, across every chain it builds |
 | `Configuration.MaxTrustMarkIssuers` | `model.DefaultMaxTrustMarkIssuers` | Distinct trust mark issuers resolved for one subject |
-| `Configuration.MaxStatementValues` | `model.DefaultMaxStatementValues`, 10,000 | JSON values in the header or body of one peer statement, trust mark or delegation, and separately in all the trust marks one statement carries |
+| `Configuration.MaxStatementValues` | `model.DefaultMaxStatementValues`, 10,000 | JSON values in the header or body of one peer statement, trust mark or delegation, or of one entry in a chain passed to `Client.ResolveMetadata`. Separately, JSON values in the headers and bodies of all the trust marks one statement carries |
 | `Configuration.MaxAuthorityHints` | `model.DefaultMaxAuthorityHints`, 64 | `authority_hints` one entity configuration may list |
 
 > **Breaking change.** Two bounds that were absent now apply by default, and both `Server` and `Client` are subject to them.
@@ -289,7 +289,8 @@ When the library resolves a trust chain, it follows federation endpoints derived
 > **Breaking change.** Two bounds on what one peer statement may hold now apply by default.
 >
 > - `MaxStatementValues` is new and defaults to 10,000. The library counts the JSON values in a statement before it decodes the statement or checks its signature. A statement over the limit is refused. A signature check first gives no protection here, because an entity configuration is signed with a key from its own `jwks`, so an attacker signs their own padding. Measured on a 1 MiB body of `[0,0,0,…]`: a full decode took 57 ms and 53 MB in about a million allocations, and the refusal takes 0.3 ms and 169 KB. The count adds about 3 µs to a typical 1 KB statement. This repository's largest fixture holds 47 values.
-> - The trust marks embedded in a statement share one separate budget of `MaxStatementValues`. Without it, a statement could carry many marks each just under the limit.
+> - The trust marks embedded in a statement share one separate budget of `MaxStatementValues`, which counts both the header and the body of each mark. Without it, a statement could carry many marks each just under the limit.
+> - `Client.ResolveMetadata` counts every entry of the chain it is given before it decodes any of them. It also refuses a chain of more than `MaxTrustChainDepth` + 1 entries with `invalid_trust_chain`, which is one more than the longest chain the library builds itself. A caller that passes a longer chain must raise `MaxTrustChainDepth`.
 > - `MaxAuthorityHints` is new and defaults to 64. Section 18.1 recommends a limit on the authority hints a resolver inspects. A superior that lists more is a dead end, so the walk tries the other hints. A subject that lists more is refused with 400 `invalid_trust_chain`, and the Info log names the bound.
 > - Zero or a negative value selects the default for both. A trust mark embedded in a statement is held to the configured value through the shared budget, not to the default.
 

@@ -345,6 +345,17 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 		return nil, model.NewInvalidTrustChainError("trust chain must have at least 1 entry")
 	}
 
+	if limit := cfg.TrustChainDepthLimit() + 1; len(trustChain) > limit {
+		cfg.LogInfo(ctx, "trust chain holds more entries than this resolver will process", slog.Int("chain_length", len(trustChain)), slog.Int("max_entries", limit))
+		return nil, model.NewInvalidTrustChainError(fmt.Sprintf("the trust chain holds %d entries, more than the %d this resolver will process", len(trustChain), limit))
+	}
+	for i, entry := range trustChain {
+		if err := model.VerifyTokenValueCount(entry, cfg.StatementValuesLimit()); err != nil {
+			cfg.LogInfo(ctx, "trust chain entry exceeds the value limit", slog.Int("entry", i), slog.Int("limit", cfg.StatementValuesLimit()))
+			return nil, model.NewInvalidTrustChainError(fmt.Sprintf("trust chain entry %d %s", i, err.Error()))
+		}
+	}
+
 	_, sub, iss, err := entity_statement.ExtractDetails(trustChain[len(trustChain)-1])
 	if err != nil {
 		cfg.LogInfo(ctx, "failed to extract details from final chain entry", slog.String("error", model.TruncateForResponse(err.Error())))

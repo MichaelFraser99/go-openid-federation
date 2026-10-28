@@ -570,6 +570,7 @@ func parseCritClaim(claim string, value any, forbidden []string) ([]string, erro
 		return nil, fmt.Errorf("'%s' claim must not be the empty array", claim)
 	}
 	parsed := make([]string, 0, len(entries))
+	seen := make(map[string]struct{}, len(entries))
 	for _, entry := range entries {
 		sEntry, ok := entry.(string)
 		if !ok {
@@ -578,9 +579,10 @@ func parseCritClaim(claim string, value any, forbidden []string) ([]string, erro
 		if slices.Contains(forbidden, sEntry) {
 			return nil, fmt.Errorf("'%s' claim must not list %q, which is defined by this specification", claim, sEntry)
 		}
-		if slices.Contains(parsed, sEntry) {
+		if _, repeated := seen[sEntry]; repeated {
 			return nil, fmt.Errorf("'%s' claim must not contain duplicate entries - %q appears more than once", claim, sEntry)
 		}
+		seen[sEntry] = struct{}{}
 		parsed = append(parsed, sEntry)
 	}
 	return parsed, nil

@@ -161,7 +161,7 @@ func TestValidate_TrustMarksCarriedTogetherShareTheValueBound(t *testing.T) {
 			}
 			return base64.RawURLEncoding.EncodeToString(raw)
 		}
-		token := encode(map[string]any{"alg": "RS256"}) + "." + encode(map[string]any{"trust_mark_type": "t", "pad": paddingOf(values - 3)}) + "." + encode("sig")
+		token := encode(map[string]any{"alg": "RS256"}) + "." + encode(map[string]any{"trust_mark_type": "t", "pad": paddingOf(values - 5)}) + "." + encode("sig")
 		return map[string]any{"trust_mark_type": "t", "trust_mark": token}
 	}
 

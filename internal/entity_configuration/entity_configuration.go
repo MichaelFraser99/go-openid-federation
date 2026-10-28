@@ -66,9 +66,16 @@ func fetch(ctx context.Context, cfg model.Configuration, entityIdentifier model.
 
 	response, err := cfg.HttpClient.Do(request)
 	if err != nil {
+		if ended := fetchEnded(ctx, fetchCtx, entityIdentifier); ended != nil {
+			return nil, nil, ended
+		}
 		return nil, nil, err
 	}
 	defer response.Body.Close() //nolint:errcheck
+
+	if err := fetchEnded(ctx, fetchCtx, entityIdentifier); err != nil {
+		return nil, nil, err
+	}
 
 	if response.StatusCode != http.StatusOK {
 		return nil, nil, fmt.Errorf("non-200 response from %q's entity configuration: %s", entityIdentifier, model.TruncateForResponse(response.Status))
@@ -84,11 +91,8 @@ func fetch(ctx context.Context, cfg model.Configuration, entityIdentifier model.
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read %q's entity configuration response body: %s", entityIdentifier, err.Error())
 	}
-	if fetchCtx.Err() != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, nil, fmt.Errorf("stopped reading %q's entity configuration: %s", entityIdentifier, ctxErr.Error())
-		}
-		return nil, nil, fmt.Errorf("%q's entity configuration did not arrive within the peer deadline: %s", entityIdentifier, fetchCtx.Err().Error())
+	if err := fetchEnded(ctx, fetchCtx, entityIdentifier); err != nil {
+		return nil, nil, err
 	}
 	if int64(len(responseBytes)) > limit {
 		return nil, nil, fmt.Errorf("%q's entity configuration exceeded the %d byte response limit", entityIdentifier, limit)
@@ -424,4 +428,14 @@ func publishedKeyUsableForSigning(existing, intended map[string]any, signerPubli
 		}
 	}
 	return nil
+}
+
+func fetchEnded(ctx, fetchCtx context.Context, entityIdentifier model.EntityIdentifier) error {
+	if fetchCtx.Err() == nil {
+		return nil
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return fmt.Errorf("stopped fetching %q's entity configuration: %s", entityIdentifier, ctxErr.Error())
+	}
+	return fmt.Errorf("%q's entity configuration did not arrive within the peer deadline: %s", entityIdentifier, fetchCtx.Err().Error())
 }

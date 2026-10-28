@@ -34,11 +34,11 @@ func VerifyFederationEndpoint(endpoint any) error {
 	sEndpoint := endpoint.(string)
 	parsedUrl, err := url.Parse(sEndpoint)
 	if err != nil {
-		return fmt.Errorf("invalid url: %s", err.Error())
+		return fmt.Errorf("invalid url")
 	}
 
 	if parsedUrl.Scheme != "https" {
-		return fmt.Errorf("url does not use the required scheme 'https': %s", parsedUrl.Scheme)
+		return fmt.Errorf("url does not use the required scheme 'https'")
 	}
 
 	if parsedUrl.Hostname() == "" {

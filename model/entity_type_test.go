@@ -219,7 +219,7 @@ func TestMetadata_VerifyResolved_RunsAfterPolicyApplication(t *testing.T) {
 		"openid_verifier_provider": testEntityType{identifier: "openid_verifier_provider", resolvedErr: resolvedErr},
 	}
 
-	if err := metadata.VerifyResolved(registry); !errors.Is(err, resolvedErr) {
+	if err := metadata.VerifyResolved(registry, "https://sub.example.com"); !errors.Is(err, resolvedErr) {
 		t.Errorf("expected the extension's resolved error to be wrapped, got %v", err)
 	}
 }
@@ -612,7 +612,7 @@ func TestMetadata_VerifyResolved_SkipsUnrecognisedTypes(t *testing.T) {
 		},
 	}
 
-	if err := metadata.VerifyResolved(nil); err != nil {
+	if err := metadata.VerifyResolved(nil, "https://sub.example.com"); err != nil {
 		t.Errorf("expected unrecognised entity types to be skipped, got %q", err.Error())
 	}
 	if _, ok := metadata.Extensions["openid_verifier_provider"]; !ok {

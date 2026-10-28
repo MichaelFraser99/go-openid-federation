@@ -84,7 +84,7 @@ func TestServer(t *testing.T) *httptest.Server {
   },
   "metadata": {
     "openid_provider": {
-      "issuer": "https://op.umu.se/openid",
+      "issuer": "%s/leaf",
       "signed_jwks_uri": "https://op.umu.se/openid/jwks.jose",
       "authorization_endpoint":
         "https://op.umu.se/openid/authorization",
@@ -125,7 +125,7 @@ func TestServer(t *testing.T) *httptest.Server {
       ]
     }
   }
-}`, testServerURL, time.Now().Add(10*time.Minute).UTC().Unix(), time.Now().UTC().Unix(), testServerURL, testServerURL, string(leafJWKBytes))
+}`, testServerURL, time.Now().Add(10*time.Minute).UTC().Unix(), time.Now().UTC().Unix(), testServerURL, testServerURL, string(leafJWKBytes), testServerURL)
 		var esMap map[string]any
 		err := json.Unmarshal([]byte(leafEC), &esMap)
 		if err != nil {

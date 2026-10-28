@@ -409,7 +409,7 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 			return nil, err
 		}
 		if processedChain[0].Metadata != nil {
-			if err := processedChain[0].Metadata.VerifyResolved(cfg.EntityTypes); err != nil {
+			if err := processedChain[0].Metadata.VerifyResolved(cfg.EntityTypes, processedChain[0].Sub); err != nil {
 				cfg.LogInfo(ctx, "resolved metadata failed verification", slog.String("subject", string(processedChain[0].Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
 				return nil, model.NewInvalidMetadataError(fmt.Sprintf("resolved metadata for %s: %s", processedChain[0].Sub, err.Error()))
 			}
@@ -503,7 +503,7 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 	if finalisedPolicy == nil {
 		cfg.LogInfo(ctx, "no policy to apply, returning metadata directly", slog.String("subject", string(subject.Sub)), slog.Int("trust_marks_count", len(subject.TrustMarks)))
 		if subject.Metadata != nil {
-			if err := subject.Metadata.VerifyResolved(cfg.EntityTypes); err != nil {
+			if err := subject.Metadata.VerifyResolved(cfg.EntityTypes, subject.Sub); err != nil {
 				cfg.LogInfo(ctx, "resolved metadata failed verification", slog.String("subject", string(subject.Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
 				return nil, model.NewInvalidMetadataError(fmt.Sprintf("resolved metadata for %s: %s", subject.Sub, err.Error()))
 			}
@@ -521,7 +521,7 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 	}
 
 	if applied.Metadata != nil {
-		if err = applied.Metadata.VerifyResolved(cfg.EntityTypes); err != nil {
+		if err = applied.Metadata.VerifyResolved(cfg.EntityTypes, subject.Sub); err != nil {
 			cfg.LogInfo(ctx, "resolved metadata failed verification", slog.String("subject", string(subject.Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
 			return nil, model.NewInvalidMetadataError(fmt.Sprintf("resolved metadata for %s: %s", subject.Sub, err.Error()))
 		}

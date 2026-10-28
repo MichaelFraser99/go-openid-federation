@@ -103,6 +103,16 @@ func TestNew_DropsARegisteredKeyItCannotPublish(t *testing.T) {
 			kept:    []string{"good"},
 		},
 		{
+			name:      "a registered RSA key above the maximum modulus for the algorithm it is registered for is dropped",
+			reference: "#214",
+			registered: []map[string]any{
+				good,
+				{"kid": "oversized", "kty": "RSA", "alg": "PS256", "n": base64.RawURLEncoding.EncodeToString(func() []byte { m := make([]byte, 1025); m[0] = 0x01; return m }()), "e": "AQAB"},
+			},
+			dropped: []string{"oversized"},
+			kept:    []string{"good"},
+		},
+		{
 			name:      "a subject whose every registered key is unpublishable is refused",
 			reference: "8.9",
 			registered: []map[string]any{

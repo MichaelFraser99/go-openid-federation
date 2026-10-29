@@ -44,3 +44,32 @@ func TestEntityStatement_TheExpiryAllowanceIsExactlySixtySeconds(t *testing.T) {
 		})
 	}
 }
+
+func TestChainHasExpired_TheAllowanceIsExactlySixtySeconds(t *testing.T) {
+	tests := map[string]struct {
+		offset  int64
+		expired bool
+	}{
+		"an exp 59 seconds past": {offset: -59, expired: false},
+		"an exp 60 seconds past": {offset: -60, expired: true},
+		"an exp 61 seconds past": {offset: -61, expired: true},
+		"an exp in the future":   {offset: 60, expired: false},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			for attempt := 0; attempt < 5; attempt++ {
+				now := time.Now().Unix()
+				expired := ChainHasExpired(now + tc.offset)
+				if time.Now().Unix() != now {
+					continue
+				}
+				if expired != tc.expired {
+					t.Fatalf("[RFC 7519 4.1.4] expected an exp %+ds from now to be expired %v, got %v", tc.offset, tc.expired, expired)
+				}
+				return
+			}
+			t.Fatal("the wall-clock second ticked over on every attempt")
+		})
+	}
+}

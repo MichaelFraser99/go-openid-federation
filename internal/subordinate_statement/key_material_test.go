@@ -113,8 +113,8 @@ func TestNew_DropsARegisteredKeyItCannotPublish(t *testing.T) {
 			kept:    []string{"good"},
 		},
 		{
-			name:      "a registered RSA key below the minimum modulus of every RSA algorithm, naming no algorithm, is dropped",
-			reference: "RFC 7518 3.3, 3.5, 4.2 and 4.3",
+			name:      "a registered RSA key below the minimum modulus of every RSA signature algorithm, naming no algorithm, is dropped",
+			reference: "RFC 7518 3.3 and 3.5",
 			registered: []map[string]any{
 				good,
 				func() map[string]any {
@@ -126,6 +126,21 @@ func TestNew_DropsARegisteredKeyItCannotPublish(t *testing.T) {
 			},
 			dropped: []string{"weak-unnamed"},
 			kept:    []string{"good"},
+		},
+		{
+			name:      "a registered RSA key below the minimum, naming no algorithm and marked for encryption only, is published",
+			reference: "RFC 7517 4.3",
+			registered: []map[string]any{
+				good,
+				func() map[string]any {
+					key := weakRegisteredKey(t)
+					delete(key, "alg")
+					key["kid"] = "weak-encrypt-only"
+					key["key_ops"] = []any{"encrypt"}
+					return key
+				}(),
+			},
+			kept: []string{"good", "weak-encrypt-only"},
 		},
 		{
 			name:      "a registered RSA key above this library's maximum, naming no algorithm, is published",

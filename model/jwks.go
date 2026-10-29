@@ -240,8 +240,14 @@ func VerifyKeyStrength(key map[string]any, alg string) error {
 	return nil
 }
 
-func VerifyKeyStrengthForAnyAlgorithm(key map[string]any) error {
+func VerifyKeyStrengthForAnySignatureAlgorithm(key map[string]any) error {
 	if kty, _ := key["kty"].(string); kty != "RSA" {
+		return nil
+	}
+	if use, present := key["use"]; present && use != nil && use != "sig" {
+		return nil
+	}
+	if !KeyOpsPermitVerify(key) {
 		return nil
 	}
 	modulus, ok := key["n"].(string)
@@ -253,7 +259,7 @@ func VerifyKeyStrengthForAnyAlgorithm(key map[string]any) error {
 		return nil
 	}
 	if bits := new(big.Int).SetBytes(raw).BitLen(); bits < MinimumRSAKeyBits {
-		return fmt.Errorf("has a %d bit RSA modulus and names no 'alg', and RFC 7518 sections 3.3, 3.5, 4.2 and 4.3 require a key of size %d bits or larger with every RSA algorithm", bits, MinimumRSAKeyBits)
+		return fmt.Errorf("has a %d bit RSA modulus and names no 'alg', so it can be selected to verify a signature, and RFC 7518 sections 3.3 and 3.5 require a key of size %d bits or larger with every RSA signature algorithm", bits, MinimumRSAKeyBits)
 	}
 	return nil
 }

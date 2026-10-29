@@ -317,7 +317,7 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 			if err := model.VerifyKeyStrength(key, declared); err != nil {
 				return nil, fmt.Errorf("the provided jwk value with key ID %q %s", model.TruncateForResponse(sKid), err.Error())
 			}
-		} else if err := model.VerifyKeyStrengthForAnyAlgorithm(key); err != nil {
+		} else if err := model.VerifyKeyStrengthForAnySignatureAlgorithm(key); err != nil {
 			return nil, fmt.Errorf("the provided jwk value with key ID %q %s", model.TruncateForResponse(sKid), err.Error())
 		}
 		seen[sKid] = struct{}{}

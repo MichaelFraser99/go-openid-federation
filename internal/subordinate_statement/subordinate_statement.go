@@ -279,6 +279,9 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		JWKs: publishable,
 	}
 
+	if unrecognised := subjectSubordinateConfiguration.Policies.UnrecognisedOperators(); len(unrecognised) > 0 {
+		return nil, fmt.Errorf("the metadata policy configured for %s holds operators this library does not understand, so it cannot publish them: %s", model.TruncateForResponse(string(subjectIdentifier)), model.TruncateForResponse(strings.Join(unrecognised, ", ")))
+	}
 	if policy := subjectSubordinateConfiguration.Policies; policy.HasParameterPolicies() {
 		subordinateStatement.MetadataPolicy = &policy
 	}

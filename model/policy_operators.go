@@ -418,7 +418,8 @@ func (a *operandAccumulator) add(value any) bool {
 }
 
 type PolicyOperators struct {
-	Metadata []MetadataPolicyOperator
+	Metadata     []MetadataPolicyOperator
+	Unrecognised []string
 }
 
 func (p *PolicyOperators) UnmarshalJSON(data []byte) error {
@@ -432,6 +433,10 @@ func (p *PolicyOperators) UnmarshalJSON(data []byte) error {
 			return fmt.Errorf("unable to parse JSON object as map: %w", err)
 		}
 		for k, v := range tempMap {
+			if !slices.Contains(standardPolicyOperators, k) {
+				p.Unrecognised = append(p.Unrecognised, k)
+				continue
+			}
 			pMetadata, err := parsePolicyOperator(k, v)
 			if err != nil {
 				return fmt.Errorf("unable to parse policy operator: %w", err)
@@ -441,6 +446,7 @@ func (p *PolicyOperators) UnmarshalJSON(data []byte) error {
 	} else {
 		return fmt.Errorf("unable to parse %q as a valid Metadata Policy", string(data))
 	}
+	slices.Sort(p.Unrecognised)
 	return nil
 }
 

@@ -1251,6 +1251,19 @@ func (m *MetadataPolicy) byEntityType() map[string]map[string]PolicyOperators {
 	return entries
 }
 
+func (m *MetadataPolicy) UnrecognisedOperators() []string {
+	var names []string
+	for entityType, parameters := range m.byEntityType() {
+		for parameter, operators := range parameters {
+			for _, operator := range operators.Unrecognised {
+				names = append(names, entityType+"."+parameter+"."+operator)
+			}
+		}
+	}
+	slices.Sort(names)
+	return names
+}
+
 func (m *MetadataPolicy) HasParameterPolicies() bool {
 	for _, parameters := range m.byEntityType() {
 		for _, operators := range parameters {

@@ -66,13 +66,13 @@ func (s *Server) SubordinateStatus(w http.ResponseWriter, r *http.Request) Respo
 	statusBytes, err := json.Marshal(response)
 	if err != nil {
 		s.cfg.LogInfo(ctx, "error marshalling subordinate status response", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(subordinateStatusUnavailableError))
+		return s.RespondWithError(ctx, w, model.NewServerError(subordinateStatusUnavailableError))
 	}
 
 	var statusMap map[string]any
 	if err = json.Unmarshal(statusBytes, &statusMap); err != nil {
 		s.cfg.LogInfo(ctx, "error unmarshalling subordinate status response", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(subordinateStatusUnavailableError))
+		return s.RespondWithError(ctx, w, model.NewServerError(subordinateStatusUnavailableError))
 	}
 	statusMap["sub"] = *parsedSubject
 	statusMap["iss"] = s.cfg.EntityIdentifier
@@ -88,7 +88,7 @@ func (s *Server) SubordinateStatus(w http.ResponseWriter, r *http.Request) Respo
 	}, statusMap, jwt.Opts{Algorithm: jwa.GetAlgorithm(s.cfg.SignerConfiguration.Algorithm)})
 	if err != nil {
 		s.cfg.LogInfo(ctx, "error creating resolve response", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(subordinateStatusUnavailableError))
+		return s.RespondWithError(ctx, w, model.ClassifySignerError(err, subordinateStatusUnavailableError))
 	}
 
 	return s.RespondWithSubordinateStatementResponse(w, []byte(*token))

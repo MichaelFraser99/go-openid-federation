@@ -84,6 +84,13 @@ func NewTemporarilyUnavailableError(msg string) error {
 	return fmt.Errorf("%w%s", ErrTemporarilyUnavailable, msg)
 }
 
+func ClassifySignerError(err error, description string) error {
+	if errors.Is(err, ErrTemporarilyUnavailable) {
+		return NewTemporarilyUnavailableError(description)
+	}
+	return NewServerError(description)
+}
+
 func NewUnsupportedParameterError(msg string) error {
 	return fmt.Errorf("%w%s", ErrUnsupportedParameter, msg)
 }

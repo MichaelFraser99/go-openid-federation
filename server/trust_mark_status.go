@@ -36,13 +36,13 @@ func (s *Server) TrustMarkStatus(w http.ResponseWriter, r *http.Request) Respons
 	statusBytes, err := json.Marshal(status)
 	if err != nil {
 		s.cfg.LogInfo(ctx, "error marshalling trust mark status", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(trustMarkStatusUnavailableError))
+		return s.RespondWithError(ctx, w, model.NewServerError(trustMarkStatusUnavailableError))
 	}
 
 	var statusMap map[string]any
 	if err = json.Unmarshal(statusBytes, &statusMap); err != nil {
 		s.cfg.LogInfo(ctx, "error unmarshalling subordinate status response", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(trustMarkStatusUnavailableError))
+		return s.RespondWithError(ctx, w, model.NewServerError(trustMarkStatusUnavailableError))
 	}
 	statusMap["iss"] = s.cfg.EntityIdentifier
 	statusMap["iat"] = time.Now().UTC().Unix()
@@ -55,7 +55,7 @@ func (s *Server) TrustMarkStatus(w http.ResponseWriter, r *http.Request) Respons
 	}, statusMap, jwt.Opts{Algorithm: jwa.GetAlgorithm(s.cfg.SignerConfiguration.Algorithm)})
 	if err != nil {
 		s.cfg.LogInfo(ctx, "error creating resolve response", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(trustMarkStatusUnavailableError))
+		return s.RespondWithError(ctx, w, model.ClassifySignerError(err, trustMarkStatusUnavailableError))
 	}
 
 	return s.RespondWithTrustMarkStatusResponse(w, []byte(*token))

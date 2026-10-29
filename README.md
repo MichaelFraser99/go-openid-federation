@@ -254,7 +254,7 @@ Use `Configure` to mount the endpoints. It wraps every route it registers, so a 
 | `Logger` | Optional `*slog.Logger`. Logging is skipped when nil. Each value the library logs is truncated to `model.MaxLoggedValueBytes` (1 KiB), because many of them are chosen by a caller or a peer |
 | `EntityTypes` | Extension entity types, merged over the built-in definitions |
 | `DiscardUnrecognisedEntityTypes` | Removes entity types absent from the registry. Defaults to preserving them |
-| `SignerConfiguration` | The entity's signing key, key ID and algorithm |
+| `SignerConfiguration` | The entity's signing key, key ID and algorithm. If the signer returns an error, the endpoint answers 500 `server_error`, or 503 if the error wraps `model.ErrTemporarilyUnavailable`. See [Errors](#errors) |
 | `EntityIdentifier` | The entity's own identifier |
 | `AuthorityHints` | Identifiers of the entity's immediate superiors |
 | `TrustMarks` | Trust marks to publish in the entity configuration |
@@ -720,7 +720,11 @@ Errors are returned to callers as a JSON object with `error` and `error_descript
 
 **A condition a peer or a caller caused is never a `server_error`.** `server_error` is left for this server's own faults, such as a signer it cannot use or a retriever that failed for a reason it does not classify.
 
-`temporarily_unavailable` means **this** server, and nothing else. Section 8.9 defines it as "The server hosting the federation endpoint is currently unable to handle the request due to temporary overloading or maintenance", and the server hosting the endpoint being requested is this one. So it answers only where this server did not complete its own request — its context deadline or a cancellation. It is deliberately not used for a peer this server could not reach: that peer is not hosting the endpoint the caller asked for.
+`temporarily_unavailable` means **this** server, and nothing else. Section 8.9 defines it as "The server hosting the federation endpoint is currently unable to handle the request due to temporary overloading or maintenance", and the server hosting the endpoint being requested is this one. So it answers only where this server did not complete its own request — its context deadline or a cancellation — or where your own signer or retriever reports a temporary fault with `model.ErrTemporarilyUnavailable`. It is deliberately not used for a peer this server could not reach: that peer is not hosting the endpoint the caller asked for.
+
+**A signer error is this server's own fault, so every endpoint that signs answers it the same way.** The answer is 500 `server_error` with the endpoint's fixed description. The signer's text goes to the log and not to the caller, because it can name a key or an account. Any class that the signer's error wraps is ignored, with one exception: an error that wraps `model.ErrTemporarilyUnavailable` answers 503 `temporarily_unavailable`. Use it for a fault that a retry can clear, such as a throttled or briefly unreachable KMS. A permission fault or a bad key gives the same answer on every retry, so leave it unwrapped.
+
+> **Breaking change.** In v0.11.0-rc.2, `/resolve`, `/subordinate-status` and `/trust-mark-status` answered every signer error with 503, and `/list` answered every `GetSubordinates` error with 503. They now answer 500 `server_error`, unless the error wraps `model.ErrTemporarilyUnavailable`. A signer error that wraps another class, such as `model.ErrNotFound`, no longer chooses the response on `/fetch` and `/.well-known/openid-federation`. It also no longer removes the entity from an `/extended-list` page. If your signer or your store reports a throttle or an outage, wrap that error with `model.ErrTemporarilyUnavailable` to keep the 503.
 
 Everything a peer does wrong on the subordinate statement fetch path therefore answers 400 `invalid_trust_chain` — unreachable, a 503 or a 429 of its own, a truncated body, the wrong content type, an oversized response, or a statement that fails validation. The class says what failed, which is that the chain could not be validated. Section 10.5 notes a retry may still help while a federation's topology is being updated, so this is not a claim that the answer is permanent.
 

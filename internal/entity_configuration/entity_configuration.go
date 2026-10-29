@@ -221,6 +221,8 @@ func validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 }
 
 // New takes a given configuration struct and produces a signed Entity Configuration
+const signingFailureError = "unable to produce the entity configuration at this time"
+
 func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 	entityConfiguration := cfg.EntityConfiguration
 	entityConfiguration.Sub = cfg.EntityIdentifier
@@ -413,7 +415,8 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 		if errors.Is(err, joseerror.ErrUnsupportedAlgorithm) || errors.Is(err, joseerror.ErrInvalidPrivateKey) {
 			return nil, fmt.Errorf("refusing to publish an entity configuration this implementation would reject: %s", err.Error())
 		}
-		return nil, err
+		cfg.LogError(ctx, "the signer could not sign the entity configuration", slog.String("error", model.TruncateForResponse(err.Error())))
+		return nil, model.ClassifySignerError(err, signingFailureError)
 	}
 
 	if err = entity_statement.VerifyIssuedSignature(ctx, *token, cfg.SignerConfiguration.KeyID, cfg.SignerConfiguration.Algorithm, cfg.SignerConfiguration.Signer); err != nil {

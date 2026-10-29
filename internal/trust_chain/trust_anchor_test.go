@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -216,15 +217,21 @@ func TestResolveMetadata_AForgedAnchorIsRefusedWhetherOrNotKeysAreHeld(t *testin
 func TestResolveMetadata_WithNoKeysHeldTheAnchorIsFetchedNotTakenFromTheChain(t *testing.T) {
 	client, subject, anchor := federationWithClaims(t, "example.com", federationClaims{})
 
-	_, err := ResolveMetadata(t.Context(), model.Configuration{HttpClient: client}, anchor, anchor, forgedChain(t, chainSigningKey(t), subject, anchor), nil)
+	forged := forgedChain(t, chainSigningKey(t), subject, anchor)
+	supplied := slices.Clone(forged)
+	_, err := ResolveMetadata(t.Context(), model.Configuration{HttpClient: client}, anchor, anchor, forged, nil)
 	if err == nil {
 		t.Fatal("[10.2] a chain whose anchor configuration the caller forged must be checked against the anchor's real configuration, and refused")
 	}
 	if !errors.Is(err, model.ErrInvalidTrustChain) {
 		t.Errorf("[10.2] expected the forged link to be refused as an invalid trust chain, got %v", err)
 	}
+	if !slices.Equal(forged, supplied) {
+		t.Error("the caller's chain must be left as the caller supplied it")
+	}
 
 	lone := forgedChain(t, chainSigningKey(t), subject, anchor)[2:]
+	suppliedLone := slices.Clone(lone)
 	resolved, err := ResolveMetadata(t.Context(), model.Configuration{HttpClient: client}, anchor, anchor, lone, nil)
 	if err != nil {
 		t.Fatalf("[10.2] the anchor's real configuration must resolve in place of a forged one supplied alone, got %v", err)
@@ -234,6 +241,9 @@ func TestResolveMetadata_WithNoKeysHeldTheAnchorIsFetchedNotTakenFromTheChain(t 
 	}
 	if encoded, _ := json.Marshal(resolved.Metadata); strings.Contains(string(encoded), "attacker@impostor.example.com") {
 		t.Errorf("[10.2] metadata from a forged anchor configuration must not be returned, got %s", encoded)
+	}
+	if !slices.Equal(lone, suppliedLone) {
+		t.Error("the caller's one-entry chain must be left as the caller supplied it")
 	}
 
 	built, _, _, err := BuildTrustChain(t.Context(), model.Configuration{HttpClient: client}, subject, anchor, nil)

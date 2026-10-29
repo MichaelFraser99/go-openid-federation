@@ -479,7 +479,7 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 	if *parsedSub == *parsedIss && *parsedSub == trustAnchorEntityIdentifier && len(trustChain) > 1 {
 		if _, held := cfg.TrustAnchorKeys(trustAnchorEntityIdentifier); !held {
 			cfg.LogInfo(ctx, "no keys are held for the trust anchor, so its entity configuration is fetched rather than taken from the supplied chain", slog.String("trust_anchor", string(trustAnchorEntityIdentifier)))
-			trustChain = trustChain[:len(trustChain)-1]
+			trustChain = slices.Clone(trustChain[:len(trustChain)-1])
 			if parsedSub, parsedIss, err = finalEntryEndpoints(ctx, cfg, trustChain); err != nil {
 				return nil, err
 			}

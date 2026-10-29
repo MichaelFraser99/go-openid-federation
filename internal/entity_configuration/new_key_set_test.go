@@ -2,6 +2,7 @@ package entity_configuration
 
 import (
 	"encoding/base64"
+	"strings"
 	"testing"
 	"time"
 
@@ -31,7 +32,7 @@ func TestNew_SubordinateSignerSharingSigningKid(t *testing.T) {
 	}
 }
 
-func TestNew_SigningKeyEncodedNonMinimally(t *testing.T) {
+func TestNew_RefusesACopyOfTheSigningKeyWithOversizedCoordinates(t *testing.T) {
 	signerConfiguration, publicJWK := issuanceSigner(t)
 	nonMinimal := map[string]any{}
 	for k, v := range publicJWK {
@@ -54,8 +55,8 @@ func TestNew_SigningKeyEncodedNonMinimally(t *testing.T) {
 		},
 	}
 
-	if _, err := New(t.Context(), cfg); err != nil {
-		t.Fatalf("expected a non-minimally encoded copy of the signing key to be accepted, got %v", err)
+	if _, err := New(t.Context(), cfg); err == nil || !strings.Contains(err.Error(), "is not a usable jwk") {
+		t.Fatalf("[RFC 7518 6.2.1.2] an EC coordinate must be the full size of the curve, no longer, so a copy of the signing key padded to 33 octets must be refused, got %v", err)
 	}
 }
 

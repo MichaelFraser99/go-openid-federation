@@ -14,11 +14,14 @@ A Go implementation of [OpenID Federation](https://openid.net/specs/openid-feder
 go get github.com/MichaelFraser99/go-openid-federation
 ```
 
-Requires Go 1.25.3 or later.
+Requires Go 1.27 or later.
 
-> **Breaking change.** This release requires `go-jose` v0.10.0, which moved its algorithm identifiers to a new package. `Algorithm`, the ES, RS, PS and HS identifiers, `EdDSA`, `Unknown` and `GetAlgorithm` all moved from `go-jose/model` to `go-jose/jwa`, and the `joseerror` sentinels are now named `Err*`.
+> **Breaking change.** This release requires `go-jose` v0.11.0, which requires Go 1.27. Minimal version selection lifts every consumer to v0.11.0, so read its "Upgrading from 0.10.x" notes if your own code imports `go-jose`. The changes that reach a consumer of this library:
 >
-> Nothing in this library's own API exposes those types — `SignerConfiguration.Algorithm` is a string — so an upgrade is source-compatible for a consumer that only calls this library. But minimal version selection lifts every consumer to v0.10.0, so if your own code imports `go-jose` directly, `josemodel.ES256` becomes `jwa.ES256` and so on, in the same upgrade.
+> - **`kid` values.** `jwk.PublicJwk` now derives a `kid` as the key's RFC 7638 thumbprint. If you compute your signing key's `KeyID` that way at startup, it changes on upgrade, and every superior that registered your old `kid` must be given the new one, or your entity configuration no longer verifies against its subordinate statement.
+> - **`josemodel.Jwks`.** It appears in `SubordinateConfiguration.JWKs`, `TrustMarkOwner.JWKs` and `Configuration.TrustAnchors`. An empty set now serialises as `{"keys":[]}` rather than `{"keys":null}`, decoding JSON into one refuses a missing or `null` `keys`, and `RetrieveByKeyID` returns every key carrying the `kid`.
+> - **Stricter keys from peers.** An EC key whose `x` or `y` is not the full size of its curve, and an RSA key whose `n` or `e` carries a leading zero octet, are now refused, as RFC 7518 sections 6.2.1.2 and 2 require. A peer publishing one can no longer be verified.
+> - **Expiry is exclusive.** A statement, trust mark or delegation has expired once the current time reaches its `exp` plus `model.ClockSkewLeeway`, as RFC 7519 section 4.1.4 requires ("MUST be before"). Earlier releases accepted it for one more second.
 
 ## Packages
 
@@ -665,7 +668,7 @@ Four states, and the message says which one you are in:
 | set | absent, or mapped to an empty set | Refused: "not one this deployment is configured to trust" |
 | set | present, but no key in it can verify a signature | Refused as `server_error` before any request: the deployment configured a key set it cannot use |
 
-"Can verify a signature" means what the signing library means, not what the JWK syntax allows. A key is counted only if `github.com/MichaelFraser99/go-jose` can build a validator for it, which for a public key covers the `ES`, `RS` and `PS` families, **and** only for the algorithm the key itself declares, where it declares one. So an Ed25519 key, a symmetric key, and an RSA key published for `EdDSA` or `ES256` are all valid JOSE and **not** usable here: configuring one is a `server_error` naming your own configuration rather than a 404 blaming the anchor, and it costs no request.
+"Can verify a signature" means what the signing library means, not what the JWK syntax allows. A key is counted only if `github.com/MichaelFraser99/go-jose` can build a validator for it, which for a public key covers the `ES`, `RS` and `PS` families, **and** only for the algorithm the key itself declares, where it declares one. So an Ed25519 key, a symmetric key, and an RSA key published for `EdDSA` or `ES256` are all valid JOSE and **not** usable here (go-jose v0.11.0 can verify `EdDSA`, but this library does not yet accept it; see [#216](https://github.com/MichaelFraser99/go-openid-federation/issues/216)): configuring one is a `server_error` naming your own configuration rather than a 404 blaming the anchor, and it costs no request.
 
 A non-nil map with no entries refuses every anchor. That is deliberate: an anchor list that parsed to nothing is a configuration fault, not permission to check nothing.
 

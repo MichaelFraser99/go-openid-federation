@@ -1,6 +1,7 @@
 package entity_statement
 
 import (
+	"context"
 	"crypto"
 	"encoding/base64"
 	"encoding/json"
@@ -75,7 +76,7 @@ func VerifyNoCriticalHeader(headMap map[string]any) error {
 	return fmt.Errorf("the 'crit' header lists %s, which this implementation does not understand", truncateHeaderValue(fmt.Sprint(names)))
 }
 
-func VerifyIssuedSignature(token, kid, alg string, signer crypto.Signer) error {
+func VerifyIssuedSignature(ctx context.Context, token, kid, alg string, signer crypto.Signer) error {
 	if err := ValidateStatementHeader(map[string]any{"typ": "entity-statement+jwt", "alg": alg}); err != nil {
 		return err
 	}
@@ -87,7 +88,7 @@ func VerifyIssuedSignature(token, kid, alg string, signer crypto.Signer) error {
 		return fmt.Errorf("failed to derive the public key of the signing key: %s", err.Error())
 	}
 	(*publicJWK)["kid"] = kid
-	return VerifyAgainstJwks(token, kid, josemodel.Jwks{Keys: []map[string]any{*publicJWK}})
+	return VerifyAgainstJwks(ctx, token, kid, josemodel.Jwks{Keys: []map[string]any{*publicJWK}})
 }
 
 func SelectKey(jwks josemodel.Jwks, kid string) (map[string]any, error) {
@@ -251,7 +252,7 @@ func UsableVerificationKeys(jwks josemodel.Jwks) josemodel.Jwks {
 	return usable
 }
 
-func VerifyAgainstAnyKey(token string, jwks josemodel.Jwks) error {
+func VerifyAgainstAnyKey(ctx context.Context, token string, jwks josemodel.Jwks) error {
 	tried := 0
 	for _, key := range jwks.Keys {
 		if !KeyCanVerify(key) {
@@ -265,7 +266,7 @@ func VerifyAgainstAnyKey(token string, jwks josemodel.Jwks) error {
 			continue
 		}
 		tried++
-		if _, _, err := jws.VerifyCompactSerialization(token, func() ([]crypto.PublicKey, error) {
+		if _, _, err := jws.VerifyCompactSerialization(ctx, token, func() ([]crypto.PublicKey, error) {
 			return []crypto.PublicKey{pubKey}, nil
 		}, &josemodel.JoseOptions{UseTokenProvidedKeys: false}); err == nil {
 			return nil
@@ -277,26 +278,34 @@ func VerifyAgainstAnyKey(token string, jwks josemodel.Jwks) error {
 	return fmt.Errorf("no key in the key set verifies the signature")
 }
 
-func VerifyAgainstJwks(token, kid string, jwks josemodel.Jwks) error {
+func VerifyAgainstJwks(ctx context.Context, token, kid string, jwks josemodel.Jwks) error {
 	selectedKey, selectErr := SelectKey(jwks, kid)
 	if selectErr == nil {
 		if err := VerifySelectedKey(token, selectedKey); err != nil {
 			return err
 		}
 	}
-	if _, _, err := jws.VerifyCompactSerialization(token, func() ([]crypto.PublicKey, error) {
+	if _, _, err := jws.VerifyCompactSerialization(ctx, token, func() ([]crypto.PublicKey, error) {
 		if selectErr != nil {
 			return nil, selectErr
 		}
 		pubKey, err := jwk.PublicFromJwk(selectedKey)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse selected public key from 'jwks' as a valid jwk: %s", err.Error())
+			return nil, fmt.Errorf("failed to parse selected public key from 'jwks' as a valid jwk (%s): %s", describeKeyType(selectedKey), err.Error())
 		}
 		return []crypto.PublicKey{pubKey}, nil
 	}, &josemodel.JoseOptions{UseTokenProvidedKeys: false}); err != nil {
 		return fmt.Errorf("failed to verify JWT signature: %s", err.Error())
 	}
 	return nil
+}
+
+func describeKeyType(key map[string]any) string {
+	described := fmt.Sprintf("kty %q", truncateHeaderValue(fmt.Sprint(key["kty"])))
+	if crv, present := key["crv"]; present {
+		described += fmt.Sprintf(", crv %q", truncateHeaderValue(fmt.Sprint(crv)))
+	}
+	return described
 }
 
 func ExtractDetails(token string) (keyID, subject, issuer *string, err error) {

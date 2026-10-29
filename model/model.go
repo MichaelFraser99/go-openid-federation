@@ -639,7 +639,7 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
-	if time.Now().Add(-ClockSkewLeeway).UTC().Unix() > exp {
+	if time.Now().Add(-ClockSkewLeeway).UTC().Unix() >= exp {
 		return fmt.Errorf("entity statement has expired")
 	}
 	if iat >= exp {

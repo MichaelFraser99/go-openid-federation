@@ -170,7 +170,7 @@ func TestVerifyAgainstJwks(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := VerifyAgainstJwks(sign(t, tc.signer, tc.head), tc.kid, published)
+			err := VerifyAgainstJwks(t.Context(), sign(t, tc.signer, tc.head), tc.kid, published)
 			if tc.expectErr && err == nil {
 				t.Fatal("expected verification to fail")
 			}
@@ -212,7 +212,7 @@ func TestVerifyAgainstJwks_HonoursTheAlgorithmThePublishedKeyIsFor(t *testing.T)
 				t.Fatalf("failed to sign: %v", err)
 			}
 
-			err = VerifyAgainstJwks(*token, "a", josemodel.Jwks{Keys: []map[string]any{publishedKey}})
+			err = VerifyAgainstJwks(t.Context(), *token, "a", josemodel.Jwks{Keys: []map[string]any{publishedKey}})
 			if tc.expectErr == "" {
 				if err != nil {
 					t.Fatalf("[%s] expected verification to succeed, got %v", tc.reference, err)
@@ -245,7 +245,7 @@ func TestVerifyAgainstJwks_TheKeyAlgorithmIsComparedExactly(t *testing.T) {
 				t.Fatalf("failed to sign: %v", err)
 			}
 
-			err = VerifyAgainstJwks(*token, "a", josemodel.Jwks{Keys: []map[string]any{publishedKey}})
+			err = VerifyAgainstJwks(t.Context(), *token, "a", josemodel.Jwks{Keys: []map[string]any{publishedKey}})
 			if err == nil {
 				t.Fatalf("[RFC 7517 4.4] an 'alg' is a case-sensitive ASCII string, so a key published for %q must not verify an RS256 signature", keyAlg)
 			}
@@ -264,7 +264,7 @@ func TestVerifyAgainstJwks_ANullKeyAlgorithmLeavesTheKeyUnconstrained(t *testing
 	if err != nil {
 		t.Fatalf("failed to sign: %v", err)
 	}
-	if err := VerifyAgainstJwks(*token, "a", josemodel.Jwks{Keys: []map[string]any{publishedKey}}); err != nil {
+	if err := VerifyAgainstJwks(t.Context(), *token, "a", josemodel.Jwks{Keys: []map[string]any{publishedKey}}); err != nil {
 		t.Fatalf("[RFC 7517 4.4] use of 'alg' is optional, so a null value must leave the key unconstrained, got %v", err)
 	}
 }
@@ -275,7 +275,7 @@ func TestVerifyAgainstJwks_AMissingHeaderAlgorithmIsNotReportedAsASignatureFailu
 	encode := base64.RawURLEncoding.EncodeToString
 	token := encode([]byte(`{"kid":"a"}`)) + "." + encode([]byte(`{"iss":"https://leaf.example.com"}`)) + "." + encode([]byte("sig"))
 
-	err := VerifyAgainstJwks(token, "a", josemodel.Jwks{Keys: []map[string]any{publishedKey}})
+	err := VerifyAgainstJwks(t.Context(), token, "a", josemodel.Jwks{Keys: []map[string]any{publishedKey}})
 	if err == nil {
 		t.Fatal("[3.2 step 3] a statement with no 'alg' header must be refused")
 	}

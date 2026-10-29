@@ -20,6 +20,9 @@ const dlgOwner = "https://owner.example.com"
 
 func dlgSign(t *testing.T, signer crypto.Signer, head, body map[string]any) string {
 	t.Helper()
+	if key, ok := signer.(*rsa.PrivateKey); ok {
+		return rawRSAToken(t, key, head, body)
+	}
 	token, err := jwt.New(signer, head, body, jwt.Opts{Algorithm: jwa.RS256})
 	if err != nil {
 		t.Fatalf("failed to sign: %v", err)

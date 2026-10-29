@@ -1,6 +1,7 @@
 package trust_marks
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -52,8 +53,8 @@ func TestValidate_TheTrustMarkAllowanceIsExactlySixtySeconds(t *testing.T) {
 	}{
 		"an iat 60 seconds ahead is valid": {reference: "7.3 step 5", claim: "iat", offset: 60, valid: true},
 		"an iat 61 seconds ahead is not":   {reference: "7.3 step 5", claim: "iat", offset: 61, valid: false},
-		"an exp 60 seconds past is valid":  {reference: "7.3 step 6", claim: "exp", offset: -60, valid: true},
-		"an exp 61 seconds past is not":    {reference: "7.3 step 6", claim: "exp", offset: -61, valid: false},
+		"an exp 59 seconds past is valid":  {reference: "7.3 step 6", claim: "exp", offset: -59, valid: true},
+		"an exp 60 seconds past is not":    {reference: "7.3 step 6", claim: "exp", offset: -60, valid: false},
 		"an nbf 60 seconds ahead is valid": {reference: "RFC 7519 4.1.5", claim: "nbf", offset: 60, valid: true},
 		"an nbf 61 seconds ahead is not":   {reference: "RFC 7519 4.1.5", claim: "nbf", offset: 61, valid: false},
 	}
@@ -97,8 +98,8 @@ func TestFilterByTrusted_TheDelegationAllowanceIsExactlySixtySeconds(t *testing.
 	}{
 		"an iat 60 seconds ahead is kept":    {reference: "7.2.2 step 6", claim: "iat", offset: 60, keep: true},
 		"an iat 61 seconds ahead is dropped": {reference: "7.2.2 step 6", claim: "iat", offset: 61, keep: false},
-		"an exp 60 seconds past is kept":     {reference: "7.2.2 step 7", claim: "exp", offset: -60, keep: true},
-		"an exp 61 seconds past is dropped":  {reference: "7.2.2 step 7", claim: "exp", offset: -61, keep: false},
+		"an exp 59 seconds past is kept":     {reference: "7.2.2 step 7", claim: "exp", offset: -59, keep: true},
+		"an exp 60 seconds past is dropped":  {reference: "7.2.2 step 7", claim: "exp", offset: -60, keep: false},
 	}
 
 	for name, tc := range tests {
@@ -236,4 +237,32 @@ func TestFilterByTrusted_AMarkWithNoExpiryIsKept(t *testing.T) {
 	if resolved.Exp != chainExpiry {
 		t.Errorf("[8.3.2] a mark with no expiry contributes nothing to the minimum, so the chain's expiry %d must stand, got %d", chainExpiry, resolved.Exp)
 	}
+}
+
+func TestValidate_ADelegationAtTheEdgeOfItsAllowanceIsRefusedForItsExpiry(t *testing.T) {
+	f := newRvFed(t, map[string]string{"member": "ta"})
+	issuer := f.id("member")
+	ta := f.taConfig(t, map[string][]model.EntityIdentifier{rvType: {model.EntityIdentifier(issuer)}})
+	ownerKey := rvKey(t)
+	ta.TrustMarkOwners = map[string]model.TrustMarkOwner{rvType: dlgOwnerEntry(t, dlgOwner, ownerKey, "owner-key")}
+
+	withinOneSecond(t, func(now int64) bool {
+		body := dlgBody(dlgOwner, issuer, rvType)
+		body["iat"] = now - 120
+		body["exp"] = now - 60
+		delegation := dlgSign(t, ownerKey, dlgHead("owner-key"), body)
+		tm := dlgMark(t, f.ecKey["member"], "test-key", issuer, rvType, rvSub, &delegation)
+		_, err := Validate(t.Context(), model.Configuration{HttpClient: f.server.Client()}, tm, ValidateOptions{
+			ExpectedType:             rvType,
+			ExpectedSubject:          rvSub,
+			AuthorizedIssuers:        []model.EntityIdentifier{model.EntityIdentifier(issuer)},
+			TrustAnchor:              ta.Sub,
+			TrustAnchorConfiguration: ta,
+		}, nil)
+		if err == nil || !strings.Contains(err.Error(), "the trust mark's delegation has expired") {
+			t.Logf("[7.2.2 step 7] a delegation exactly 60 seconds past its exp must be refused for its expiry, not its signature, got %v", err)
+			return false
+		}
+		return true
+	})
 }

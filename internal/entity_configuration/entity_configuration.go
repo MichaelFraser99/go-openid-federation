@@ -310,14 +310,7 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 		if err := model.VerifyPublishableJWK(key); err != nil {
 			return nil, fmt.Errorf("refusing to publish the jwk value with key ID %q because it %s", model.TruncateForResponse(sKid), err.Error())
 		}
-		if err := model.ValidateKeyOps(key); err != nil {
-			return nil, fmt.Errorf("the provided jwk value with key ID %q %s", model.TruncateForResponse(sKid), err.Error())
-		}
-		if declared, ok := key["alg"].(string); ok {
-			if err := model.VerifyKeyStrength(key, declared); err != nil {
-				return nil, fmt.Errorf("the provided jwk value with key ID %q %s", model.TruncateForResponse(sKid), err.Error())
-			}
-		} else if err := model.VerifyKeyStrengthForAnySignatureAlgorithm(key); err != nil {
+		if err := verifyConfiguredKey(key); err != nil {
 			return nil, fmt.Errorf("the provided jwk value with key ID %q %s", model.TruncateForResponse(sKid), err.Error())
 		}
 		seen[sKid] = struct{}{}
@@ -395,8 +388,13 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 	}
 
 	for _, trustMarkType := range slices.Sorted(maps.Keys(entityConfiguration.TrustMarkOwners)) {
+		for _, key := range entityConfiguration.TrustMarkOwners[trustMarkType].JWKs.Keys {
+			if err := verifyConfiguredKey(key); err != nil {
+				return nil, fmt.Errorf("refusing to publish this entity configuration because a key in the trust_mark_owners entry for %q %s", model.TruncateForResponse(trustMarkType), err.Error())
+			}
+		}
 		usable := slices.ContainsFunc(entityConfiguration.TrustMarkOwners[trustMarkType].JWKs.Keys, func(key map[string]any) bool {
-			return model.ValidateJWKShape(key) == nil
+			return model.ValidateJWKShape(key) == nil && entity_statement.VerifyKeyUse(key) == nil
 		})
 		if !usable {
 			return nil, fmt.Errorf("refusing to publish this entity configuration because the trust_mark_owners entry for %q holds no usable key, so no delegation for that type could be verified", model.TruncateForResponse(trustMarkType))
@@ -429,6 +427,16 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 	}
 
 	return token, nil
+}
+
+func verifyConfiguredKey(key map[string]any) error {
+	if err := model.ValidateKeyOps(key); err != nil {
+		return err
+	}
+	if declared, ok := key["alg"].(string); ok {
+		return model.VerifyKeyStrength(key, declared)
+	}
+	return model.VerifyKeyStrengthForAnySignatureAlgorithm(key)
 }
 
 type publicKeyComparer interface {

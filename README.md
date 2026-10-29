@@ -151,12 +151,17 @@ Naming the server's own identifier answers `invalid_request`, as section 8.1.2 r
 | an explicit `:443`, with or without leading zeros | RFC 3986 section 6.2.3 removes a default port |
 | a percent encoded unreserved character, such as `/t%61` for `/ta` | RFC 3986 section 6.2.2.2 makes them equivalent |
 | a trailing slash, a doubled slash, or dot segments resolving to the same path | RFC 3986 section 6.2.2.3 |
+| the path in a different case, such as `/TA` for `/ta` | not equivalent under RFC 3986, but a store whose collation is case insensitive resolves it to the server's own row |
 
 Refusing extra spellings never makes the server accept something it should not, which is why the departure from section 16 is safe here. It applies to **this guard only**. Identifier comparison everywhere else, policy attribution included, remains exact.
 
-Two things it deliberately does not do. A percent encoded **reserved** character stays encoded, because `%2F` is not a `/`. And the path is not case folded, because RFC 3986 makes no such equivalence — a store whose collation is case insensitive could still resolve `/TA` to its own `/ta` row, so if your store behaves that way, keep the server's own identifier out of it.
+A percent encoded **reserved** character stays encoded, because `%2F` is not a `/`.
 
-> **Breaking change.** A `sub` that spells the server's own identifier differently was previously served a subordinate statement whenever the subordinate store resolved that spelling. Those requests now answer `invalid_request`.
+Folding path case refuses more than any of the other rows, because RFC 3986 makes paths case sensitive. A genuine subordinate whose identifier differs from the server's own only in path case is refused, which no reasonable deployment does. The alternative is a server that signs a statement about itself whenever its store compares identifiers without regard to case.
+
+A subordinate may hold the same federation keys as the server that vouches for it. One operator can run several entities under one signing key, and nothing in the specification forbids it, so the server does not refuse a record for the keys it holds.
+
+> **Breaking change.** A `sub` that spells the server's own identifier differently was previously served a subordinate statement whenever the subordinate store resolved that spelling. Those requests now answer `invalid_request`, including a path that differs from the server's own only in case.
 
 **`/list`**
 

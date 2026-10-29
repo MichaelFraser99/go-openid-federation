@@ -20,13 +20,13 @@ func TestNamesTheSameEntity_RefusesEverySpellingRFC3986MakesEquivalent(t *testin
 		"a trailing slash":                           {asked: "https://fed.example.com/ta/", same: true},
 		"a doubled slash":                            {asked: "https://fed.example.com//ta", same: true},
 		"dot segments that resolve to the same path": {asked: "https://fed.example.com/x/../ta", same: true},
+		"the path in a different case":               {asked: "https://fed.example.com/TA", same: true},
 
 		"a different path":                                  {asked: "https://fed.example.com/other"},
 		"a different host":                                  {asked: "https://other.example.com/ta"},
 		"a non default port":                                {asked: "https://fed.example.com:8443/ta"},
 		"a percent encoded reserved character":              {asked: "https://fed.example.com/t%2Fa"},
 		"a reserved character encoded to mimic a real path": {asked: "https://fed.example.com/ta%2Fsub"},
-		"the path in a different case":                      {asked: "https://fed.example.com/TA"},
 	}
 
 	for name, test := range tests {

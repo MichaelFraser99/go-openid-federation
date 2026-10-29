@@ -61,7 +61,7 @@ func canonicalEntityIdentifier(identifier EntityIdentifier) string {
 		}
 	}
 
-	cleaned := path.Clean("/" + strings.TrimPrefix(decodeUnreservedOctets(parsed.EscapedPath()), "/"))
+	cleaned := strings.ToLower(path.Clean("/" + strings.TrimPrefix(decodeUnreservedOctets(parsed.EscapedPath()), "/")))
 
 	return "https://" + host + cleaned
 }

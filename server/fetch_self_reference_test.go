@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -288,72 +289,94 @@ func TestFetch_RefusesEverySpellingOfItsOwnIdentifier(t *testing.T) {
 }
 
 func TestExtendedList_OmitsTheServersOwnEntryUnderAnyEquivalentSpelling(t *testing.T) {
-	const own = model.EntityIdentifier("https://ta.example.com")
-	const respelled = "https://TA.example.com/"
-
-	signer, err := jws.GetSigner(jwa.ES256, nil)
-	if err != nil {
-		t.Fatalf("expected no error creating signer, got %q", err.Error())
-	}
-	public, err := jwk.PublicJwk(signer.Public())
-	if err != nil {
-		t.Fatalf("expected no error creating public jwk, got %q", err.Error())
+	tests := map[string]struct {
+		own       model.EntityIdentifier
+		respelled string
+	}{
+		"a spelling RFC 3986 makes equivalent":       {own: "https://ta.example.com", respelled: "https://TA.example.com/"},
+		"a path case a case-insensitive store folds": {own: "https://ta.example.com/ta", respelled: "https://ta.example.com/TA"},
 	}
 
-	intermediate := &model.IntermediateConfiguration{SubordinateCacheTime: 5 * time.Minute}
-	intermediate.AddSubordinate(model.EntityIdentifier(respelled), &model.SubordinateConfiguration{JWKs: josemodel.Jwks{Keys: []map[string]any{*public}}})
-	intermediate.AddSubordinate("https://genuine.example.com", &model.SubordinateConfiguration{JWKs: josemodel.Jwks{Keys: []map[string]any{*public}}})
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			signer, err := jws.GetSigner(jwa.ES256, nil)
+			if err != nil {
+				t.Fatalf("expected no error creating signer, got %q", err.Error())
+			}
+			public, err := jwk.PublicJwk(signer.Public())
+			if err != nil {
+				t.Fatalf("expected no error creating public jwk, got %q", err.Error())
+			}
 
-	srv := NewServer(model.ServerConfiguration{
-		SignerConfiguration: model.SignerConfiguration{
-			Algorithm: "ES256",
-			Signer:    signer,
-			KeyID:     (*public)["kid"].(string),
-		},
-		EntityIdentifier:          own,
-		IntermediateConfiguration: intermediate,
-		Extensions: model.Extensions{
-			ExtendedListing: model.ExtendedListingConfiguration{
-				Enabled:   true,
-				SizeLimit: 10,
-				MetadataRetriever: &testExtendedListingRetriever{
-					result: &model.ExtendedListingResponse{ImmediateSubordinateEntities: []map[string]any{
-						{"id": respelled},
-						{"id": "https://genuine.example.com"},
-					}},
+			intermediate := &model.IntermediateConfiguration{SubordinateCacheTime: 5 * time.Minute}
+			intermediate.AddSubordinate(model.EntityIdentifier(tc.respelled), &model.SubordinateConfiguration{JWKs: josemodel.Jwks{Keys: []map[string]any{*public}}})
+			intermediate.AddSubordinate("https://genuine.example.com", &model.SubordinateConfiguration{JWKs: josemodel.Jwks{Keys: []map[string]any{*public}}})
+
+			srv := NewServer(model.ServerConfiguration{
+				SignerConfiguration: model.SignerConfiguration{
+					Algorithm: "ES256",
+					Signer:    signer,
+					KeyID:     (*public)["kid"].(string),
 				},
-			},
-		},
-	})
-	mux := http.NewServeMux()
-	srv.Configure(mux)
-	server := httptest.NewServer(mux)
-	t.Cleanup(server.Close)
+				EntityIdentifier:          tc.own,
+				IntermediateConfiguration: intermediate,
+				Extensions: model.Extensions{
+					ExtendedListing: model.ExtendedListingConfiguration{
+						Enabled:   true,
+						SizeLimit: 10,
+						MetadataRetriever: &testExtendedListingRetriever{
+							result: &model.ExtendedListingResponse{ImmediateSubordinateEntities: []map[string]any{
+								{"id": tc.respelled},
+								{"id": "https://genuine.example.com"},
+							}},
+						},
+					},
+				},
+			})
+			mux := http.NewServeMux()
+			srv.Configure(mux)
+			server := httptest.NewServer(mux)
+			t.Cleanup(server.Close)
 
-	response, err := server.Client().Get(fmt.Sprintf("%s/extended-list?claims=subordinate_statement", server.URL))
-	if err != nil {
-		t.Fatalf("expected no transport error, got %q", err.Error())
-	}
-	defer response.Body.Close() //nolint:errcheck
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		t.Fatalf("failed to read the response body: %v", err)
-	}
-	if response.StatusCode != http.StatusOK {
-		t.Fatalf("one entry that cannot be issued for must not take down the listing, got %d (%s)", response.StatusCode, body)
-	}
+			response, err := server.Client().Get(fmt.Sprintf("%s/extended-list?claims=subordinate_statement", server.URL))
+			if err != nil {
+				t.Fatalf("expected no transport error, got %q", err.Error())
+			}
+			defer response.Body.Close() //nolint:errcheck
+			body, err := io.ReadAll(response.Body)
+			if err != nil {
+				t.Fatalf("failed to read the response body: %v", err)
+			}
+			if response.StatusCode != http.StatusOK {
+				t.Fatalf("one entry that cannot be issued for must not take down the listing, got %d (%s)", response.StatusCode, body)
+			}
 
-	var listing model.ExtendedListingResponse
-	if err := json.Unmarshal(body, &listing); err != nil {
-		t.Fatalf("expected a json listing, got %s", body)
-	}
-	for _, entry := range listing.ImmediateSubordinateEntities {
-		_, issued := entry["subordinate_statement"]
-		if entry["id"] == respelled && issued {
-			t.Errorf("[8.1.2] %q is another spelling of this server's own identifier, so it must carry no subordinate statement", respelled)
-		}
-		if entry["id"] == "https://genuine.example.com" && !issued {
-			t.Error("a genuine subordinate must still get its statement")
-		}
+			var listing model.ExtendedListingResponse
+			if err := json.Unmarshal(body, &listing); err != nil {
+				t.Fatalf("expected a json listing, got %s", body)
+			}
+			for _, entry := range listing.ImmediateSubordinateEntities {
+				_, issued := entry["subordinate_statement"]
+				if entry["id"] == tc.respelled && issued {
+					t.Errorf("[8.1.2] %q names this server's own entity, so it must carry no subordinate statement", tc.respelled)
+				}
+				if entry["id"] == "https://genuine.example.com" && !issued {
+					t.Error("a genuine subordinate must still get its statement")
+				}
+			}
+
+			fetched, err := server.Client().Get(fmt.Sprintf("%s/fetch?sub=%s", server.URL, url.QueryEscape(tc.respelled)))
+			if err != nil {
+				t.Fatalf("expected no transport error, got %q", err.Error())
+			}
+			defer fetched.Body.Close() //nolint:errcheck
+			raw, err := io.ReadAll(fetched.Body)
+			if err != nil {
+				t.Fatalf("failed to read the response body: %v", err)
+			}
+			if !strings.Contains(string(raw), `"error":"invalid_request"`) {
+				t.Errorf("[8.1.2] expected /fetch to refuse %q as the server's own identifier, got %d %s", tc.respelled, fetched.StatusCode, raw)
+			}
+		})
 	}
 }

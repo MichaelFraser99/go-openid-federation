@@ -60,6 +60,12 @@ Host matching has two deliberate refusals. A non-ASCII host is refused under any
 
 `allowed_entity_types` is applied in `ResolveMetadata` only, between `ApplySuperiorMetadata` and `ProcessAndExtractPolicy`, which is the order §6.2.3 names; `ApplyPolicy` iterates only the types the subject still has, so a policy cannot bring a removed type back. A nil `AllowedEntityTypes` is an absent member and an empty one is `[]`; `Constraints.MarshalJSON` keeps that distinction, and so does `NamingConstraints.Permitted`. An empty `permitted` is refused at parse, because every chain has at least one entity below the setter, so it could only ever refuse the chain, and refusing it there names the real fault; `Permits` still treats a Go-built empty list as permitting nothing. An empty `excluded` is accepted, since refusing it would change an outcome, not just a message.
 
+### The server's own identifier as a `sub` (#208, #209)
+
+`model.NamesTheSameEntity` is the self-statement guard, used only by the `/fetch` handler and `subordinate_statement.New`. It compares in a canonical form that refuses more than §16 calls equal, on purpose: host case, trailing dot, default port, unreserved percent-encodings, slash and dot segments, and **path case**. Path case is not an RFC 3986 equivalence; it is folded because a store whose collation is case insensitive resolves `/TA` onto the server's own `/ta` row, and the server would then sign a statement vouching for its own keys. The cost is refusing a genuine subordinate that differs from the server only in path case.
+
+Do not replace this with a check on keys. An earlier version of #209 refused a record holding one of the server's own federation keys, and review rejected it: §3.1 does not require a subordinate's keys to differ from its issuer's, one operator can legitimately run several entities under one HSM key, and refusing the statement does not take signing ability away from whoever holds the key. A spec-silent heuristic must not break a valid topology by default.
+
 ### Server configuration drives behavior
 
 `model.ServerConfiguration` (in `model/model.go`) is the central config object. Capabilities are turned on by *presence of config*, not flags:

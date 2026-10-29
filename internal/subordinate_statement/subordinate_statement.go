@@ -211,10 +211,10 @@ func validate(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 	return &subordinateStatement, nil
 }
 
-// todo: check this conforms to the errors listed in openid federation (spoiler alert - it doesn't)
-// New takes a given subject Entity Identifier, set of authority hint Entity Identifiers, populated Entity Statement, and key material (with associated key ID and algorithm) and produces a signed Entity Configuration
 const signingFailureError = "unable to produce the subordinate statement at this time"
 
+// todo: check this conforms to the errors listed in openid federation (spoiler alert - it doesn't)
+// New takes a given subject Entity Identifier, set of authority hint Entity Identifiers, populated Entity Statement, and key material (with associated key ID and algorithm) and produces a signed Entity Configuration
 func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordinateRetriever func() (*model.SubordinateConfiguration, *model.SignerConfiguration, error), configuration model.ServerConfiguration) (*string, error) {
 	if configuration.IntermediateConfiguration == nil {
 		return nil, fmt.Errorf("no intermediate configuration provided")

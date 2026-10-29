@@ -220,9 +220,9 @@ func validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 	return &entityConfiguration, nil
 }
 
-// New takes a given configuration struct and produces a signed Entity Configuration
 const signingFailureError = "unable to produce the entity configuration at this time"
 
+// New takes a given configuration struct and produces a signed Entity Configuration
 func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 	entityConfiguration := cfg.EntityConfiguration
 	entityConfiguration.Sub = cfg.EntityIdentifier

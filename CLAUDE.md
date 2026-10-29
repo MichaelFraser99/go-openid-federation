@@ -10,7 +10,7 @@ A Go library implementing the [OpenID Federation](https://openid.net/specs/openi
 
 - **Test:** `go test ./...` (also `make test`). CI runs `go test -v ./...` **and then a second `go test -race ./...` pass**, so a change must be clean under the race detector as well. The race pass is the one that catches a wall-clock assertion written with too little headroom: a GitHub runner is two cores, so a budget that holds here can fail there.
 - **Single test:** `go test ./model -run TestMetadataProcessingE2E` (add `-v` for verbose).
-- **Lint:** `golangci-lint run` (version pinned to v2.13.1 in CI and pre-commit; match it locally). Run `pre-commit run --all-files` to reproduce the full pre-commit gate (end-of-file/trailing-whitespace fixers, yaml check, `no-commit-to-branch`, and `golangci-lint-full`).
+- **Lint:** `golangci-lint run` (version pinned to v2.15.0 in CI and pre-commit; match it locally). A golangci-lint release bundles its own reader for Go's compiled package data, so it fails on a Go patch that writes a newer format, whichever Go built the linter: v2.13.1 cannot read go1.27.3's export data and reports four `typecheck` errors saying "export data version 5 is greater than maximum supported version 4". CI installs the latest 1.27 patch from `go.mod`, so when that error appears, move the pin to a release that reads it rather than pinning Go back. Run `pre-commit run --all-files` to reproduce the full pre-commit gate (end-of-file/trailing-whitespace fixers, yaml check, `no-commit-to-branch`, and `golangci-lint-full`).
 - **Go version:** 1.27 (see `go.mod`), which go-jose v0.11.0 requires.
 
 ## Architecture

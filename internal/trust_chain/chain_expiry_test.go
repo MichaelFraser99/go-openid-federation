@@ -45,7 +45,7 @@ func TestBuildTrustChain_TheExpiryIsTheEarliestInTheWholeChain(t *testing.T) {
 				t.Errorf("[10.4] expected the minimum exp within the chain, %d, got %d", tc.expect, *expiry)
 			}
 
-			resolved, err := ResolveMetadata(t.Context(), model.Configuration{HttpClient: client}, anchor, anchor, chain, resolvecache.New())
+			resolved, err := resolveTrustingSuppliedAnchor(t, t.Context(), model.Configuration{HttpClient: client}, anchor, anchor, chain, resolvecache.New())
 			if err != nil {
 				t.Fatalf("expected the chain to resolve, got %v", err)
 			}

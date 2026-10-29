@@ -414,6 +414,26 @@ func resolvedMetadata(metadata *model.Metadata) *model.Metadata {
 	return metadata
 }
 
+func finalEntryEndpoints(ctx context.Context, cfg model.Configuration, trustChain []string) (*model.EntityIdentifier, *model.EntityIdentifier, error) {
+	_, sub, iss, err := entity_statement.ExtractDetails(trustChain[len(trustChain)-1])
+	if err != nil {
+		cfg.LogInfo(ctx, "failed to extract details from final chain entry", slog.String("error", model.TruncateForResponse(err.Error())))
+		return nil, nil, model.NewInvalidTrustChainError("the final entry in the trust chain is malformed")
+	}
+	parsedSub, err := model.ValidateEntityIdentifier(*sub)
+	if err != nil {
+		cfg.LogInfo(ctx, "invalid sub claim in final chain entry", slog.String("sub", model.TruncateForResponse(*sub)), slog.String("error", model.TruncateForResponse(err.Error())))
+		return nil, nil, model.NewInvalidTrustChainError("final entry in chain carries an invalid `sub` claim")
+	}
+	parsedIss, err := model.ValidateEntityIdentifier(*iss)
+	if err != nil {
+		cfg.LogInfo(ctx, "invalid iss claim in final chain entry", slog.String("iss", model.TruncateForResponse(*iss)), slog.String("error", model.TruncateForResponse(err.Error())))
+		return nil, nil, model.NewInvalidTrustChainError("final entry in chain carries an invalid `iss` claim")
+	}
+
+	return parsedSub, parsedIss, nil
+}
+
 func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityIdentifier, trustAnchorEntityIdentifier model.EntityIdentifier, trustChain []string, cache *resolvecache.Cache) (*model.ResolveResponse, error) {
 	cfg.LogInfo(ctx, "resolving metadata from trust chain", slog.String("issuer", string(issuerEntityIdentifier)), slog.String("trust_anchor", string(trustAnchorEntityIdentifier)), slog.Int("chain_length", len(trustChain)))
 
@@ -436,20 +456,19 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 		}
 	}
 
-	_, sub, iss, err := entity_statement.ExtractDetails(trustChain[len(trustChain)-1])
+	parsedSub, parsedIss, err := finalEntryEndpoints(ctx, cfg, trustChain)
 	if err != nil {
-		cfg.LogInfo(ctx, "failed to extract details from final chain entry", slog.String("error", model.TruncateForResponse(err.Error())))
-		return nil, model.NewInvalidTrustChainError("the final entry in the trust chain is malformed")
+		return nil, err
 	}
-	parsedSub, err := model.ValidateEntityIdentifier(*sub)
-	if err != nil {
-		cfg.LogInfo(ctx, "invalid sub claim in final chain entry", slog.String("sub", model.TruncateForResponse(*sub)), slog.String("error", model.TruncateForResponse(err.Error())))
-		return nil, model.NewInvalidTrustChainError("final entry in chain carries an invalid `sub` claim")
-	}
-	parsedIss, err := model.ValidateEntityIdentifier(*iss)
-	if err != nil {
-		cfg.LogInfo(ctx, "invalid iss claim in final chain entry", slog.String("iss", model.TruncateForResponse(*iss)), slog.String("error", model.TruncateForResponse(err.Error())))
-		return nil, model.NewInvalidTrustChainError("final entry in chain carries an invalid `iss` claim")
+
+	if *parsedSub == *parsedIss && *parsedSub == trustAnchorEntityIdentifier && len(trustChain) > 1 {
+		if _, held := cfg.TrustAnchorKeys(trustAnchorEntityIdentifier); !held {
+			cfg.LogInfo(ctx, "no keys are held for the trust anchor, so its entity configuration is fetched rather than taken from the supplied chain", slog.String("trust_anchor", string(trustAnchorEntityIdentifier)))
+			trustChain = trustChain[:len(trustChain)-1]
+			if parsedSub, parsedIss, err = finalEntryEndpoints(ctx, cfg, trustChain); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	cfg.LogInfo(ctx, "extracted chain endpoints", slog.String("sub", string(*parsedSub)), slog.String("iss", string(*parsedIss)))

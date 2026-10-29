@@ -48,7 +48,7 @@ func TestResolveMetadata_SingleStatementChainIsGatedOnExpiry(t *testing.T) {
 
 			chain := []string{criticalOperatorSign(t, key, anchor)}
 
-			result, err := ResolveMetadata(t.Context(), model.Configuration{}, criticalOperatorAnchor, criticalOperatorAnchor, chain, nil)
+			result, err := resolveTrustingSuppliedAnchor(t, t.Context(), model.Configuration{}, criticalOperatorAnchor, criticalOperatorAnchor, chain, nil)
 			if tc.expectErr != "" {
 				if err == nil {
 					t.Fatalf("expected a chain expired by %s to be refused, got exp %d", -tc.expIn, result.Exp)

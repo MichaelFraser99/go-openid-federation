@@ -31,7 +31,7 @@ func TestResolveMetadata_ASuppliedChainIsBoundedBeforeAnyEntryIsDecoded(t *testi
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, err := ResolveMetadata(t.Context(), cfg, "https://resolver.example.com", "https://ta.example.com", tc.chain, resolvecache.New())
+			_, err := resolveTrustingSuppliedAnchor(t, t.Context(), cfg, "https://resolver.example.com", "https://ta.example.com", tc.chain, resolvecache.New())
 			if !errors.Is(err, model.ErrInvalidTrustChain) || errors.Is(err, model.ErrLimitReached) {
 				t.Fatalf("expected an invalid_trust_chain refusal, got %v", err)
 			}
@@ -76,7 +76,7 @@ func TestResolveMetadata_ASuppliedChainIsHeldToTheDepthAWalkIsHeldTo(t *testing.
 			}
 
 			cfg := model.Configuration{HttpClient: tp.server.Client(), MaxTrustChainDepth: tc.depth}
-			_, err = ResolveMetadata(t.Context(), cfg, tp.id["n0"], tp.id["ta"], chain, resolvecache.New())
+			_, err = resolveTrustingSuppliedAnchor(t, t.Context(), cfg, tp.id["n0"], tp.id["ta"], chain, resolvecache.New())
 			if tc.expectRefuse == "" {
 				if err != nil {
 					t.Fatalf("expected a chain of %d entities to resolve at a depth of %d, got %v", tc.entities, tc.depth, err)

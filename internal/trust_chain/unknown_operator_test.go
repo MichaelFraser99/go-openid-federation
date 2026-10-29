@@ -54,7 +54,7 @@ func TestResolveMetadata_AnUnknownNonCriticalOperatorIsIgnored(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			resolved, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chainWithClaims(t, subjectMetadata, tc.subordinate), nil)
+			resolved, err := resolveTrustingSuppliedAnchor(t, t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chainWithClaims(t, subjectMetadata, tc.subordinate), nil)
 			if tc.expectErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.expectErr) {
 					t.Fatalf("[6.1.3.2] an operator listed in metadata_policy_crit must be understood, so expected %q, got %v", tc.expectErr, err)

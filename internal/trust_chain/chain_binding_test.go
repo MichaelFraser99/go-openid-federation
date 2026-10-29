@@ -73,7 +73,7 @@ func TestResolveMetadata_BindsSubjectToTheKeyRegisteredByItsSuperior(t *testing.
 			leafEC := createEntityStatement(t, leafID, leafID, tc.authorityHints, tc.leafSigner, false)
 			chain := []string{leafEC, subordinateStatement, taEC}
 
-			result, err := ResolveMetadata(context.Background(), model.Configuration{}, leafID, taID, chain, resolvecache.New())
+			result, err := resolveTrustingSuppliedAnchor(t, context.Background(), model.Configuration{}, leafID, taID, chain, resolvecache.New())
 			if tc.expectErr {
 				if err == nil {
 					t.Fatalf("expected chain to be rejected, got resolved metadata for sub %q", result.Sub)
@@ -101,7 +101,7 @@ func TestResolveMetadata_FetchesOmittedTrustAnchorConfiguration(t *testing.T) {
 	leafEC := createEntityStatement(t, tp.id["leaf"], tp.id["leaf"], []model.EntityIdentifier{tp.id["ta"]}, tp.keys["leaf"], false)
 	subordinateStatement := createSubordinateStatement(t, tp.id["ta"], tp.id["leaf"], tp.keys["ta"], tp.keys["leaf"].Public())
 
-	result, err := ResolveMetadata(context.Background(), cfg, tp.id["leaf"], tp.id["ta"], []string{leafEC, subordinateStatement}, resolvecache.New())
+	result, err := resolveTrustingSuppliedAnchor(t, context.Background(), cfg, tp.id["leaf"], tp.id["ta"], []string{leafEC, subordinateStatement}, resolvecache.New())
 	if err != nil {
 		t.Fatalf("expected chain with omitted trust anchor configuration to resolve, got error: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestResolveMetadata_RejectionsAreTypedAsInvalidTrustChain(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := ResolveMetadata(context.Background(), model.Configuration{}, leafID, taID, tc.chain, resolvecache.New())
+			_, err := resolveTrustingSuppliedAnchor(t, context.Background(), model.Configuration{}, leafID, taID, tc.chain, resolvecache.New())
 			if err == nil {
 				t.Fatal("expected the chain to be rejected")
 			}
@@ -349,7 +349,7 @@ func TestResolveMetadata_AllRejectionsAreTypedAsInvalidTrustChain(t *testing.T) 
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := ResolveMetadata(context.Background(), model.Configuration{}, leafID, taID, tc.chain, resolvecache.New())
+			_, err := resolveTrustingSuppliedAnchor(t, context.Background(), model.Configuration{}, leafID, taID, tc.chain, resolvecache.New())
 			if err == nil {
 				t.Fatal("expected the chain to be rejected")
 			}

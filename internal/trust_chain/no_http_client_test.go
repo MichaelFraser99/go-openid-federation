@@ -20,7 +20,7 @@ func TestBuildTrustChain_NoHttpClientIsThisServersFault(t *testing.T) {
 
 func TestResolveMetadata_NoHttpClientForAnOmittedAnchorIsThisServersFault(t *testing.T) {
 	chain := chainWithClaims(t, nil, nil)
-	_, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chain[:2], resolvecache.New())
+	_, err := resolveTrustingSuppliedAnchor(t, t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chain[:2], resolvecache.New())
 	if !errors.Is(err, model.ErrServerError) {
 		t.Fatalf("[8.9] expected a missing client to be a server_error, got %v", err)
 	}

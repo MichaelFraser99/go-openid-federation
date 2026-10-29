@@ -53,7 +53,7 @@ func TestResolveMetadata_AFinalEntryTheCallerSuppliedIsNotAServerFault(t *testin
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, err := ResolveMetadata(t.Context(), model.Configuration{}, "https://resolver.example.com", "https://ta.example.com", []string{unsignedStatement(t, tc.claims)}, resolvecache.New())
+			_, err := resolveTrustingSuppliedAnchor(t, t.Context(), model.Configuration{}, "https://resolver.example.com", "https://ta.example.com", []string{unsignedStatement(t, tc.claims)}, resolvecache.New())
 			if err == nil {
 				t.Fatalf("[%s] expected the chain to be refused", tc.reference)
 			}
@@ -165,7 +165,7 @@ func TestResolveMetadata_APolicyOperandASuperiorWroteDoesNotReachTheResponse(t *
 				"oauth_client": map[string]any{"redirect_uris": []any{"https://leaf.example.com/cb"}, "scope": "openid"},
 			}, map[string]any{"metadata_policy": tc.policy})
 
-			_, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chain, nil)
+			_, err := resolveTrustingSuppliedAnchor(t, t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chain, nil)
 			if err == nil {
 				t.Fatalf("[%s] expected a policy no subject can match to be refused", tc.reference)
 			}

@@ -416,7 +416,7 @@ func VerifyChainExpiry(exp int64) error {
 }
 
 func ChainHasExpired(exp int64) bool {
-	return time.Now().Add(-ClockSkewLeeway).UTC().Unix() > exp
+	return time.Now().Add(-ClockSkewLeeway).UTC().Unix() >= exp
 }
 
 func CalculateChainExpiration(chain []EntityStatement) int64 {

@@ -198,7 +198,7 @@ func verifyDelegation(ctx context.Context, cfg model.Configuration, mark model.T
 		cfg.LogError(ctx, "the delegation has a malformed 'exp' claim", slog.String("error", err.Error()))
 		return err
 	}
-	if present && time.Now().Add(-model.ClockSkewLeeway).UTC().Unix() > expiry {
+	if present && time.Now().Add(-model.ClockSkewLeeway).UTC().Unix() >= expiry {
 		cfg.LogError(ctx, "the delegation has expired", slog.Int64("exp", expiry))
 		return fmt.Errorf("the trust mark's delegation has expired")
 	}
@@ -217,7 +217,7 @@ func verifyDelegation(ctx context.Context, cfg model.Configuration, mark model.T
 			continue
 		}
 
-		if _, _, err := jwt.Validate(delegation, func() ([]crypto.PublicKey, error) {
+		if _, _, err := jwt.Validate(ctx, delegation, func() ([]crypto.PublicKey, error) {
 			publicKey, err := jwk.PublicFromJwk(selectedKey)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse the owner's JWK as a public key: %w", err)

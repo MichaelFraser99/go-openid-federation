@@ -9,10 +9,13 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/joseerror"
 	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jwt"
@@ -175,7 +178,7 @@ func validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 		return nil, fmt.Errorf("the 'jwks' claim %s", err.Error())
 	}
 
-	if err = entity_statement.VerifyAgainstJwks(entityConfigurationJwt, sKid, parsedJwks); err != nil {
+	if err = entity_statement.VerifyAgainstJwks(ctx, entityConfigurationJwt, sKid, parsedJwks); err != nil {
 		return nil, err
 	}
 
@@ -314,8 +317,8 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 		jwks.Keys = append(jwks.Keys, key)
 	}
 
-	if existing, _ := jwks.RetrieveByKeyID(cfg.SignerConfiguration.KeyID); existing != nil {
-		if err := publishedKeyUsableForSigning(existing, *publicJWK, cfg.SignerConfiguration.Signer.Public()); err != nil {
+	if existing, _ := jwks.RetrieveByKeyID(cfg.SignerConfiguration.KeyID); len(existing) > 0 {
+		if err := publishedKeyUsableForSigning(existing[0], *publicJWK, cfg.SignerConfiguration.Signer.Public()); err != nil {
 			return nil, fmt.Errorf("a configured jwk uses the signing key ID %q but %s, so the issued statement could not be verified", cfg.SignerConfiguration.KeyID, err.Error())
 		}
 	} else {
@@ -340,8 +343,8 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 				continue
 			}
 
-			if existing, _ := jwks.RetrieveByKeyID(signerConfiguration.KeyID); existing != nil {
-				if err := publishedKeyUsableForSigning(existing, *apkJWK, signerConfiguration.Signer.Public()); err != nil {
+			if existing, _ := jwks.RetrieveByKeyID(signerConfiguration.KeyID); len(existing) > 0 {
+				if err := publishedKeyUsableForSigning(existing[0], *apkJWK, signerConfiguration.Signer.Public()); err != nil {
 					return nil, fmt.Errorf("subordinate signer key ID %q is already published but %s, so statements signed with it could not be verified", signerConfiguration.KeyID, err.Error())
 				}
 				continue
@@ -384,6 +387,15 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 		return nil, fmt.Errorf("refusing to publish this entity configuration because %s", err.Error())
 	}
 
+	for _, trustMarkType := range slices.Sorted(maps.Keys(entityConfiguration.TrustMarkOwners)) {
+		usable := slices.ContainsFunc(entityConfiguration.TrustMarkOwners[trustMarkType].JWKs.Keys, func(key map[string]any) bool {
+			return model.ValidateJWKShape(key) == nil
+		})
+		if !usable {
+			return nil, fmt.Errorf("refusing to publish this entity configuration because the trust_mark_owners entry for %q holds no usable key, so no delegation for that type could be verified", model.TruncateForResponse(trustMarkType))
+		}
+	}
+
 	if err = model.VerifyIssuedStatement(entityConfigurationBytes, cfg.EntityTypes); err != nil {
 		return nil, fmt.Errorf("refusing to publish an entity configuration this implementation would reject: %s", err.Error())
 	}
@@ -398,10 +410,13 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 		"alg": cfg.SignerConfiguration.Algorithm,
 	}, entityConfigurationMap, jwt.Opts{Algorithm: jwa.GetAlgorithm(cfg.SignerConfiguration.Algorithm)})
 	if err != nil {
+		if errors.Is(err, joseerror.ErrUnsupportedAlgorithm) || errors.Is(err, joseerror.ErrInvalidPrivateKey) {
+			return nil, fmt.Errorf("refusing to publish an entity configuration this implementation would reject: %s", err.Error())
+		}
 		return nil, err
 	}
 
-	if err = entity_statement.VerifyIssuedSignature(*token, cfg.SignerConfiguration.KeyID, cfg.SignerConfiguration.Algorithm, cfg.SignerConfiguration.Signer); err != nil {
+	if err = entity_statement.VerifyIssuedSignature(ctx, *token, cfg.SignerConfiguration.KeyID, cfg.SignerConfiguration.Algorithm, cfg.SignerConfiguration.Signer); err != nil {
 		return nil, fmt.Errorf("refusing to publish an entity configuration this implementation would reject: %s", err.Error())
 	}
 

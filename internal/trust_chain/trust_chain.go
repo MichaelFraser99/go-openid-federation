@@ -120,7 +120,7 @@ func verifyTrustAnchor(ctx context.Context, cfg model.Configuration, expected mo
 		return model.NewServerError("the keys configured for the requested trust anchor hold no key that can verify a signature")
 	}
 
-	if err := entity_statement.VerifyAgainstAnyKey(signedAnchor, usable); err != nil {
+	if err := entity_statement.VerifyAgainstAnyKey(ctx, signedAnchor, usable); err != nil {
 		cfg.LogError(ctx, "trust anchor entity configuration not signed by any key configured for it", slog.String("trust_anchor", string(expected)), slog.String("error", model.TruncateForResponse(err.Error())))
 		return model.NewInvalidTrustAnchorError("the trust anchor entity configuration is not signed by any key configured for it")
 	}
@@ -153,7 +153,7 @@ func verifyChainLinks(ctx context.Context, cfg model.Configuration, signedChain 
 			cfg.LogInfo(ctx, "trust chain entry malformed", slog.Int("entry", i), slog.String("error", model.TruncateForResponse(err.Error())))
 			return model.NewInvalidTrustChainError(fmt.Sprintf("entry %d in the trust chain is malformed", i))
 		}
-		if err = entity_statement.VerifyAgainstJwks(signedChain[i], *kid, parsedChain[i+1].JWKs); err != nil {
+		if err = entity_statement.VerifyAgainstJwks(ctx, signedChain[i], *kid, parsedChain[i+1].JWKs); err != nil {
 			cfg.LogInfo(ctx, "trust chain entry not signed by a key published in the statement above it", slog.Int("entry", i), slog.String("kid", model.TruncateForResponse(*kid)), slog.String("error", model.TruncateForResponse(err.Error())))
 			return model.NewInvalidTrustChainError(fmt.Sprintf("entry %d in the trust chain is not signed by a key published for it in the statement above it", i))
 		}
@@ -562,7 +562,7 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 	}
 
 	cfg.LogInfo(ctx, "verifying subject entity configuration against the key published by its superior", slog.String("kid", *subjectKid))
-	if err = entity_statement.VerifyAgainstJwks(trustChain[0], *subjectKid, processedChain[1].JWKs); err != nil {
+	if err = entity_statement.VerifyAgainstJwks(ctx, trustChain[0], *subjectKid, processedChain[1].JWKs); err != nil {
 		cfg.LogInfo(ctx, "subject entity configuration not signed by a key published for it by its superior", slog.String("kid", model.TruncateForResponse(*subjectKid)), slog.String("error", model.TruncateForResponse(err.Error())))
 		return nil, model.NewInvalidTrustChainError("the subject's entity configuration is not signed by the key registered for it in the subordinate statement above it")
 	}

@@ -273,7 +273,7 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 		return nil, fmt.Errorf("the trust mark 'kid' %q names a key published by issuer %s that cannot verify it: %s", model.TruncateForResponse(kid), *parsedIssuer, model.TruncateForResponse(err.Error()))
 	}
 
-	head, _, err := jwt.Validate(trustMark, func() ([]crypto.PublicKey, error) {
+	head, _, err := jwt.Validate(ctx, trustMark, func() ([]crypto.PublicKey, error) {
 		pubKey, err := jwk.PublicFromJwk(selectedKey)
 		if err != nil {
 			cfg.LogError(ctx, "failed to parse JWK", slog.String("error", err.Error()), slog.Any("jwk", selectedKey))

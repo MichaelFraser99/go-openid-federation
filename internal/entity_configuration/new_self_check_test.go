@@ -47,6 +47,26 @@ func TestNew_RefusesConfigurationsItsOwnParserRejects(t *testing.T) {
 			expectErr: "refusing to publish",
 		},
 		{
+			name: "a trust mark owner with an empty key set",
+			step: "3.1.1",
+			configure: func(cfg *model.ServerConfiguration) {
+				cfg.EntityConfiguration.TrustMarkOwners = map[string]model.TrustMarkOwner{
+					"https://tm.example.com/a": {Sub: "https://owner.example.com", JWKs: josemodel.Jwks{Keys: []map[string]any{}}},
+				}
+			},
+			expectErr: "the trust_mark_owners entry for \"https://tm.example.com/a\" holds no usable key",
+		},
+		{
+			name: "a trust mark owner whose every key is unreadable",
+			step: "3.1.1",
+			configure: func(cfg *model.ServerConfiguration) {
+				cfg.EntityConfiguration.TrustMarkOwners = map[string]model.TrustMarkOwner{
+					"https://tm.example.com/a": {Sub: "https://owner.example.com", JWKs: josemodel.Jwks{Keys: []map[string]any{{"kid": "k"}}}},
+				}
+			},
+			expectErr: "holds no usable key",
+		},
+		{
 			name: "federation_entity carrying its own key set",
 			step: "section 5.1.1",
 			configure: func(cfg *model.ServerConfiguration) {
@@ -123,6 +143,26 @@ func TestNew_RefusesConfigurationsItsOwnParserRejects(t *testing.T) {
 				t.Fatalf("[%s] expected an error containing %q, got %v", tc.step, tc.expectErr, err)
 			}
 		})
+	}
+}
+
+func TestNew_PublishesAnOwnerWithOneUsableKeyBesideAnUnreadableOne(t *testing.T) {
+	signerConfiguration, publicJWK := issuanceSigner(t)
+	owner := map[string]any{}
+	for k, v := range publicJWK {
+		owner[k] = v
+	}
+	owner["kid"] = "owner"
+	cfg := model.ServerConfiguration{
+		EntityIdentifier:            "https://ta.example.com",
+		SignerConfiguration:         signerConfiguration,
+		EntityConfigurationLifetime: time.Hour,
+		EntityConfiguration: model.EntityStatement{TrustMarkOwners: map[string]model.TrustMarkOwner{
+			"https://tm.example.com/a": {Sub: "https://owner.example.com", JWKs: josemodel.Jwks{Keys: []map[string]any{{"kid": "unreadable"}, owner}}},
+		}},
+	}
+	if _, err := New(t.Context(), cfg); err != nil {
+		t.Fatalf("[3.1.1] an owner holding a usable key must be published, whatever else its set holds, got %v", err)
 	}
 }
 

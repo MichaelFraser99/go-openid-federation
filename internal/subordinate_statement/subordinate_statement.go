@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/joseerror"
 	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
@@ -169,7 +170,7 @@ func validate(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 		return nil, fmt.Errorf("malformed header claim 'kid'")
 	}
 
-	if err = entity_statement.VerifyAgainstJwks(subordinateStatementJwt, sKid, issuer.JWKs); err != nil {
+	if err = entity_statement.VerifyAgainstJwks(ctx, subordinateStatementJwt, sKid, issuer.JWKs); err != nil {
 		return nil, err
 	}
 	for _, claim := range []string{"authority_hints", "trust_anchor_hints", "trust_marks", "trust_mark_issuers", "trust_mark_owners"} {
@@ -319,10 +320,13 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		"alg": signerConfiguration.Algorithm,
 	}, subordinateStatementMap, jwt.Opts{Algorithm: jwa.GetAlgorithm(signerConfiguration.Algorithm)})
 	if err != nil {
+		if errors.Is(err, joseerror.ErrUnsupportedAlgorithm) || errors.Is(err, joseerror.ErrInvalidPrivateKey) {
+			return nil, fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %s", err.Error())
+		}
 		return nil, err
 	}
 
-	if err = entity_statement.VerifyIssuedSignature(*token, signerConfiguration.KeyID, signerConfiguration.Algorithm, signerConfiguration.Signer); err != nil {
+	if err = entity_statement.VerifyIssuedSignature(ctx, *token, signerConfiguration.KeyID, signerConfiguration.Algorithm, signerConfiguration.Signer); err != nil {
 		return nil, fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %s", err.Error())
 	}
 

@@ -123,7 +123,7 @@ func TestVerifyAgainstAnyKey(t *testing.T) {
 					t.Fatalf("[%s] a key this library cannot judge must not panic: %v", tc.reference, recovered)
 				}
 			}()
-			err := VerifyAgainstAnyKey(token, josemodel.Jwks{Keys: tc.keys})
+			err := VerifyAgainstAnyKey(t.Context(), token, josemodel.Jwks{Keys: tc.keys})
 			if tc.expectErr == "" {
 				if err != nil {
 					t.Fatalf("[%s] expected the signature to verify against a key in the set, got %v", tc.reference, err)
@@ -232,7 +232,7 @@ func TestVerifyAgainstAnyKey_TheSigningKeyNeedNotBeLast(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if err := VerifyAgainstAnyKey(token, josemodel.Jwks{Keys: tc.keys}); err != nil {
+			if err := VerifyAgainstAnyKey(t.Context(), token, josemodel.Jwks{Keys: tc.keys}); err != nil {
 				t.Errorf("[%s] every key in the set is tried, so position must not matter, got %v", tc.reference, err)
 			}
 		})
@@ -273,7 +273,7 @@ func TestVerifyAgainstAnyKey_AKeyTheTokenCarriesIsNeverTrusted(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := VerifyAgainstAnyKey(*token, josemodel.Jwks{Keys: tc.keys})
+			err := VerifyAgainstAnyKey(t.Context(), *token, josemodel.Jwks{Keys: tc.keys})
 			if tc.expectErr {
 				if err == nil {
 					t.Fatalf("[%s] a key the token carries in its own header must never be trusted", tc.reference)

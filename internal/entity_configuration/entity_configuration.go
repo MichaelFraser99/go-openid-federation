@@ -54,7 +54,7 @@ func Retrieve(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 
 func fetch(ctx context.Context, cfg model.Configuration, entityIdentifier model.EntityIdentifier) (*string, *model.EntityStatement, error) {
 	if cfg.HttpClient == nil {
-		return nil, nil, fmt.Errorf("no http client present")
+		return nil, nil, model.NewServerError("no http client present")
 	}
 
 	cfg.LogInfo(ctx, "retrieving entity configuration", slog.String("subject", string(entityIdentifier)))

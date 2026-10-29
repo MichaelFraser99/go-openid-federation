@@ -331,7 +331,7 @@ func chainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return signedPath, path, false, walkNotCompleted(ctxErr)
 		}
-		if errors.Is(err, model.ErrLimitReached) {
+		if errors.Is(err, model.ErrLimitReached) || errors.Is(err, model.ErrServerError) {
 			return signedPath, path, true, budgetExhausted(err)
 		}
 		cache.RecordDeadEnd(subjectKey)
@@ -485,6 +485,9 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 			cfg.LogInfo(ctx, "failed to retrieve trust anchor entity configuration", slog.String("trust_anchor", string(*parsedIss)), slog.String("error", model.TruncateForResponse(err.Error())))
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return nil, walkNotCompleted(ctxErr)
+			}
+			if errors.Is(err, model.ErrServerError) {
+				return nil, err
 			}
 			return nil, model.NewInvalidTrustAnchorError("the entity configuration of the requested trust anchor could not be retrieved")
 		}

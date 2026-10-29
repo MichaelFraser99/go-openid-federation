@@ -74,9 +74,6 @@ func (s *Server) resolveEntityIdentifier(ctx context.Context, param model.Entity
 }
 
 func (s *Server) Configure(h *http.ServeMux) {
-	if s.cfg.HttpClient == nil {
-		s.cfg.HttpClient = http.DefaultClient
-	}
 	s.route(h, "/.well-known/openid-federation", s.HandleWellKnown, http.MethodGet)
 	if s.cfg.IntermediateConfiguration != nil {
 		s.route(h, "/list", s.List, http.MethodGet)

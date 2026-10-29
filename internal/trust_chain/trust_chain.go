@@ -434,6 +434,21 @@ func finalEntryEndpoints(ctx context.Context, cfg model.Configuration, trustChai
 	return parsedSub, parsedIss, nil
 }
 
+func retrieveTrustAnchor(ctx context.Context, cfg model.Configuration, trustAnchorEntityIdentifier model.EntityIdentifier, cache *resolvecache.Cache) (*string, *model.EntityStatement, error) {
+	signedEntityConfiguration, entityConfiguration, err := entity_configuration.Retrieve(ctx, cfg, trustAnchorEntityIdentifier, cache)
+	if err != nil {
+		cfg.LogInfo(ctx, "failed to retrieve trust anchor entity configuration", slog.String("trust_anchor", string(trustAnchorEntityIdentifier)), slog.String("error", model.TruncateForResponse(err.Error())))
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, nil, walkNotCompleted(ctxErr)
+		}
+		if errors.Is(err, model.ErrServerError) {
+			return nil, nil, err
+		}
+		return nil, nil, model.NewInvalidTrustAnchorError("the entity configuration of the requested trust anchor could not be retrieved")
+	}
+	return signedEntityConfiguration, entityConfiguration, nil
+}
+
 func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityIdentifier, trustAnchorEntityIdentifier model.EntityIdentifier, trustChain []string, cache *resolvecache.Cache) (*model.ResolveResponse, error) {
 	cfg.LogInfo(ctx, "resolving metadata from trust chain", slog.String("issuer", string(issuerEntityIdentifier)), slog.String("trust_anchor", string(trustAnchorEntityIdentifier)), slog.Int("chain_length", len(trustChain)))
 
@@ -477,6 +492,14 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 
 	if *parsedSub == *parsedIss {
 		cfg.LogInfo(ctx, "processing self-signed entity configuration", slog.String("entity", string(*parsedSub)))
+		if _, held := cfg.TrustAnchorKeys(trustAnchorEntityIdentifier); !held && *parsedSub == trustAnchorEntityIdentifier {
+			cfg.LogInfo(ctx, "no keys are held for the trust anchor, so its entity configuration is fetched in place of the supplied one", slog.String("trust_anchor", string(trustAnchorEntityIdentifier)))
+			signedEntityConfiguration, _, err := retrieveTrustAnchor(ctx, cfg, trustAnchorEntityIdentifier, cache)
+			if err != nil {
+				return nil, err
+			}
+			trustChain = append(slices.Clone(trustChain[:len(trustChain)-1]), *signedEntityConfiguration)
+		}
 		response, err := entity_configuration.Validate(ctx, cfg, *parsedSub, trustChain[len(trustChain)-1])
 		if err != nil {
 			cfg.LogInfo(ctx, "failed to validate self-signed entity configuration", slog.String("entity", string(*parsedSub)), slog.String("error", model.TruncateForResponse(err.Error())))
@@ -499,16 +522,9 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 			return nil, model.NewInvalidTrustChainError("trust chain contains no statement about the subject")
 		}
 		cfg.LogInfo(ctx, "retrieving omitted trust anchor entity configuration", slog.String("trust_anchor", string(*parsedIss)))
-		signedEntityConfiguration, entityConfiguration, err := entity_configuration.Retrieve(ctx, cfg, *parsedIss, cache)
+		signedEntityConfiguration, entityConfiguration, err := retrieveTrustAnchor(ctx, cfg, *parsedIss, cache)
 		if err != nil {
-			cfg.LogInfo(ctx, "failed to retrieve trust anchor entity configuration", slog.String("trust_anchor", string(*parsedIss)), slog.String("error", model.TruncateForResponse(err.Error())))
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return nil, walkNotCompleted(ctxErr)
-			}
-			if errors.Is(err, model.ErrServerError) {
-				return nil, err
-			}
-			return nil, model.NewInvalidTrustAnchorError("the entity configuration of the requested trust anchor could not be retrieved")
+			return nil, err
 		}
 		if err := verifyTrustAnchor(ctx, cfg, trustAnchorEntityIdentifier, *signedEntityConfiguration, *entityConfiguration); err != nil {
 			return nil, err

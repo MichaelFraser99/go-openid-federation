@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto"
 	"crypto/rsa"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -139,7 +140,7 @@ func forgedChain(t *testing.T, attackerKey *rsa.PrivateKey, subject, anchor mode
 			"iat":      now.Unix(),
 			"exp":      now.Add(time.Hour).Unix(),
 			"jwks":     chainJwks(t, attackerKey),
-			"metadata": map[string]any{"federation_entity": map[string]any{"federation_fetch_endpoint": string(anchor) + "/fetch"}},
+			"metadata": map[string]any{"federation_entity": map[string]any{"federation_fetch_endpoint": string(anchor) + "/fetch", "contacts": []any{"attacker@impostor.example.com"}}},
 		}),
 	}
 }
@@ -148,9 +149,13 @@ func TestResolveMetadata_AForgedAnchorIsRefusedWhetherOrNotKeysAreHeld(t *testin
 	attackerKey := chainSigningKey(t)
 	anchorKey := chainSigningKey(t)
 
+	forged := forgedChain(t, attackerKey, chainSubject, chainAnchor)
+	held := map[model.EntityIdentifier]josemodel.Jwks{chainAnchor: anchorKeySet(t, anchorKey.Public(), nil)}
+
 	tests := []struct {
 		name      string
 		reference string
+		chain     []string
 		anchors   map[model.EntityIdentifier]josemodel.Jwks
 		expectErr error
 		expectMsg string
@@ -158,12 +163,34 @@ func TestResolveMetadata_AForgedAnchorIsRefusedWhetherOrNotKeysAreHeld(t *testin
 		{
 			name:      "no keys held and no client to fetch the real anchor with",
 			reference: "10.2",
+			chain:     forged,
 			expectErr: model.ErrServerError,
+		},
+		{
+			name:      "no keys held, no client, and the chain is the forged anchor configuration alone",
+			reference: "10.2",
+			chain:     forged[2:],
+			expectErr: model.ErrServerError,
+		},
+		{
+			name:      "no keys held, no client, and the chain is another entity's configuration alone",
+			reference: "10.2",
+			chain:     forged[:1],
+			expectErr: model.ErrInvalidTrustAnchor,
 		},
 		{
 			name:      "the real anchor's key held",
 			reference: "10.2",
-			anchors:   map[model.EntityIdentifier]josemodel.Jwks{chainAnchor: anchorKeySet(t, anchorKey.Public(), nil)},
+			chain:     forged,
+			anchors:   held,
+			expectErr: model.ErrInvalidTrustAnchor,
+			expectMsg: "not signed by any key configured for it",
+		},
+		{
+			name:      "the real anchor's key held, and the chain is the forged anchor configuration alone",
+			reference: "10.2",
+			chain:     forged[2:],
+			anchors:   held,
 			expectErr: model.ErrInvalidTrustAnchor,
 			expectMsg: "not signed by any key configured for it",
 		},
@@ -172,7 +199,7 @@ func TestResolveMetadata_AForgedAnchorIsRefusedWhetherOrNotKeysAreHeld(t *testin
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := model.Configuration{TrustAnchors: tc.anchors}
-			_, err := ResolveMetadata(t.Context(), cfg, chainAnchor, chainAnchor, forgedChain(t, attackerKey, chainSubject, chainAnchor), nil)
+			_, err := ResolveMetadata(t.Context(), cfg, chainAnchor, chainAnchor, tc.chain, nil)
 			if err == nil {
 				t.Fatalf("[%s] a chain signed throughout by the attacker's own key must not resolve", tc.reference)
 			}
@@ -195,6 +222,18 @@ func TestResolveMetadata_WithNoKeysHeldTheAnchorIsFetchedNotTakenFromTheChain(t 
 	}
 	if !errors.Is(err, model.ErrInvalidTrustChain) {
 		t.Errorf("[10.2] expected the forged link to be refused as an invalid trust chain, got %v", err)
+	}
+
+	lone := forgedChain(t, chainSigningKey(t), subject, anchor)[2:]
+	resolved, err := ResolveMetadata(t.Context(), model.Configuration{HttpClient: client}, anchor, anchor, lone, nil)
+	if err != nil {
+		t.Fatalf("[10.2] the anchor's real configuration must resolve in place of a forged one supplied alone, got %v", err)
+	}
+	if len(resolved.TrustChain) != 1 || resolved.TrustChain[0] == lone[0] {
+		t.Errorf("[10.2] the response must carry the anchor's fetched configuration, not the one the caller supplied")
+	}
+	if encoded, _ := json.Marshal(resolved.Metadata); strings.Contains(string(encoded), "attacker@impostor.example.com") {
+		t.Errorf("[10.2] metadata from a forged anchor configuration must not be returned, got %s", encoded)
 	}
 
 	built, _, _, err := BuildTrustChain(t.Context(), model.Configuration{HttpClient: client}, subject, anchor, nil)

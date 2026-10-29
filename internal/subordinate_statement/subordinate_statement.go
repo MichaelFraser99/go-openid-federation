@@ -211,6 +211,8 @@ func validate(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 	return &subordinateStatement, nil
 }
 
+const signingFailureError = "unable to produce the subordinate statement at this time"
+
 // todo: check this conforms to the errors listed in openid federation (spoiler alert - it doesn't)
 // New takes a given subject Entity Identifier, set of authority hint Entity Identifiers, populated Entity Statement, and key material (with associated key ID and algorithm) and produces a signed Entity Configuration
 func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordinateRetriever func() (*model.SubordinateConfiguration, *model.SignerConfiguration, error), configuration model.ServerConfiguration) (*string, error) {
@@ -323,7 +325,8 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		if errors.Is(err, joseerror.ErrUnsupportedAlgorithm) || errors.Is(err, joseerror.ErrInvalidPrivateKey) {
 			return nil, fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %s", err.Error())
 		}
-		return nil, err
+		configuration.LogError(ctx, "the signer could not sign the subordinate statement", slog.String("error", model.TruncateForResponse(err.Error())))
+		return nil, model.ClassifySignerError(err, signingFailureError)
 	}
 
 	if err = entity_statement.VerifyIssuedSignature(ctx, *token, signerConfiguration.KeyID, signerConfiguration.Algorithm, signerConfiguration.Signer); err != nil {

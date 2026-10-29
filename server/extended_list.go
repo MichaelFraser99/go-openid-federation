@@ -134,7 +134,7 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 	entitiesJSON, err := json.Marshal(response)
 	if err != nil {
 		s.cfg.LogError(ctx, "error marshalling subordinate entities", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(extendedListingUnavailableError))
+		return s.RespondWithError(ctx, w, model.NewServerError(extendedListingUnavailableError))
 	}
 	return s.RespondWithJSON(w, entitiesJSON)
 }

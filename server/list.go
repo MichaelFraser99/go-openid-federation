@@ -44,7 +44,7 @@ func (s *Server) List(w http.ResponseWriter, r *http.Request) ResponseFunc {
 	subordinates, err := s.cfg.GetSubordinates(ctx)
 	if err != nil {
 		s.cfg.LogError(ctx, "error retrieving subordinates", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(listingUnavailableError))
+		return s.RespondWithError(ctx, w, s.retrieverError(err, listingUnavailableError))
 	}
 
 	identifiers := make([]model.EntityIdentifier, 0, len(subordinates))
@@ -62,7 +62,7 @@ func (s *Server) respondWithEntities(ctx context.Context, w http.ResponseWriter,
 	entitiesJSON, err := json.Marshal(entities)
 	if err != nil {
 		s.cfg.LogError(ctx, "error marshalling entities", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(listingUnavailableError))
+		return s.RespondWithError(ctx, w, model.NewServerError(listingUnavailableError))
 	}
 	return s.RespondWithJSON(w, entitiesJSON)
 }

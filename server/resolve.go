@@ -70,13 +70,13 @@ func (s *Server) Resolve(w http.ResponseWriter, r *http.Request) ResponseFunc {
 	resolvedBytes, err := json.Marshal(resolved)
 	if err != nil {
 		s.cfg.LogError(ctx, "error marshalling resolved metadata", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(resolveUnavailableError))
+		return s.RespondWithError(ctx, w, model.NewServerError(resolveUnavailableError))
 	}
 
 	var resolvedMap map[string]any
 	if err = json.Unmarshal(resolvedBytes, &resolvedMap); err != nil {
 		s.cfg.LogError(ctx, "error unmarshalling resolved metadata", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(resolveUnavailableError))
+		return s.RespondWithError(ctx, w, model.NewServerError(resolveUnavailableError))
 	}
 
 	token, err := jwt.New(s.cfg.SignerConfiguration.Signer, map[string]any{
@@ -86,7 +86,7 @@ func (s *Server) Resolve(w http.ResponseWriter, r *http.Request) ResponseFunc {
 	}, resolvedMap, jwt.Opts{Algorithm: jwa.GetAlgorithm(s.cfg.SignerConfiguration.Algorithm)})
 	if err != nil {
 		s.cfg.LogError(ctx, "error creating resolve response", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(resolveUnavailableError))
+		return s.RespondWithError(ctx, w, model.ClassifySignerError(err, resolveUnavailableError))
 	}
 
 	return s.RespondWithResolveResponse(w, []byte(*token))

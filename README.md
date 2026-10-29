@@ -607,6 +607,8 @@ type MetadataPolicyOperator interface {
 
 A resolved response expires at the earliest expiry in the chain rather than the subject's own. Where a trust mark expires sooner, the response expiry is reduced to match.
 
+The `expiry` that `Client.BuildTrustChain` returns is the same value: the earliest `exp` of every statement in the chain, subordinate statements included, as section 10.4 requires. Earlier releases computed it from the entity configurations alone, before the subordinate statements were fetched, so a caller caching a chain for that long kept trusting it after a subordinate statement in it had expired. `/resolve` was not affected, because it recomputes the expiry from the whole chain. An intermediate's own entity configuration is not a member of the chain under section 1.2, so it no longer bounds this value. A chain whose only short-lived statement is an intermediate's configuration therefore reports a later expiry than before. That is section 10.4's definition, and trust is unaffected, because an intermediate's keys come from its superior's subordinate statement, not from its own configuration. An intermediate configuration that has already expired still refuses the chain before any subordinate statement is fetched.
+
 Trust marks in a resolve response are filtered against the trust anchor's `trust_mark_issuers` claim. A trust mark whose type the anchor does not list, or whose issuer it has not authorised, is dropped from the response. Resolution continues.
 
 ### Constraints

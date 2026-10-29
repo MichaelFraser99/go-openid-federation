@@ -64,6 +64,8 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 	trustChain = append(trustChain, signedRoute[len(signedRoute)-1])
 	parsedTrustChain = append(parsedTrustChain, route[len(route)-1])
 
+	exp = model.CalculateChainExpiration(parsedTrustChain)
+
 	if len(parsedTrustChain) < 3 {
 		return nil, nil, nil, model.NewInvalidTrustChainError("trust chain contains no subordinate statement about the subject")
 	}

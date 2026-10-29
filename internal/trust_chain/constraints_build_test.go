@@ -13,7 +13,7 @@ import (
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
-func constrainedFederation(t *testing.T, host string, constraints map[string]any) (*http.Client, model.EntityIdentifier, model.EntityIdentifier) {
+func federationWithSubordinateClaims(t *testing.T, host string, claims map[string]any) (*http.Client, model.EntityIdentifier, model.EntityIdentifier) {
 	t.Helper()
 	leafKey, anchorKey := chainSigningKey(t), chainSigningKey(t)
 	var base string
@@ -36,8 +36,8 @@ func constrainedFederation(t *testing.T, host string, constraints map[string]any
 			token = chainSignStatement(t, anchorKey, statement)
 		case r.URL.Path == "/ta/fetch" && r.URL.Query().Get("sub") == leaf:
 			statement := body(anchor, leaf, chainJwks(t, leafKey))
-			if constraints != nil {
-				statement["constraints"] = constraints
+			for claim, value := range claims {
+				statement[claim] = value
 			}
 			token = chainSignStatement(t, anchorKey, statement)
 		default:
@@ -82,7 +82,11 @@ func TestBuildTrustChain_EnforcesConstraints(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			client, leaf, anchor := constrainedFederation(t, tc.host, tc.constraints)
+			claims := map[string]any{}
+			if tc.constraints != nil {
+				claims["constraints"] = tc.constraints
+			}
+			client, leaf, anchor := federationWithSubordinateClaims(t, tc.host, claims)
 			_, _, _, err := BuildTrustChain(t.Context(), model.Configuration{HttpClient: client}, leaf, anchor, resolvecache.New())
 			assertConstraintVerdict(t, "10.2", err, tc.expectErr)
 		})

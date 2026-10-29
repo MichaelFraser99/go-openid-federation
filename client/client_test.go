@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/MichaelFraser99/go-openid-federation/model"
 	"github.com/MichaelFraser99/go-openid-federation/server_test"
@@ -39,8 +38,18 @@ func TestClient_BuildTrustChain(t *testing.T) {
 					t.Fatal("expected expiry to be non-nil")
 				}
 
-				if *expiry > time.Now().Add(290*time.Second).UTC().Unix() && *expiry <= time.Now().Add(300*time.Second).UTC().Unix() {
-					t.Error("expected expiry to be less than or equal to 4m")
+				earliest := result[0].Exp
+				for _, statement := range result[1:] {
+					earliest = min(earliest, statement.Exp)
+				}
+				if *expiry != earliest {
+					t.Errorf("[10.4] expected the chain expiry to be the minimum exp within the chain, %d, got %d", earliest, *expiry)
+				}
+				if result[1].Exp >= result[0].Exp {
+					t.Fatalf("the fixture is wrong: the subordinate statement about the leaf must expire before the leaf's own configuration")
+				}
+				if *expiry != result[1].Exp {
+					t.Errorf("[10.4] expected the chain expiry to be the subordinate statement's exp, %d, got %d", result[1].Exp, *expiry)
 				}
 				if string(result[0].Sub) != fmt.Sprintf("%s/leaf", testServerURL) {
 					t.Errorf("expected result[0].Sub to be %s, got %s", fmt.Sprintf("%s/leaf", testServerURL), result[0].Sub)

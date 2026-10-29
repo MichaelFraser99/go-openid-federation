@@ -13,7 +13,11 @@ import (
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
-func federationWithSubordinateClaims(t *testing.T, host string, claims map[string]any) (*http.Client, model.EntityIdentifier, model.EntityIdentifier) {
+type federationClaims struct {
+	leaf, subordinate, anchor map[string]any
+}
+
+func federationWithClaims(t *testing.T, host string, claims federationClaims) (*http.Client, model.EntityIdentifier, model.EntityIdentifier) {
 	t.Helper()
 	leafKey, anchorKey := chainSigningKey(t), chainSigningKey(t)
 	var base string
@@ -29,14 +33,20 @@ func federationWithSubordinateClaims(t *testing.T, host string, claims map[strin
 			statement := body(leaf, leaf, chainJwks(t, leafKey))
 			statement["authority_hints"] = []any{anchor}
 			statement["metadata"] = map[string]any{"federation_entity": map[string]any{"contacts": []any{"leaf@example.com"}}}
+			for claim, value := range claims.leaf {
+				statement[claim] = value
+			}
 			token = chainSignStatement(t, leafKey, statement)
 		case r.URL.Path == "/ta/.well-known/openid-federation":
 			statement := body(anchor, anchor, chainJwks(t, anchorKey))
 			statement["metadata"] = map[string]any{"federation_entity": map[string]any{"federation_fetch_endpoint": anchor + "/fetch"}}
+			for claim, value := range claims.anchor {
+				statement[claim] = value
+			}
 			token = chainSignStatement(t, anchorKey, statement)
 		case r.URL.Path == "/ta/fetch" && r.URL.Query().Get("sub") == leaf:
 			statement := body(anchor, leaf, chainJwks(t, leafKey))
-			for claim, value := range claims {
+			for claim, value := range claims.subordinate {
 				statement[claim] = value
 			}
 			token = chainSignStatement(t, anchorKey, statement)
@@ -86,7 +96,7 @@ func TestBuildTrustChain_EnforcesConstraints(t *testing.T) {
 			if tc.constraints != nil {
 				claims["constraints"] = tc.constraints
 			}
-			client, leaf, anchor := federationWithSubordinateClaims(t, tc.host, claims)
+			client, leaf, anchor := federationWithClaims(t, tc.host, federationClaims{subordinate: claims})
 			_, _, _, err := BuildTrustChain(t.Context(), model.Configuration{HttpClient: client}, leaf, anchor, resolvecache.New())
 			assertConstraintVerdict(t, "10.2", err, tc.expectErr)
 		})

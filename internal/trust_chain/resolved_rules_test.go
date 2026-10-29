@@ -62,7 +62,7 @@ func TestResolveMetadata_AnIssuerThatIsNotTheSubjectIsRefusedOnEveryPath(t *test
 				anchor = chainSubject
 			}
 
-			_, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, anchor, chain, nil)
+			_, err := resolveTrustingSuppliedAnchor(t, t.Context(), model.Configuration{}, chainAnchor, anchor, chain, nil)
 			if err == nil {
 				t.Fatal("[Connect 1.1 5.1.2] the issuer parameter MUST match the Federation Entity Identifier, so this must not resolve")
 			}
@@ -78,7 +78,7 @@ func TestResolveMetadata_AnIssuerThatIsNotTheSubjectIsRefusedOnEveryPath(t *test
 
 func TestResolveMetadata_AnIssuerMatchingTheSubjectResolves(t *testing.T) {
 	chain := chainWithClaims(t, conformingProvider(string(chainSubject)), nil)
-	if _, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chain, nil); err != nil {
+	if _, err := resolveTrustingSuppliedAnchor(t, t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chain, nil); err != nil {
 		t.Errorf("[Connect 1.1 5.1.2] an issuer equal to the entity identifier must resolve, got %v", err)
 	}
 }
@@ -111,7 +111,7 @@ func TestResolveMetadata_APolicyCannotReinstateAValueTheParserRefuses(t *testing
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			chain := chainWithClaims(t, test.subjectMetadata, map[string]any{"metadata_policy": test.policy})
-			_, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chain, nil)
+			_, err := resolveTrustingSuppliedAnchor(t, t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chain, nil)
 			if err == nil {
 				t.Fatalf("[%s] the parser refuses this value on input, so a policy must not be able to put it back", test.reference)
 			}
@@ -159,7 +159,7 @@ func TestResolveMetadata_TheSubjectEntryMustBeAnEntityConfiguration(t *testing.T
 		chainSignStatement(t, anchorKey, anchor),
 	}
 
-	_, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chain, nil)
+	_, err := resolveTrustingSuppliedAnchor(t, t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chain, nil)
 	if err == nil {
 		t.Fatal("[4] the first entry of a trust chain is the subject's own entity configuration, so a statement about someone else must be refused")
 	}
@@ -215,7 +215,7 @@ func TestResolveMetadata_NoValueASuperiorChoseReachesTheResponse(t *testing.T) {
 			subjectMetadata := conformingProvider(string(chainSubject))
 			subjectMetadata["federation_entity"] = map[string]any{"federation_fetch_endpoint": string(chainSubject) + "/fetch"}
 			chain := chainWithClaims(t, subjectMetadata, map[string]any{"metadata_policy": test.policy})
-			_, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chain, nil)
+			_, err := resolveTrustingSuppliedAnchor(t, t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chain, nil)
 			if err == nil {
 				t.Fatal("expected the resolution to be refused")
 			}

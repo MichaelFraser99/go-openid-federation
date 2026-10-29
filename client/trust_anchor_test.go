@@ -32,7 +32,7 @@ func TestClient_ResolveMetadata_RefusesAMissingOrMalformedTrustAnchor(t *testing
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := c.ResolveMetadata(t.Context(), string(subject), tc.anchor, chain)
+			_, err := resolveTrustingSuppliedAnchor(t, c, t.Context(), string(subject), tc.anchor, chain)
 			if tc.expectErr == nil {
 				if err != nil {
 					t.Fatalf("[%s] expected the chain to resolve, got %v", tc.reference, err)
@@ -92,7 +92,7 @@ func TestClient_ResolveMetadata_ASubjectMustNotBeItsOwnTrustAnchor(t *testing.T)
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := c.ResolveMetadata(t.Context(), string(tc.subject), string(tc.anchor), tc.chain(t))
+			_, err := resolveTrustingSuppliedAnchor(t, c, t.Context(), string(tc.subject), string(tc.anchor), tc.chain(t))
 			if tc.expectErr == nil {
 				if err != nil {
 					t.Fatalf("[%s] expected the chain to resolve, got %v", tc.reference, err)

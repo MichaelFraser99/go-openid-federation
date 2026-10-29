@@ -88,7 +88,7 @@ func TestResolveMetadata_RejectsUnsupportedCriticalPolicyOperator(t *testing.T) 
 				criticalOperatorSign(t, anchorKey, anchor),
 			}
 
-			if _, err := ResolveMetadata(t.Context(), model.Configuration{}, criticalOperatorAnchor, criticalOperatorAnchor, chain, nil); err == nil {
+			if _, err := resolveTrustingSuppliedAnchor(t, t.Context(), model.Configuration{}, criticalOperatorAnchor, criticalOperatorAnchor, chain, nil); err == nil {
 				t.Fatal("chain accepted although metadata_policy_crit lists an operator the library does not support")
 			} else if !strings.Contains(err.Error(), "none of which this implementation understands") {
 				t.Fatalf("expected the rejection to name the unsupported operator, got %v", err)

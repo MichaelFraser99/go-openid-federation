@@ -30,7 +30,7 @@ func TestResolveMetadata_EnforcesMaxPathLength(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chainThroughIntermediate(t, tc.immediate, tc.grandparent), nil)
+			_, err := resolveTrustingSuppliedAnchor(t, t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chainThroughIntermediate(t, tc.immediate, tc.grandparent), nil)
 			assertConstraintVerdict(t, "6.2.1", err, tc.expectErr)
 		})
 	}
@@ -66,7 +66,7 @@ func TestResolveMetadata_EnforcesNamingConstraints(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chainThroughIntermediate(t, tc.immediate, tc.grandparent), nil)
+			_, err := resolveTrustingSuppliedAnchor(t, t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chainThroughIntermediate(t, tc.immediate, tc.grandparent), nil)
 			assertConstraintVerdict(t, "6.2.2", err, tc.expectErr)
 		})
 	}
@@ -114,7 +114,7 @@ func TestResolveMetadata_EnforcesAllowedEntityTypes(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			resolved, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chainWithClaims(t, subjectMetadata(), tc.subordinate), nil)
+			resolved, err := resolveTrustingSuppliedAnchor(t, t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chainWithClaims(t, subjectMetadata(), tc.subordinate), nil)
 			if err != nil {
 				t.Fatalf("[6.2.3] expected the chain to resolve, got %v", err)
 			}
@@ -153,7 +153,7 @@ func TestResolveMetadata_AllowedEntityTypesAtEveryLevelApply(t *testing.T) {
 				"federation_entity": map[string]any{"contacts": []any{"leaf@leaf.example.com"}},
 				"custom_removed":    map[string]any{"a": "b"},
 			}, tc.immediate, tc.grandparent)
-			resolved, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chain, nil)
+			resolved, err := resolveTrustingSuppliedAnchor(t, t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chain, nil)
 			if err != nil {
 				t.Fatalf("[6.2] expected the chain to resolve, got %v", err)
 			}
@@ -228,7 +228,7 @@ func TestResolveMetadata_MaxPathLengthFollowsTheSpecificationsExamples(t *testin
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			chain := chainThroughTwoIntermediates(t, tc.byI1, tc.byI2, tc.byTA)
-			_, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chain, nil)
+			_, err := resolveTrustingSuppliedAnchor(t, t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chain, nil)
 			assertConstraintVerdict(t, "6.2.1", err, tc.expectErr)
 		})
 	}

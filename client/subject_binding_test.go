@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -112,7 +113,7 @@ func TestClient_ResolveMetadata_RejectsChainForAnotherSubject(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			metadata, err := c.ResolveMetadata(context.Background(), string(tc.subject), string(trustAnchor), chain)
+			metadata, err := resolveTrustingSuppliedAnchor(t, c, context.Background(), string(tc.subject), string(trustAnchor), chain)
 			if tc.expectErr {
 				if err == nil {
 					t.Fatalf("expected chain about %q to be rejected when %q was requested, got metadata %+v", chainSubject, tc.subject, metadata)
@@ -123,5 +124,21 @@ func TestClient_ResolveMetadata_RejectsChainForAnotherSubject(t *testing.T) {
 				t.Fatalf("expected chain to resolve, got error: %v", err)
 			}
 		})
+	}
+}
+
+func TestClient_ResolveMetadata_DoesNotTrustAnAnchorTheCallerSupplied(t *testing.T) {
+	const (
+		subject     = model.EntityIdentifier("https://leaf.example.com")
+		trustAnchor = model.EntityIdentifier("https://ta.example.com")
+	)
+	chain := bindingChain(t, subject, trustAnchor)
+
+	_, err := New(model.ClientConfiguration{}).ResolveMetadata(context.Background(), string(subject), string(trustAnchor), chain)
+	if err == nil {
+		t.Fatal("[10.2] with no trust anchor keys held, a chain whose anchor configuration the caller supplied must not resolve on that configuration's own signature")
+	}
+	if !errors.Is(err, model.ErrServerError) {
+		t.Errorf("[10.2] with no client to fetch the real anchor with, expected this deployment's own fault, got %v", err)
 	}
 }

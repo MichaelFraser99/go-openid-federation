@@ -656,7 +656,9 @@ The first is the identifier, and a chain may end in either of two shapes. Where 
 
 The second is the signature. `Configuration.TrustAnchors` holds the keys you have for each trust anchor you trust, and when the map holds keys for the named anchor the anchor's entity configuration must verify against one of them. Section 4 puts the distribution of those keys out of band, so the library cannot fetch them and has no way to obtain them itself.
 
-> **The identifier check alone does not make a caller-supplied chain safe.** An attacker who writes the trust anchor's identifier into the `iss` and `sub` of their own self-signed entity configuration produces a chain that passes it, because nothing without the anchor's keys can tell that statement from the real one. **Do not pass a chain from an untrusted source to `Client.ResolveMetadata` unless `TrustAnchors` holds keys for the anchor you name.** Build the chain yourself with `Client.BuildTrustChain`, or configure the keys.
+**With no keys held for the named anchor, the chain's own copy of the anchor's entity configuration is never trusted.** An attacker can write the anchor's identifier into their own self-signed entity configuration, and nothing without the anchor's keys can tell that copy from the real one. So the library drops it, fetches the anchor's entity configuration from its well-known URL through your `HttpClient`, and requires the chain's last subordinate statement to verify against that. A caller-supplied chain is then anchored exactly as well as one `BuildTrustChain` builds: by HTTPS to the anchor's own identifier. Without an `HttpClient` the fetch cannot happen, and the chain is refused with `server_error`. To verify a supplied chain with no network at all, configure the anchor's keys.
+
+> **Breaking change.** `Client.ResolveMetadata` with no `TrustAnchors` used to accept a chain whose last statement was any self-signed entity configuration carrying the anchor's identifier, so an attacker's own chain resolved to the attacker's metadata for any subject they named ([#189](https://github.com/MichaelFraser99/go-openid-federation/issues/189)). It now fetches the anchor's configuration itself. A caller who verified supplied chains offline without keys must now either configure `TrustAnchors` or provide an `HttpClient`.
 
 Section 10.2 draws the same distinction: an inner link verifies "with a public key in `ES[j+1]["jwks"]`", a key the chain itself carries, but the last statement must verify "with a public key of the Trust Anchor". Only `TrustAnchors` supplies the latter.
 
@@ -664,7 +666,7 @@ Four states, and the message says which one you are in:
 
 | `TrustAnchors` | The named anchor | Result |
 | --- | --- | --- |
-| unset (nil) | — | Identifier check only. The entity configuration is accepted on its own signature, whether it came from the chain or from the anchor's well-known URL |
+| unset (nil) | — | The anchor's entity configuration is fetched from its well-known URL, never taken from the chain, and the chain's links must verify against it. Without an `HttpClient`, refused as `server_error` |
 | set | has a key that can verify a signature | Identifier check, then the entity configuration must verify against one of those keys |
 | set | absent, or mapped to an empty set | Refused: "not one this deployment is configured to trust" |
 | set | present, but no key in it can verify a signature | Refused as `server_error` before any request: the deployment configured a key set it cannot use |
@@ -776,7 +778,6 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | Area | Status | Issue |
 |---|---|---|
 | Internationalised hosts under `naming_constraints` | Refused by default; matched only when `Configuration.HostToASCII` is set | [#50](https://github.com/MichaelFraser99/go-openid-federation/issues/50) |
-| The anchor check with no `TrustAnchors` configured | Identifier only, so a caller-supplied chain is not cryptographically anchored | [#189](https://github.com/MichaelFraser99/go-openid-federation/issues/189) |
 | Clock skew tolerance | `model.ClockSkewLeeway` is a constant and cannot be configured | [#141](https://github.com/MichaelFraser99/go-openid-federation/issues/141) |
 | Server configuration validation | A bad `ServerConfiguration` is reported when a peer first fetches, not at startup | [#145](https://github.com/MichaelFraser99/go-openid-federation/issues/145) |
 | Extension claims | Dropped on parse and cannot be issued | [#132](https://github.com/MichaelFraser99/go-openid-federation/issues/132) |

@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto"
 	"crypto/rsa"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -96,7 +98,7 @@ func TestResolveMetadata_AChainMustEndInTheRequestedTrustAnchor(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			chain := chainWithClaims(t, nil, nil)
 
-			_, err := ResolveMetadata(t.Context(), model.Configuration{}, chainAnchor, tc.requested, chain, nil)
+			_, err := resolveTrustingSuppliedAnchor(t, t.Context(), model.Configuration{}, chainAnchor, tc.requested, chain, nil)
 			if tc.expectErr != nil {
 				if err == nil {
 					t.Fatalf("[%s] section 10.2 requires the last statement to be the entity configuration of the trust anchor the verifier asked for", tc.reference)
@@ -113,81 +115,143 @@ func TestResolveMetadata_AChainMustEndInTheRequestedTrustAnchor(t *testing.T) {
 	}
 }
 
-func TestResolveMetadata_AForgedAnchorIsRefusedOnlyWhenKeysAreHeldForIt(t *testing.T) {
-	attackerKey := chainSigningKey(t)
-	anchorKey := chainSigningKey(t)
+func forgedChain(t *testing.T, attackerKey *rsa.PrivateKey, subject, anchor model.EntityIdentifier) []string {
+	t.Helper()
 	now := time.Now().UTC()
-
-	forged := []string{
+	return []string{
 		chainSignStatement(t, attackerKey, map[string]any{
-			"iss":             string(chainSubject),
-			"sub":             string(chainSubject),
+			"iss":             string(subject),
+			"sub":             string(subject),
 			"iat":             now.Unix(),
 			"exp":             now.Add(time.Hour).Unix(),
 			"jwks":            chainJwks(t, attackerKey),
-			"authority_hints": []any{string(chainAnchor)},
+			"authority_hints": []any{string(anchor)},
 			"metadata":        map[string]any{"federation_entity": map[string]any{"contacts": []any{"attacker@impostor.example.com"}}},
 		}),
 		chainSignStatement(t, attackerKey, map[string]any{
-			"iss":  string(chainAnchor),
-			"sub":  string(chainSubject),
+			"iss":  string(anchor),
+			"sub":  string(subject),
 			"iat":  now.Unix(),
 			"exp":  now.Add(time.Hour).Unix(),
 			"jwks": chainJwks(t, attackerKey),
 		}),
 		chainSignStatement(t, attackerKey, map[string]any{
-			"iss":      string(chainAnchor),
-			"sub":      string(chainAnchor),
+			"iss":      string(anchor),
+			"sub":      string(anchor),
 			"iat":      now.Unix(),
 			"exp":      now.Add(time.Hour).Unix(),
 			"jwks":     chainJwks(t, attackerKey),
-			"metadata": map[string]any{"federation_entity": map[string]any{"federation_fetch_endpoint": string(chainAnchor) + "/fetch"}},
+			"metadata": map[string]any{"federation_entity": map[string]any{"federation_fetch_endpoint": string(anchor) + "/fetch", "contacts": []any{"attacker@impostor.example.com"}}},
 		}),
 	}
+}
+
+func TestResolveMetadata_AForgedAnchorIsRefusedWhetherOrNotKeysAreHeld(t *testing.T) {
+	attackerKey := chainSigningKey(t)
+	anchorKey := chainSigningKey(t)
+
+	forged := forgedChain(t, attackerKey, chainSubject, chainAnchor)
+	held := map[model.EntityIdentifier]josemodel.Jwks{chainAnchor: anchorKeySet(t, anchorKey.Public(), nil)}
 
 	tests := []struct {
 		name      string
 		reference string
+		chain     []string
 		anchors   map[model.EntityIdentifier]josemodel.Jwks
-		expectErr string
+		expectErr error
+		expectMsg string
 	}{
 		{
-			name:      "no keys held for any anchor, so the forgery is accepted on its own signature",
-			reference: "4",
-			anchors:   nil,
+			name:      "no keys held and no client to fetch the real anchor with",
+			reference: "10.2",
+			chain:     forged,
+			expectErr: model.ErrServerError,
 		},
 		{
-			name:      "the real anchor's key held, so the forgery is refused",
+			name:      "no keys held, no client, and the chain is the forged anchor configuration alone",
 			reference: "10.2",
-			anchors:   map[model.EntityIdentifier]josemodel.Jwks{chainAnchor: anchorKeySet(t, anchorKey.Public(), nil)},
-			expectErr: "not signed by any key configured for it",
+			chain:     forged[2:],
+			expectErr: model.ErrServerError,
+		},
+		{
+			name:      "no keys held, no client, and the chain is another entity's configuration alone",
+			reference: "10.2",
+			chain:     forged[:1],
+			expectErr: model.ErrInvalidTrustAnchor,
+		},
+		{
+			name:      "the real anchor's key held",
+			reference: "10.2",
+			chain:     forged,
+			anchors:   held,
+			expectErr: model.ErrInvalidTrustAnchor,
+			expectMsg: "not signed by any key configured for it",
+		},
+		{
+			name:      "the real anchor's key held, and the chain is the forged anchor configuration alone",
+			reference: "10.2",
+			chain:     forged[2:],
+			anchors:   held,
+			expectErr: model.ErrInvalidTrustAnchor,
+			expectMsg: "not signed by any key configured for it",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := model.Configuration{TrustAnchors: tc.anchors}
-			resolved, err := ResolveMetadata(t.Context(), cfg, chainAnchor, chainAnchor, forged, nil)
-
-			if tc.expectErr == "" {
-				if err != nil {
-					t.Fatalf("[%s] with no keys held the identifier check is all there is, so this chain resolves; the test exists to pin that, got %v", tc.reference, err)
-				}
-				if resolved.Sub != chainSubject {
-					t.Errorf("[%s] expected the forged chain to resolve for the subject it names, got %q", tc.reference, resolved.Sub)
-				}
-				return
-			}
+			_, err := ResolveMetadata(t.Context(), cfg, chainAnchor, chainAnchor, tc.chain, nil)
 			if err == nil {
-				t.Fatalf("[%s] a chain signed throughout by the attacker's own key must not anchor in an entity whose keys this deployment holds", tc.reference)
+				t.Fatalf("[%s] a chain signed throughout by the attacker's own key must not resolve", tc.reference)
 			}
-			if !errors.Is(err, model.ErrInvalidTrustAnchor) {
-				t.Errorf("[%s] expected the refusal to name the trust anchor, got %v", tc.reference, err)
+			if !errors.Is(err, tc.expectErr) {
+				t.Errorf("[%s] expected %v, got %v", tc.reference, tc.expectErr, err)
 			}
-			if !strings.Contains(err.Error(), tc.expectErr) {
-				t.Errorf("[%s] expected the refusal to say %q, got %v", tc.reference, tc.expectErr, err)
+			if !strings.Contains(err.Error(), tc.expectMsg) {
+				t.Errorf("[%s] expected the refusal to say %q, got %v", tc.reference, tc.expectMsg, err)
 			}
 		})
+	}
+}
+
+func TestResolveMetadata_WithNoKeysHeldTheAnchorIsFetchedNotTakenFromTheChain(t *testing.T) {
+	client, subject, anchor := federationWithClaims(t, "example.com", federationClaims{})
+
+	forged := forgedChain(t, chainSigningKey(t), subject, anchor)
+	supplied := slices.Clone(forged)
+	_, err := ResolveMetadata(t.Context(), model.Configuration{HttpClient: client}, anchor, anchor, forged, nil)
+	if err == nil {
+		t.Fatal("[10.2] a chain whose anchor configuration the caller forged must be checked against the anchor's real configuration, and refused")
+	}
+	if !errors.Is(err, model.ErrInvalidTrustChain) {
+		t.Errorf("[10.2] expected the forged link to be refused as an invalid trust chain, got %v", err)
+	}
+	if !slices.Equal(forged, supplied) {
+		t.Error("the caller's chain must be left as the caller supplied it")
+	}
+
+	lone := forgedChain(t, chainSigningKey(t), subject, anchor)[2:]
+	suppliedLone := slices.Clone(lone)
+	resolved, err := ResolveMetadata(t.Context(), model.Configuration{HttpClient: client}, anchor, anchor, lone, nil)
+	if err != nil {
+		t.Fatalf("[10.2] the anchor's real configuration must resolve in place of a forged one supplied alone, got %v", err)
+	}
+	if len(resolved.TrustChain) != 1 || resolved.TrustChain[0] == lone[0] {
+		t.Errorf("[10.2] the response must carry the anchor's fetched configuration, not the one the caller supplied")
+	}
+	if encoded, _ := json.Marshal(resolved.Metadata); strings.Contains(string(encoded), "attacker@impostor.example.com") {
+		t.Errorf("[10.2] metadata from a forged anchor configuration must not be returned, got %s", encoded)
+	}
+	if !slices.Equal(lone, suppliedLone) {
+		t.Error("the caller's one-entry chain must be left as the caller supplied it")
+	}
+
+	built, _, _, err := BuildTrustChain(t.Context(), model.Configuration{HttpClient: client}, subject, anchor, nil)
+	if err != nil {
+		t.Fatalf("the fixture is wrong: the genuine chain does not build, %v", err)
+	}
+	if _, err := ResolveMetadata(t.Context(), model.Configuration{HttpClient: client}, anchor, anchor, built, nil); err != nil {
+		t.Errorf("[10.2] a genuine chain with no keys held must still resolve against the anchor's fetched configuration, got %v", err)
 	}
 }
 
@@ -199,9 +263,10 @@ func TestResolveMetadata_ConfiguredTrustAnchorKeys(t *testing.T) {
 		expectErr string
 	}{
 		{
-			name:      "no anchors configured, so the chain is trusted on its own signature",
-			reference: "4",
+			name:      "no anchors configured, so the anchor's own configuration must be fetched, and there is no client",
+			reference: "10.2",
 			configure: func(*testing.T, *rsa.PrivateKey) map[model.EntityIdentifier]josemodel.Jwks { return nil },
+			expectErr: "no http client present",
 		},
 		{
 			name:      "the anchor's own key configured",
@@ -324,9 +389,9 @@ func TestResolveMetadata_ConfiguredTrustAnchorKeys(t *testing.T) {
 				if !strings.Contains(err.Error(), tc.expectErr) {
 					t.Errorf("[%s] expected the refusal to say %q, got %v", tc.reference, tc.expectErr, err)
 				}
-				if strings.Contains(tc.expectErr, "can verify a signature") {
+				if strings.Contains(tc.expectErr, "can verify a signature") || strings.Contains(tc.expectErr, "no http client") {
 					if !errors.Is(err, model.ErrServerError) {
-						t.Errorf("[%s] a key set this deployment configured and cannot use is a server fault, got %v", tc.reference, err)
+						t.Errorf("[%s] a fault in this deployment's own configuration is a server fault, got %v", tc.reference, err)
 					}
 					return
 				}

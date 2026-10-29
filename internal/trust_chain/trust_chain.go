@@ -414,6 +414,41 @@ func resolvedMetadata(metadata *model.Metadata) *model.Metadata {
 	return metadata
 }
 
+func finalEntryEndpoints(ctx context.Context, cfg model.Configuration, trustChain []string) (*model.EntityIdentifier, *model.EntityIdentifier, error) {
+	_, sub, iss, err := entity_statement.ExtractDetails(trustChain[len(trustChain)-1])
+	if err != nil {
+		cfg.LogInfo(ctx, "failed to extract details from final chain entry", slog.String("error", model.TruncateForResponse(err.Error())))
+		return nil, nil, model.NewInvalidTrustChainError("the final entry in the trust chain is malformed")
+	}
+	parsedSub, err := model.ValidateEntityIdentifier(*sub)
+	if err != nil {
+		cfg.LogInfo(ctx, "invalid sub claim in final chain entry", slog.String("sub", model.TruncateForResponse(*sub)), slog.String("error", model.TruncateForResponse(err.Error())))
+		return nil, nil, model.NewInvalidTrustChainError("final entry in chain carries an invalid `sub` claim")
+	}
+	parsedIss, err := model.ValidateEntityIdentifier(*iss)
+	if err != nil {
+		cfg.LogInfo(ctx, "invalid iss claim in final chain entry", slog.String("iss", model.TruncateForResponse(*iss)), slog.String("error", model.TruncateForResponse(err.Error())))
+		return nil, nil, model.NewInvalidTrustChainError("final entry in chain carries an invalid `iss` claim")
+	}
+
+	return parsedSub, parsedIss, nil
+}
+
+func retrieveTrustAnchor(ctx context.Context, cfg model.Configuration, trustAnchorEntityIdentifier model.EntityIdentifier, cache *resolvecache.Cache) (*string, *model.EntityStatement, error) {
+	signedEntityConfiguration, entityConfiguration, err := entity_configuration.Retrieve(ctx, cfg, trustAnchorEntityIdentifier, cache)
+	if err != nil {
+		cfg.LogInfo(ctx, "failed to retrieve trust anchor entity configuration", slog.String("trust_anchor", string(trustAnchorEntityIdentifier)), slog.String("error", model.TruncateForResponse(err.Error())))
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, nil, walkNotCompleted(ctxErr)
+		}
+		if errors.Is(err, model.ErrServerError) {
+			return nil, nil, err
+		}
+		return nil, nil, model.NewInvalidTrustAnchorError("the entity configuration of the requested trust anchor could not be retrieved")
+	}
+	return signedEntityConfiguration, entityConfiguration, nil
+}
+
 func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityIdentifier, trustAnchorEntityIdentifier model.EntityIdentifier, trustChain []string, cache *resolvecache.Cache) (*model.ResolveResponse, error) {
 	cfg.LogInfo(ctx, "resolving metadata from trust chain", slog.String("issuer", string(issuerEntityIdentifier)), slog.String("trust_anchor", string(trustAnchorEntityIdentifier)), slog.Int("chain_length", len(trustChain)))
 
@@ -436,20 +471,19 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 		}
 	}
 
-	_, sub, iss, err := entity_statement.ExtractDetails(trustChain[len(trustChain)-1])
+	parsedSub, parsedIss, err := finalEntryEndpoints(ctx, cfg, trustChain)
 	if err != nil {
-		cfg.LogInfo(ctx, "failed to extract details from final chain entry", slog.String("error", model.TruncateForResponse(err.Error())))
-		return nil, model.NewInvalidTrustChainError("the final entry in the trust chain is malformed")
+		return nil, err
 	}
-	parsedSub, err := model.ValidateEntityIdentifier(*sub)
-	if err != nil {
-		cfg.LogInfo(ctx, "invalid sub claim in final chain entry", slog.String("sub", model.TruncateForResponse(*sub)), slog.String("error", model.TruncateForResponse(err.Error())))
-		return nil, model.NewInvalidTrustChainError("final entry in chain carries an invalid `sub` claim")
-	}
-	parsedIss, err := model.ValidateEntityIdentifier(*iss)
-	if err != nil {
-		cfg.LogInfo(ctx, "invalid iss claim in final chain entry", slog.String("iss", model.TruncateForResponse(*iss)), slog.String("error", model.TruncateForResponse(err.Error())))
-		return nil, model.NewInvalidTrustChainError("final entry in chain carries an invalid `iss` claim")
+
+	if *parsedSub == *parsedIss && *parsedSub == trustAnchorEntityIdentifier && len(trustChain) > 1 {
+		if _, held := cfg.TrustAnchorKeys(trustAnchorEntityIdentifier); !held {
+			cfg.LogInfo(ctx, "no keys are held for the trust anchor, so its entity configuration is fetched rather than taken from the supplied chain", slog.String("trust_anchor", string(trustAnchorEntityIdentifier)))
+			trustChain = slices.Clone(trustChain[:len(trustChain)-1])
+			if parsedSub, parsedIss, err = finalEntryEndpoints(ctx, cfg, trustChain); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	cfg.LogInfo(ctx, "extracted chain endpoints", slog.String("sub", string(*parsedSub)), slog.String("iss", string(*parsedIss)))
@@ -458,6 +492,14 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 
 	if *parsedSub == *parsedIss {
 		cfg.LogInfo(ctx, "processing self-signed entity configuration", slog.String("entity", string(*parsedSub)))
+		if _, held := cfg.TrustAnchorKeys(trustAnchorEntityIdentifier); !held && *parsedSub == trustAnchorEntityIdentifier {
+			cfg.LogInfo(ctx, "no keys are held for the trust anchor, so its entity configuration is fetched in place of the supplied one", slog.String("trust_anchor", string(trustAnchorEntityIdentifier)))
+			signedEntityConfiguration, _, err := retrieveTrustAnchor(ctx, cfg, trustAnchorEntityIdentifier, cache)
+			if err != nil {
+				return nil, err
+			}
+			trustChain = append(slices.Clone(trustChain[:len(trustChain)-1]), *signedEntityConfiguration)
+		}
 		response, err := entity_configuration.Validate(ctx, cfg, *parsedSub, trustChain[len(trustChain)-1])
 		if err != nil {
 			cfg.LogInfo(ctx, "failed to validate self-signed entity configuration", slog.String("entity", string(*parsedSub)), slog.String("error", model.TruncateForResponse(err.Error())))
@@ -480,16 +522,9 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 			return nil, model.NewInvalidTrustChainError("trust chain contains no statement about the subject")
 		}
 		cfg.LogInfo(ctx, "retrieving omitted trust anchor entity configuration", slog.String("trust_anchor", string(*parsedIss)))
-		signedEntityConfiguration, entityConfiguration, err := entity_configuration.Retrieve(ctx, cfg, *parsedIss, cache)
+		signedEntityConfiguration, entityConfiguration, err := retrieveTrustAnchor(ctx, cfg, *parsedIss, cache)
 		if err != nil {
-			cfg.LogInfo(ctx, "failed to retrieve trust anchor entity configuration", slog.String("trust_anchor", string(*parsedIss)), slog.String("error", model.TruncateForResponse(err.Error())))
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return nil, walkNotCompleted(ctxErr)
-			}
-			if errors.Is(err, model.ErrServerError) {
-				return nil, err
-			}
-			return nil, model.NewInvalidTrustAnchorError("the entity configuration of the requested trust anchor could not be retrieved")
+			return nil, err
 		}
 		if err := verifyTrustAnchor(ctx, cfg, trustAnchorEntityIdentifier, *signedEntityConfiguration, *entityConfiguration); err != nil {
 			return nil, err

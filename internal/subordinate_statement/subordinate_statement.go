@@ -256,11 +256,18 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 			configuration.LogError(ctx, "dropping a registered key from a subordinate statement because it carries private key material", slog.String("subject", string(subjectIdentifier)), slog.String("kid", model.TruncateForResponse(sKid)), slog.String("error", err.Error()))
 			continue
 		}
+		if err := model.ValidateKeyOps(k); err != nil {
+			configuration.LogError(ctx, "dropping a registered key from a subordinate statement because its 'key_ops' is malformed", slog.String("subject", string(subjectIdentifier)), slog.String("kid", model.TruncateForResponse(sKid)), slog.String("error", err.Error()))
+			continue
+		}
 		if declared, ok := k["alg"].(string); ok {
 			if err := model.VerifyKeyStrength(k, declared); err != nil {
 				configuration.LogError(ctx, "dropping a registered key from a subordinate statement because its modulus is outside the sizes this library verifies for the algorithm it is registered for", slog.String("subject", string(subjectIdentifier)), slog.String("kid", model.TruncateForResponse(sKid)), slog.String("error", err.Error()))
 				continue
 			}
+		} else if err := model.VerifyKeyStrengthForAnyAlgorithm(k); err != nil {
+			configuration.LogError(ctx, "dropping a registered key from a subordinate statement because its modulus is below the size every RSA algorithm requires", slog.String("subject", string(subjectIdentifier)), slog.String("kid", model.TruncateForResponse(sKid)), slog.String("error", err.Error()))
+			continue
 		}
 		publishable.Keys = append(publishable.Keys, k)
 	}

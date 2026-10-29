@@ -95,6 +95,66 @@ func TestVerifyAgainstJwks_HonoursWhatTheSelectedKeySaysAboutItsUse(t *testing.T
 	}
 }
 
+func TestVerifyAgainstJwks_HonoursWhatTheSelectedKeySaysAboutItsOperations(t *testing.T) {
+	key := keyMaterialKey(t, 2048)
+	token := keyMaterialSign(t, key, "leaf", jwa.RS256)
+
+	tests := []struct {
+		name      string
+		reference string
+		keyOps    any
+		sibling   any
+		expectErr string
+	}{
+		{name: "no key_ops leaves the key unconstrained", reference: "RFC 7517 4.3"},
+		{name: "key_ops of verify", reference: "RFC 7517 4.3", keyOps: []any{"verify"}},
+		{name: "key_ops holding verify among others", reference: "RFC 7517 4.3", keyOps: []any{"encrypt", "verify"}},
+		{name: "key_ops of encrypt", reference: "RFC 7517 4.3", keyOps: []any{"encrypt"}, expectErr: "'key_ops' without \"verify\""},
+		{name: "key_ops of sign, which a public key cannot do", reference: "RFC 7517 4.3", keyOps: []any{"sign"}, expectErr: "'key_ops' without \"verify\""},
+		{name: "key_ops that is empty", reference: "RFC 7517 4.3", keyOps: []any{}, expectErr: "'key_ops' without \"verify\""},
+		{name: "key_ops of VERIFY, which RFC 7517 compares case-sensitively", reference: "RFC 7517 4.3", keyOps: []any{"VERIFY"}, expectErr: "'key_ops' without \"verify\""},
+		{name: "key_ops listing verify twice", reference: "RFC 7517 4.3", keyOps: []any{"verify", "verify"}, expectErr: "lists \"verify\" more than once"},
+		{name: "key_ops listing another operation twice", reference: "RFC 7517 4.3", keyOps: []any{"verify", "encrypt", "encrypt"}, expectErr: "lists \"encrypt\" more than once"},
+		{name: "key_ops that is a string", reference: "RFC 7517 4.3", keyOps: "verify", expectErr: "'key_ops' member that is not an array"},
+		{name: "key_ops holding a value that is not a string", reference: "RFC 7517 4.3", keyOps: []any{"verify", 1}, expectErr: "holding a value that is not a string"},
+		{name: "a sibling key with malformed key_ops does not block the selected key", reference: "RFC 7517 5", sibling: "not an array"},
+		{name: "a sibling key marked for encryption only does not block the selected key", reference: "RFC 7517 5", sibling: []any{"encrypt"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			published := keyMaterialJwk(t, key.Public(), "leaf")
+			if tc.keyOps != nil {
+				published["key_ops"] = tc.keyOps
+			}
+			set := []map[string]any{published}
+			if tc.sibling != nil {
+				sibling := keyMaterialJwk(t, keyMaterialKey(t, 2048).Public(), "sibling")
+				sibling["key_ops"] = tc.sibling
+				set = append([]map[string]any{sibling}, set...)
+			}
+
+			err := VerifyAgainstJwks(t.Context(), token, "leaf", josemodel.Jwks{Keys: set})
+			if tc.expectErr == "" {
+				if err != nil {
+					t.Fatalf("[%s] expected the signature to verify, got %v", tc.reference, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("[%s] expected the key to be refused", tc.reference)
+			}
+			if !strings.Contains(err.Error(), tc.expectErr) {
+				t.Errorf("[%s] expected the refusal to say %q, got %v", tc.reference, tc.expectErr, err)
+			}
+
+			if VerifyAgainstAnyKey(t.Context(), token, josemodel.Jwks{Keys: set}) == nil {
+				t.Errorf("[%s] a key refused when selected by kid must also be refused when the set is tried without one", tc.reference)
+			}
+		})
+	}
+}
+
 func TestVerifyAgainstJwks_RefusesAnRSAKeyBelowTheAlgorithmsMinimumSize(t *testing.T) {
 	weak := keyMaterialKey(t, 1024)
 	strong := keyMaterialKey(t, 2048)

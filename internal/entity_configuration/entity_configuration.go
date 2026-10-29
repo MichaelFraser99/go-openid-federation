@@ -310,10 +310,15 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 		if err := model.VerifyPublishableJWK(key); err != nil {
 			return nil, fmt.Errorf("refusing to publish the jwk value with key ID %q because it %s", model.TruncateForResponse(sKid), err.Error())
 		}
+		if err := model.ValidateKeyOps(key); err != nil {
+			return nil, fmt.Errorf("the provided jwk value with key ID %q %s", model.TruncateForResponse(sKid), err.Error())
+		}
 		if declared, ok := key["alg"].(string); ok {
 			if err := model.VerifyKeyStrength(key, declared); err != nil {
 				return nil, fmt.Errorf("the provided jwk value with key ID %q %s", model.TruncateForResponse(sKid), err.Error())
 			}
+		} else if err := model.VerifyKeyStrengthForAnyAlgorithm(key); err != nil {
+			return nil, fmt.Errorf("the provided jwk value with key ID %q %s", model.TruncateForResponse(sKid), err.Error())
 		}
 		seen[sKid] = struct{}{}
 		jwks.Keys = append(jwks.Keys, key)
@@ -448,6 +453,9 @@ func publishedKeyUsableForSigning(existing, intended map[string]any, signerPubli
 		if sUse, ok := use.(string); !ok || sUse != "sig" {
 			return fmt.Errorf("declares a 'use' of %v rather than \"sig\"", use)
 		}
+	}
+	if !model.KeyOpsPermitVerify(existing) {
+		return fmt.Errorf("declares 'key_ops' without \"verify\"")
 	}
 	if alg, present := existing["alg"]; present {
 		if alg != intended["alg"] {

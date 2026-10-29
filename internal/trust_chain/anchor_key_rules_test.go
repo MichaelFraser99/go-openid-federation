@@ -33,6 +33,23 @@ func TestResolveMetadata_AConfiguredAnchorKeyIsHeldToTheSameRulesAsAnyOther(t *t
 			expectErr: model.ErrServerError,
 		},
 		{
+			name:      "a key whose key_ops include verify",
+			reference: "RFC 7517 4.3",
+			members:   map[string]any{"key_ops": []any{"verify"}},
+		},
+		{
+			name:      "a key whose key_ops exclude verify",
+			reference: "RFC 7517 4.3",
+			members:   map[string]any{"key_ops": []any{"encrypt"}},
+			expectErr: model.ErrServerError,
+		},
+		{
+			name:      "a key whose key_ops list verify twice",
+			reference: "RFC 7517 4.3",
+			members:   map[string]any{"key_ops": []any{"verify", "verify"}},
+			expectErr: model.ErrServerError,
+		},
+		{
 			name:      "a key published for an algorithm this library cannot verify with",
 			reference: "RFC 7518 3.1",
 			members:   map[string]any{"alg": "EdDSA"},

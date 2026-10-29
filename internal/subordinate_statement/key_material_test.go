@@ -113,6 +113,59 @@ func TestNew_DropsARegisteredKeyItCannotPublish(t *testing.T) {
 			kept:    []string{"good"},
 		},
 		{
+			name:      "a registered RSA key below the minimum modulus of every RSA algorithm, naming no algorithm, is dropped",
+			reference: "RFC 7518 3.3, 3.5, 4.2 and 4.3",
+			registered: []map[string]any{
+				good,
+				func() map[string]any {
+					key := weakRegisteredKey(t)
+					delete(key, "alg")
+					key["kid"] = "weak-unnamed"
+					return key
+				}(),
+			},
+			dropped: []string{"weak-unnamed"},
+			kept:    []string{"good"},
+		},
+		{
+			name:      "a registered RSA key above this library's maximum, naming no algorithm, is published",
+			reference: "RFC 7517 4.4",
+			registered: []map[string]any{
+				good,
+				{"kid": "large-unnamed", "kty": "RSA", "n": base64.RawURLEncoding.EncodeToString(func() []byte { m := make([]byte, 1025); m[0] = 0x01; return m }()), "e": "AQAB"},
+			},
+			kept: []string{"good", "large-unnamed"},
+		},
+		{
+			name:      "a registered key listing an operation twice is dropped",
+			reference: "RFC 7517 4.3",
+			registered: []map[string]any{
+				good,
+				{"kid": "doubled-ops", "kty": "EC", "crv": "P-256", "x": "AQAB", "y": "AQAB", "key_ops": []any{"verify", "verify"}},
+			},
+			dropped: []string{"doubled-ops"},
+			kept:    []string{"good"},
+		},
+		{
+			name:      "a registered key whose key_ops is not an array is dropped",
+			reference: "RFC 7517 4.3",
+			registered: []map[string]any{
+				good,
+				{"kid": "string-ops", "kty": "EC", "crv": "P-256", "x": "AQAB", "y": "AQAB", "key_ops": "verify"},
+			},
+			dropped: []string{"string-ops"},
+			kept:    []string{"good"},
+		},
+		{
+			name:      "a registered key marked for encryption only is published",
+			reference: "RFC 7517 4.3",
+			registered: []map[string]any{
+				good,
+				{"kid": "encrypt-only", "kty": "EC", "crv": "P-256", "x": "AQAB", "y": "AQAB", "key_ops": []any{"encrypt"}},
+			},
+			kept: []string{"good", "encrypt-only"},
+		},
+		{
 			name:      "a subject whose every registered key is unpublishable is refused",
 			reference: "8.9",
 			registered: []map[string]any{

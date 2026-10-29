@@ -40,6 +40,17 @@ func TestValidate_TrustMarkKeyUseAndStrengthAreHonoured(t *testing.T) {
 			members:   map[string]any{"use": "deriveBits"},
 			expectErr: "declares a 'use' of \"deriveBits\"",
 		},
+		{
+			name:      "a key whose key_ops include verify",
+			reference: "RFC 7517 4.3",
+			members:   map[string]any{"key_ops": []any{"verify"}},
+		},
+		{
+			name:      "a key the issuer marked for encryption only",
+			reference: "RFC 7517 4.3",
+			members:   map[string]any{"key_ops": []any{"encrypt"}},
+			expectErr: "'key_ops' without \"verify\"",
+		},
 	}
 
 	for _, tc := range tests {

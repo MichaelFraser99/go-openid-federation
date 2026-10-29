@@ -154,7 +154,9 @@ func TestNew_RefusesToPublishAnRSAKeyOutsideItsAlgorithmsModulusRange(t *testing
 		{name: "a 2048 bit key published for RS256", reference: "RFC 7518 3.3", key: sized(t, 2048, "RS256")},
 		{name: "a 1024 bit key published for RS256", reference: "RFC 7518 3.3", key: sized(t, 1024, "RS256"), expectErr: "1024 bit RSA modulus"},
 		{name: "a 1024 bit key published for PS512", reference: "RFC 7518 3.5", key: sized(t, 1024, "PS512"), expectErr: "1024 bit RSA modulus"},
-		{name: "a 1024 bit key published for no algorithm", reference: "RFC 7517 4.4", key: sized(t, 1024, nil)},
+		{name: "a 1024 bit key published for no algorithm", reference: "RFC 7518 3.3, 3.5, 4.2 and 4.3", key: sized(t, 1024, nil), expectErr: "1024 bit RSA modulus and names no 'alg'"},
+		{name: "a 2048 bit key published for no algorithm", reference: "RFC 7517 4.4", key: sized(t, 2048, nil)},
+		{name: "an 8193 bit key published for no algorithm", reference: "RFC 7517 4.4", key: map[string]any{"kid": "configured", "kty": "RSA", "n": allOnesModulus(8193), "e": "AQAB"}},
 		{name: "an 8192 bit key published for RS256", reference: "#214", key: map[string]any{"kid": "configured", "kty": "RSA", "alg": "RS256", "n": allOnesModulus(8192), "e": "AQAB"}},
 		{name: "an 8193 bit key published for RS256", reference: "#214", key: map[string]any{"kid": "configured", "kty": "RSA", "alg": "RS256", "n": allOnesModulus(8193), "e": "AQAB"}, expectErr: "8193 bit RSA modulus, more than the 8192 bits"},
 	}

@@ -310,7 +310,7 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 		if err := model.VerifyPublishableJWK(key); err != nil {
 			return nil, fmt.Errorf("refusing to publish the jwk value with key ID %q because it %s", model.TruncateForResponse(sKid), err.Error())
 		}
-		if err := verifyConfiguredKey(key); err != nil {
+		if err := verifyConfiguredKey(key, model.VerifyKeyStrength); err != nil {
 			return nil, fmt.Errorf("the provided jwk value with key ID %q %s", model.TruncateForResponse(sKid), err.Error())
 		}
 		seen[sKid] = struct{}{}
@@ -389,7 +389,7 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 
 	for _, trustMarkType := range slices.Sorted(maps.Keys(entityConfiguration.TrustMarkOwners)) {
 		for _, key := range entityConfiguration.TrustMarkOwners[trustMarkType].JWKs.Keys {
-			if err := verifyConfiguredKey(key); err != nil {
+			if err := verifyConfiguredKey(key, model.VerifyMinimumKeyStrength); err != nil {
 				return nil, fmt.Errorf("refusing to publish this entity configuration because a key in the trust_mark_owners entry for %q %s", model.TruncateForResponse(trustMarkType), err.Error())
 			}
 		}
@@ -429,12 +429,12 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 	return token, nil
 }
 
-func verifyConfiguredKey(key map[string]any) error {
+func verifyConfiguredKey(key map[string]any, strength func(key map[string]any, alg string) error) error {
 	if err := model.ValidateKeyOps(key); err != nil {
 		return err
 	}
 	if declared, ok := key["alg"].(string); ok {
-		return model.VerifyKeyStrength(key, declared)
+		return strength(key, declared)
 	}
 	return model.VerifyKeyStrengthForAnySignatureAlgorithm(key)
 }

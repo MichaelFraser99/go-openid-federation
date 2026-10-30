@@ -8,7 +8,7 @@ import (
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
-func TestNew_HoldsTrustMarkOwnerKeysToTheRulesOfTheOperatorsOwnSet(t *testing.T) {
+func TestNew_HoldsTrustMarkOwnerKeysToWhatTheRFCsRequireOfEveryImplementation(t *testing.T) {
 	ec := func(members map[string]any) map[string]any {
 		key := map[string]any{"kid": "owner", "kty": "EC", "crv": "P-256", "x": "AQAB", "y": "AQAB"}
 		for member, value := range members {
@@ -36,6 +36,8 @@ func TestNew_HoldsTrustMarkOwnerKeysToTheRulesOfTheOperatorsOwnSet(t *testing.T)
 		{name: "an encryption-only key beside a key that can verify", reference: "RFC 7517 4.3", keys: []map[string]any{ec(map[string]any{"kid": "spare", "key_ops": []any{"encrypt"}}), ec(nil)}},
 		{name: "a 1024 bit RSA key marked for encryption beside a key that can verify", reference: "RFC 7517 4.2", keys: []map[string]any{rsa(1024, map[string]any{"use": "enc"}), ec(nil)}},
 		{name: "an RSA key above this library's maximum that names no algorithm", reference: "RFC 7517 4.4", keys: []map[string]any{rsa(8193, nil)}},
+		{name: "an RSA key above this library's maximum published for RS256 beside a key that can verify", reference: "RFC 7518 3.3", keys: []map[string]any{rsa(8200, map[string]any{"alg": "RS256"}), ec(nil)}},
+		{name: "an RSA key above this library's maximum published for RS256, alone", reference: "RFC 7518 3.3", keys: []map[string]any{rsa(8200, map[string]any{"alg": "RS256"})}},
 		{name: "only a key whose key_ops name sign", reference: "RFC 7517 4.3", keys: []map[string]any{ec(map[string]any{"key_ops": []any{"sign"}})}, expectErr: "holds no usable key"},
 		{name: "only a key whose key_ops name encrypt", reference: "RFC 7517 4.3", keys: []map[string]any{ec(map[string]any{"key_ops": []any{"encrypt"}})}, expectErr: "holds no usable key"},
 		{name: "only a key published for encryption", reference: "RFC 7517 4.2", keys: []map[string]any{ec(map[string]any{"use": "enc"})}, expectErr: "holds no usable key"},

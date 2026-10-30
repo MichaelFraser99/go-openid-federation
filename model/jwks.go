@@ -215,26 +215,36 @@ func rsaSignatureAlgorithm(alg string) bool {
 	}
 }
 
-func VerifyKeyStrength(key map[string]any, alg string) error {
+func rsaSignatureModulusBits(key map[string]any, alg string) (int, bool) {
 	if kty, _ := key["kty"].(string); kty != "RSA" {
-		return nil
+		return 0, false
 	}
 	if !rsaSignatureAlgorithm(alg) {
-		return nil
+		return 0, false
 	}
 	modulus, ok := key["n"].(string)
 	if !ok || modulus == "" {
-		return nil
+		return 0, false
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(modulus)
 	if err != nil {
-		return nil
+		return 0, false
 	}
-	bits := new(big.Int).SetBytes(raw).BitLen()
-	if bits < MinimumRSAKeyBits {
+	return new(big.Int).SetBytes(raw).BitLen(), true
+}
+
+func VerifyMinimumKeyStrength(key map[string]any, alg string) error {
+	if bits, ok := rsaSignatureModulusBits(key, alg); ok && bits < MinimumRSAKeyBits {
 		return fmt.Errorf("has a %d bit RSA modulus, and RFC 7518 sections 3.3 and 3.5 require a key of size %d bits or larger with %q", bits, MinimumRSAKeyBits, alg)
 	}
-	if bits > MaximumRSAKeyBits {
+	return nil
+}
+
+func VerifyKeyStrength(key map[string]any, alg string) error {
+	if err := VerifyMinimumKeyStrength(key, alg); err != nil {
+		return err
+	}
+	if bits, ok := rsaSignatureModulusBits(key, alg); ok && bits > MaximumRSAKeyBits {
 		return fmt.Errorf("has a %d bit RSA modulus, more than the %d bits this library will verify with %q", bits, MaximumRSAKeyBits, alg)
 	}
 	return nil

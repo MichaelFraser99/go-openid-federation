@@ -211,6 +211,76 @@ func TestNew_IssuesConformingEntityConfigurations(t *testing.T) {
 			expectErr: true,
 		},
 		{
+			name: "configured signing key whose key_ops exclude verify is rejected",
+			configure: func(t *testing.T, cfg *model.ServerConfiguration) {
+				signing := signerPublicJwk(t, cfg.SignerConfiguration)
+				signing["key_ops"] = []any{"encrypt"}
+				cfg.EntityConfiguration.JWKs.Keys = []map[string]any{signing}
+			},
+			expectErr: true,
+		},
+		{
+			name: "configured signing key whose key_ops name only sign is rejected",
+			configure: func(t *testing.T, cfg *model.ServerConfiguration) {
+				signing := signerPublicJwk(t, cfg.SignerConfiguration)
+				signing["key_ops"] = []any{"sign"}
+				cfg.EntityConfiguration.JWKs.Keys = []map[string]any{signing}
+			},
+			expectErr: true,
+		},
+		{
+			name: "configured signing key whose key_ops include verify is accepted",
+			configure: func(t *testing.T, cfg *model.ServerConfiguration) {
+				signing := signerPublicJwk(t, cfg.SignerConfiguration)
+				signing["key_ops"] = []any{"verify"}
+				cfg.EntityConfiguration.JWKs.Keys = []map[string]any{signing}
+			},
+			validate: func(t *testing.T, claims map[string]any) {
+				keys := claims["jwks"].(map[string]any)["keys"].([]any)
+				if len(keys) != 1 {
+					t.Fatalf("expected the signing key not to be published twice, got %d keys", len(keys))
+				}
+				if _, ok := keys[0].(map[string]any)["key_ops"]; !ok {
+					t.Errorf("expected the configured key, with its key_ops, to be the one published, got %v", keys[0])
+				}
+			},
+		},
+		{
+			name: "a spare key marked for encryption only is published",
+			configure: func(t *testing.T, cfg *model.ServerConfiguration) {
+				_, spare := issuanceSigner(t)
+				spare["kid"] = "spare"
+				spare["key_ops"] = []any{"encrypt"}
+				cfg.EntityConfiguration.JWKs.Keys = []map[string]any{spare}
+			},
+			validate: func(t *testing.T, claims map[string]any) {
+				keys := claims["jwks"].(map[string]any)["keys"].([]any)
+				if len(keys) != 2 {
+					t.Errorf("expected the spare key to be published beside the signing key, got %d keys", len(keys))
+				}
+			},
+		},
+		{
+			name: "a spare key listing an operation twice is rejected",
+			configure: func(t *testing.T, cfg *model.ServerConfiguration) {
+				_, spare := issuanceSigner(t)
+				spare["kid"] = "spare"
+				spare["key_ops"] = []any{"verify", "verify"}
+				cfg.EntityConfiguration.JWKs.Keys = []map[string]any{spare}
+			},
+			expectErr: true,
+		},
+		{
+			name: "a spare key whose key_ops is not an array is rejected",
+			configure: func(t *testing.T, cfg *model.ServerConfiguration) {
+				_, spare := issuanceSigner(t)
+				spare["kid"] = "spare"
+				spare["key_ops"] = "verify"
+				cfg.EntityConfiguration.JWKs.Keys = []map[string]any{spare}
+			},
+			expectErr: true,
+		},
+		{
 			name: "configured signing key agreeing on algorithm and use is accepted",
 			configure: func(t *testing.T, cfg *model.ServerConfiguration) {
 				signing := signerPublicJwk(t, cfg.SignerConfiguration)

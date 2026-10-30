@@ -167,16 +167,20 @@ func verifyKeyAlgorithm(header string, key map[string]any) error {
 }
 
 func VerifyKeyUse(key map[string]any) error {
-	use, present := key["use"]
-	if !present || use == nil {
-		return nil
+	if use, present := key["use"]; present && use != nil {
+		sUse, ok := use.(string)
+		if !ok || sUse == "" {
+			return fmt.Errorf("the selected key in the included 'jwks' has a malformed 'use' member")
+		}
+		if sUse != "sig" {
+			return fmt.Errorf("the selected key in the included 'jwks' declares a 'use' of %q, which RFC 7517 section 4.2 makes the intended use of that key, and it is not verifying a signature", model.TruncateForResponse(sUse))
+		}
 	}
-	sUse, ok := use.(string)
-	if !ok || sUse == "" {
-		return fmt.Errorf("the selected key in the included 'jwks' has a malformed 'use' member")
+	if err := model.ValidateKeyOps(key); err != nil {
+		return fmt.Errorf("the selected key in the included 'jwks' %s", err.Error())
 	}
-	if sUse != "sig" {
-		return fmt.Errorf("the selected key in the included 'jwks' declares a 'use' of %q, which RFC 7517 section 4.2 makes the intended use of that key, and it is not verifying a signature", model.TruncateForResponse(sUse))
+	if !model.KeyOpsPermitVerify(key) {
+		return fmt.Errorf("the selected key in the included 'jwks' declares 'key_ops' without \"verify\", which RFC 7517 section 4.3 makes the operations that key is intended for")
 	}
 	return nil
 }

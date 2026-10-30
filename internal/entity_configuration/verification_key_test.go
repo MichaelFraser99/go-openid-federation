@@ -162,7 +162,7 @@ func TestNew_RefusesToPublishAKeyThatIsNotAUsableJWK(t *testing.T) {
 	}{
 		{name: "a key with no kty", reference: "RFC 7517 4.1", key: map[string]any{"kid": "retired", "x5c": []any{"AQAB"}}, expectErr: "'kty' member"},
 		{name: "an EC key with no crv", reference: "RFC 7518 6.2.1.1", key: map[string]any{"kid": "retired", "kty": "EC", "x": "AQAB", "y": "AQAB"}, expectErr: "'crv' member"},
-		{name: "a usable spare key", reference: "RFC 7517 4.1", key: map[string]any{"kid": "retired", "kty": "RSA", "n": "AQAB", "e": "AQAB"}},
+		{name: "a usable spare key", reference: "RFC 7517 4.1", key: map[string]any{"kid": "retired", "kty": "RSA", "n": allOnesModulus(2048), "e": "AQAB"}},
 	}
 
 	for _, tc := range tests {

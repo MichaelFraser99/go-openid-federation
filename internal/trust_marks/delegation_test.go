@@ -628,6 +628,15 @@ func TestFilterByTrusted_AnOwnerKeyIsHeldToTheKeyRules(t *testing.T) {
 				return published, key
 			},
 		},
+		"an owner key whose key_ops exclude verify": {
+			reference: "RFC 7517 4.3",
+			key: func(t *testing.T) (map[string]any, *rsa.PrivateKey) {
+				key := rvKey(t)
+				published := federationPublicJwk(t, key.Public(), "owner-key")
+				published["key_ops"] = []any{"encrypt"}
+				return published, key
+			},
+		},
 		"an owner key below the modulus the algorithm requires": {
 			reference: "RFC 7518 3.3",
 			key: func(t *testing.T) (map[string]any, *rsa.PrivateKey) {

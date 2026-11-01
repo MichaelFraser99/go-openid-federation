@@ -223,7 +223,7 @@ func verifyDelegation(ctx context.Context, cfg model.Configuration, mark model.T
 				return nil, fmt.Errorf("failed to parse the owner's JWK as a public key: %w", err)
 			}
 			return []crypto.PublicKey{publicKey}, nil
-		}, &josemodel.JoseOptions{UseTokenProvidedKeys: false, ClockSkewLeeway: model.ClockSkewLeeway}); err != nil {
+		}, &josemodel.JoseOptions{UseTokenProvidedKeys: false, ClockSkewLeeway: model.ClockSkewLeeway, AllowedSigningAlgorithms: cfg.AcceptedSigningAlgorithms()}); err != nil {
 			cfg.LogInfo(ctx, "the delegation signature does not verify against an owner key", slog.String("kid", model.TruncateForResponse(kid)), slog.String("owner", string(owner.Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
 			continue
 		}

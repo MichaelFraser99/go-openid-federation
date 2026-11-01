@@ -85,7 +85,7 @@ func VerifyIssuedSignature(ctx context.Context, token, kid, alg string, signer c
 		return fmt.Errorf("failed to derive the public key of the signing key: %s", err.Error())
 	}
 	(*publicJWK)["kid"] = kid
-	return VerifyAgainstJwks(ctx, token, kid, josemodel.Jwks{Keys: []map[string]any{*publicJWK}})
+	return VerifyAgainstJwks(ctx, token, kid, josemodel.Jwks{Keys: []map[string]any{*publicJWK}}, model.DefaultSigningAlgorithms())
 }
 
 func SelectKey(jwks josemodel.Jwks, kid string) (map[string]any, error) {
@@ -182,10 +182,13 @@ func VerifyKeyUse(key map[string]any) error {
 	return nil
 }
 
-func VerifySelectedKey(token string, key map[string]any) error {
+func VerifySelectedKey(token string, key map[string]any, algorithms []jwa.Algorithm) error {
 	header, err := headerAlgorithm(token)
 	if err != nil {
 		return err
+	}
+	if !slices.Contains(algorithms, jwa.GetAlgorithm(header)) {
+		return fmt.Errorf("the 'alg' header names an algorithm this deployment does not accept")
 	}
 	if err := verifyKeyAlgorithm(header, key); err != nil {
 		return err
@@ -199,13 +202,7 @@ func VerifySelectedKey(token string, key map[string]any) error {
 	return nil
 }
 
-var verificationAlgorithms = []jwa.Algorithm{
-	jwa.ES256, jwa.ES384, jwa.ES512,
-	jwa.RS256, jwa.RS384, jwa.RS512,
-	jwa.PS256, jwa.PS384, jwa.PS512,
-}
-
-func KeyCanVerify(key map[string]any) bool {
+func KeyCanVerify(key map[string]any, algorithms []jwa.Algorithm) bool {
 	if model.ValidateJWKShape(key) != nil {
 		return false
 	}
@@ -217,13 +214,13 @@ func KeyCanVerify(key map[string]any) bool {
 		return false
 	}
 
-	candidates := verificationAlgorithms
+	candidates := algorithms
 	if declared, present := key["alg"]; present {
 		named, ok := declared.(string)
 		if !ok {
 			return false
 		}
-		if !slices.ContainsFunc(verificationAlgorithms, func(algorithm jwa.Algorithm) bool {
+		if !slices.ContainsFunc(algorithms, func(algorithm jwa.Algorithm) bool {
 			return algorithm.String() == named
 		}) {
 			return false
@@ -243,23 +240,23 @@ func KeyCanVerify(key map[string]any) bool {
 	return false
 }
 
-func UsableVerificationKeys(jwks josemodel.Jwks) josemodel.Jwks {
+func UsableVerificationKeys(jwks josemodel.Jwks, algorithms []jwa.Algorithm) josemodel.Jwks {
 	usable := josemodel.Jwks{Keys: make([]map[string]any, 0, len(jwks.Keys))}
 	for _, key := range jwks.Keys {
-		if KeyCanVerify(key) {
+		if KeyCanVerify(key, algorithms) {
 			usable.Keys = append(usable.Keys, key)
 		}
 	}
 	return usable
 }
 
-func VerifyAgainstAnyKey(ctx context.Context, token string, jwks josemodel.Jwks) error {
+func VerifyAgainstAnyKey(ctx context.Context, token string, jwks josemodel.Jwks, algorithms []jwa.Algorithm) error {
 	tried := 0
 	for _, key := range jwks.Keys {
-		if !KeyCanVerify(key) {
+		if !KeyCanVerify(key, algorithms) {
 			continue
 		}
-		if VerifySelectedKey(token, key) != nil {
+		if VerifySelectedKey(token, key, algorithms) != nil {
 			continue
 		}
 		pubKey, err := jwk.PublicFromJwk(key)
@@ -269,7 +266,7 @@ func VerifyAgainstAnyKey(ctx context.Context, token string, jwks josemodel.Jwks)
 		tried++
 		if _, _, err := jws.VerifyCompactSerialization(ctx, token, func() ([]crypto.PublicKey, error) {
 			return []crypto.PublicKey{pubKey}, nil
-		}, &josemodel.JoseOptions{UseTokenProvidedKeys: false}); err == nil {
+		}, &josemodel.JoseOptions{UseTokenProvidedKeys: false, AllowedSigningAlgorithms: algorithms}); err == nil {
 			return nil
 		}
 	}
@@ -279,10 +276,10 @@ func VerifyAgainstAnyKey(ctx context.Context, token string, jwks josemodel.Jwks)
 	return fmt.Errorf("no key in the key set verifies the signature")
 }
 
-func VerifyAgainstJwks(ctx context.Context, token, kid string, jwks josemodel.Jwks) error {
+func VerifyAgainstJwks(ctx context.Context, token, kid string, jwks josemodel.Jwks, algorithms []jwa.Algorithm) error {
 	selectedKey, selectErr := SelectKey(jwks, kid)
 	if selectErr == nil {
-		if err := VerifySelectedKey(token, selectedKey); err != nil {
+		if err := VerifySelectedKey(token, selectedKey, algorithms); err != nil {
 			return err
 		}
 	}
@@ -295,7 +292,7 @@ func VerifyAgainstJwks(ctx context.Context, token, kid string, jwks josemodel.Jw
 			return nil, fmt.Errorf("failed to parse selected public key from 'jwks' as a valid jwk (%s): %s", describeKeyType(selectedKey), err.Error())
 		}
 		return []crypto.PublicKey{pubKey}, nil
-	}, &josemodel.JoseOptions{UseTokenProvidedKeys: false}); err != nil {
+	}, &josemodel.JoseOptions{UseTokenProvidedKeys: false, AllowedSigningAlgorithms: algorithms}); err != nil {
 		return fmt.Errorf("failed to verify JWT signature: %s", err.Error())
 	}
 	return nil

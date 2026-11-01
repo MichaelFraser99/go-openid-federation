@@ -13,6 +13,7 @@ import (
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
+	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
 func keyMaterialKey(t *testing.T, bits int) *rsa.PrivateKey {
@@ -78,7 +79,7 @@ func TestVerifyAgainstJwks_HonoursWhatTheSelectedKeySaysAboutItsUse(t *testing.T
 				published["use"] = tc.use
 			}
 
-			err := VerifyAgainstJwks(t.Context(), token, "leaf", josemodel.Jwks{Keys: []map[string]any{published}})
+			err := VerifyAgainstJwks(t.Context(), token, "leaf", josemodel.Jwks{Keys: []map[string]any{published}}, model.DefaultSigningAlgorithms())
 			if tc.expectErr == "" {
 				if err != nil {
 					t.Fatalf("[%s] expected the signature to verify, got %v", tc.reference, err)
@@ -134,7 +135,7 @@ func TestVerifyAgainstJwks_HonoursWhatTheSelectedKeySaysAboutItsOperations(t *te
 				set = append([]map[string]any{sibling}, set...)
 			}
 
-			err := VerifyAgainstJwks(t.Context(), token, "leaf", josemodel.Jwks{Keys: set})
+			err := VerifyAgainstJwks(t.Context(), token, "leaf", josemodel.Jwks{Keys: set}, model.DefaultSigningAlgorithms())
 			if tc.expectErr == "" {
 				if err != nil {
 					t.Fatalf("[%s] expected the signature to verify, got %v", tc.reference, err)
@@ -148,7 +149,7 @@ func TestVerifyAgainstJwks_HonoursWhatTheSelectedKeySaysAboutItsOperations(t *te
 				t.Errorf("[%s] expected the refusal to say %q, got %v", tc.reference, tc.expectErr, err)
 			}
 
-			if VerifyAgainstAnyKey(t.Context(), token, josemodel.Jwks{Keys: set}) == nil {
+			if VerifyAgainstAnyKey(t.Context(), token, josemodel.Jwks{Keys: set}, model.DefaultSigningAlgorithms()) == nil {
 				t.Errorf("[%s] a key refused when selected by kid must also be refused when the set is tried without one", tc.reference)
 			}
 		})
@@ -176,7 +177,7 @@ func TestVerifyAgainstJwks_RefusesAnRSAKeyBelowTheAlgorithmsMinimumSize(t *testi
 			token := keyMaterialSign(t, tc.signer, "leaf", tc.alg)
 			published := keyMaterialJwk(t, tc.signer.Public(), "leaf")
 
-			err := VerifyAgainstJwks(t.Context(), token, "leaf", josemodel.Jwks{Keys: []map[string]any{published}})
+			err := VerifyAgainstJwks(t.Context(), token, "leaf", josemodel.Jwks{Keys: []map[string]any{published}}, model.DefaultSigningAlgorithms())
 			if tc.expectErr == "" {
 				if err != nil {
 					t.Fatalf("[%s] expected the signature to verify, got %v", tc.reference, err)
@@ -256,7 +257,7 @@ func TestVerifyAgainstJwks_AKeyThisLibraryCannotJudgeDoesNotBlockTheSigningKey(t
 				{name: "spare last", keys: []map[string]any{signing, tc.spare}},
 			} {
 				t.Run(order.name, func(t *testing.T) {
-					if err := VerifyAgainstJwks(t.Context(), token, "leaf", josemodel.Jwks{Keys: order.keys}); err != nil {
+					if err := VerifyAgainstJwks(t.Context(), token, "leaf", josemodel.Jwks{Keys: order.keys}, model.DefaultSigningAlgorithms()); err != nil {
 						t.Fatalf("[%s] a key this library cannot judge must not stop the signing key verifying, got %v", tc.reference, err)
 					}
 				})
@@ -288,7 +289,7 @@ func TestVerifyAgainstJwks_ASelectedKeyThisLibraryCannotUseIsRefusedWithoutPanic
 					t.Fatalf("[%s] verifying against a key this library cannot use panicked: %v", tc.reference, recovered)
 				}
 			}()
-			if err := VerifyAgainstJwks(t.Context(), token, "leaf", josemodel.Jwks{Keys: []map[string]any{tc.key}}); err == nil {
+			if err := VerifyAgainstJwks(t.Context(), token, "leaf", josemodel.Jwks{Keys: []map[string]any{tc.key}}, model.DefaultSigningAlgorithms()); err == nil {
 				t.Fatalf("[%s] expected a key this library cannot use to be refused", tc.reference)
 			}
 		})

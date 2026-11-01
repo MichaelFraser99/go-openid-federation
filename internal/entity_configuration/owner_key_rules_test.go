@@ -32,7 +32,7 @@ func TestNew_HoldsTrustMarkOwnerKeysToWhatTheRFCsRequireOfEveryImplementation(t 
 	}{
 		{name: "a key with no key_ops", reference: "RFC 7517 4.3", keys: []map[string]any{ec(nil)}},
 		{name: "a key whose key_ops list verify", reference: "RFC 7517 4.3", keys: []map[string]any{ec(map[string]any{"key_ops": []any{"verify"}})}},
-		{name: "an Ed25519 key, valid though this library does not verify with it", reference: "RFC 8037 2", keys: []map[string]any{{"kid": "owner", "kty": "OKP", "crv": "Ed25519", "x": "AQAB"}}},
+		{name: "an Ed448 key, valid though this library does not verify with it", reference: "RFC 8037 2", keys: []map[string]any{{"kid": "owner", "kty": "OKP", "crv": "Ed448", "x": "AQAB"}}},
 		{name: "an encryption-only key beside a key that can verify", reference: "RFC 7517 4.3", keys: []map[string]any{ec(map[string]any{"kid": "spare", "key_ops": []any{"encrypt"}}), ec(nil)}},
 		{name: "a 1024 bit RSA key marked for encryption beside a key that can verify", reference: "RFC 7517 4.2", keys: []map[string]any{rsa(1024, map[string]any{"use": "enc"}), ec(nil)}},
 		{name: "an RSA key above this library's maximum that names no algorithm", reference: "RFC 7517 4.4", keys: []map[string]any{rsa(8193, nil)}},

@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 )
 
@@ -53,6 +54,65 @@ type Configuration struct {
 	TrustAnchors map[EntityIdentifier]josemodel.Jwks
 
 	HostToASCII func(host string) (string, error)
+
+	SigningAlgorithms []jwa.Algorithm
+}
+
+var defaultSigningAlgorithms = []jwa.Algorithm{
+	jwa.ES256, jwa.ES384, jwa.ES512,
+	jwa.RS256, jwa.RS384, jwa.RS512,
+	jwa.PS256, jwa.PS384, jwa.PS512,
+	jwa.Ed25519, jwa.EdDSA,
+}
+
+func DefaultSigningAlgorithms() []jwa.Algorithm {
+	return slices.Clone(defaultSigningAlgorithms)
+}
+
+func refusedSigningAlgorithm(algorithm jwa.Algorithm) bool {
+	switch algorithm {
+	case jwa.HS256, jwa.HS384, jwa.HS512, jwa.Unknown:
+		return true
+	default:
+		return false
+	}
+}
+
+func (cfg *Configuration) AcceptedSigningAlgorithms() []jwa.Algorithm {
+	configured := cfg.SigningAlgorithms
+	if configured == nil {
+		configured = defaultSigningAlgorithms
+	}
+	accepted := make([]jwa.Algorithm, 0, len(configured))
+	for _, algorithm := range configured {
+		if refusedSigningAlgorithm(algorithm) || !slices.Contains(defaultSigningAlgorithms, algorithm) || slices.Contains(accepted, algorithm) {
+			continue
+		}
+		accepted = append(accepted, algorithm)
+	}
+	return accepted
+}
+
+func (cfg *Configuration) VerifySigningAlgorithms() error {
+	if cfg.SigningAlgorithms == nil {
+		return nil
+	}
+	if len(cfg.SigningAlgorithms) == 0 {
+		return NewServerError("SigningAlgorithms is set but empty, so no statement could be verified")
+	}
+	for _, algorithm := range cfg.SigningAlgorithms {
+		if refusedSigningAlgorithm(algorithm) && algorithm != jwa.Unknown {
+			return NewServerError(fmt.Sprintf("SigningAlgorithms names %s, which this library never accepts: a federation key is published, so a symmetric key would not be secret", algorithm.String()))
+		}
+		if refusedSigningAlgorithm(algorithm) || !slices.Contains(defaultSigningAlgorithms, algorithm) {
+			named := algorithm.String()
+			if named == "" {
+				named = "an algorithm go-jose does not define"
+			}
+			return NewServerError(fmt.Sprintf("SigningAlgorithms names %s, which this library cannot verify with", named))
+		}
+	}
+	return nil
 }
 
 func (cfg *Configuration) TrustAnchorsConfigured() bool {

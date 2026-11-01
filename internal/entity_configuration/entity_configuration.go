@@ -178,7 +178,7 @@ func validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 		return nil, fmt.Errorf("the 'jwks' claim %s", err.Error())
 	}
 
-	if err = entity_statement.VerifyAgainstJwks(ctx, entityConfigurationJwt, sKid, parsedJwks); err != nil {
+	if err = entity_statement.VerifyAgainstJwks(ctx, entityConfigurationJwt, sKid, parsedJwks, cfg.AcceptedSigningAlgorithms()); err != nil {
 		return nil, err
 	}
 

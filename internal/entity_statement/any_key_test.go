@@ -12,6 +12,7 @@ import (
 	"github.com/MichaelFraser99/go-jose/jws"
 	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
+	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
 func anyKeySign(t *testing.T, signer crypto.Signer, kid string) string {
@@ -123,7 +124,7 @@ func TestVerifyAgainstAnyKey(t *testing.T) {
 					t.Fatalf("[%s] a key this library cannot judge must not panic: %v", tc.reference, recovered)
 				}
 			}()
-			err := VerifyAgainstAnyKey(t.Context(), token, josemodel.Jwks{Keys: tc.keys})
+			err := VerifyAgainstAnyKey(t.Context(), token, josemodel.Jwks{Keys: tc.keys}, model.DefaultSigningAlgorithms())
 			if tc.expectErr == "" {
 				if err != nil {
 					t.Fatalf("[%s] expected the signature to verify against a key in the set, got %v", tc.reference, err)
@@ -186,7 +187,7 @@ func TestKeyCanVerify_HonoursWhatTheKeySaysAboutItself(t *testing.T) {
 		{name: "an RSA key published for HS256", reference: "RFC 7518 3.2", key: withAlg("HS256")},
 		{name: "an RSA key whose algorithm is not a string", reference: "RFC 7517 4.4", key: withAlg(5)},
 		{name: "an RSA key whose algorithm is the empty string", reference: "RFC 7517 4.4", key: withAlg("")},
-		{name: "a key of a type the signing library cannot use", reference: "RFC 7517 5", key: map[string]any{"kid": "ed", "kty": "OKP", "crv": "Ed25519", "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}},
+		{name: "a key of a type the signing library cannot use", reference: "RFC 7517 5", key: map[string]any{"kid": "ed", "kty": "OKP", "crv": "Ed448", "x": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4"}},
 		{name: "a symmetric key", reference: "RFC 7518 6.4.1", key: map[string]any{"kid": "oct", "kty": "oct", "k": "AQAB"}},
 		{name: "a key with no kty", reference: "RFC 7517 4.1", key: map[string]any{"kid": "broken"}},
 		{name: "an 8192 bit RSA key published for RS256", reference: "#214", key: sizedRSAKey(8192, "RS256"), usable: true},
@@ -196,7 +197,7 @@ func TestKeyCanVerify_HonoursWhatTheKeySaysAboutItself(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := KeyCanVerify(tc.key); got != tc.usable {
+			if got := KeyCanVerify(tc.key, model.DefaultSigningAlgorithms()); got != tc.usable {
 				t.Errorf("[%s] expected usable %v, got %v: a key this deployment can never verify with must be refused before a walk, not after one", tc.reference, tc.usable, got)
 			}
 		})
@@ -232,7 +233,7 @@ func TestVerifyAgainstAnyKey_TheSigningKeyNeedNotBeLast(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if err := VerifyAgainstAnyKey(t.Context(), token, josemodel.Jwks{Keys: tc.keys}); err != nil {
+			if err := VerifyAgainstAnyKey(t.Context(), token, josemodel.Jwks{Keys: tc.keys}, model.DefaultSigningAlgorithms()); err != nil {
 				t.Errorf("[%s] every key in the set is tried, so position must not matter, got %v", tc.reference, err)
 			}
 		})
@@ -273,7 +274,7 @@ func TestVerifyAgainstAnyKey_AKeyTheTokenCarriesIsNeverTrusted(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := VerifyAgainstAnyKey(t.Context(), *token, josemodel.Jwks{Keys: tc.keys})
+			err := VerifyAgainstAnyKey(t.Context(), *token, josemodel.Jwks{Keys: tc.keys}, model.DefaultSigningAlgorithms())
 			if tc.expectErr {
 				if err == nil {
 					t.Fatalf("[%s] a key the token carries in its own header must never be trusted", tc.reference)

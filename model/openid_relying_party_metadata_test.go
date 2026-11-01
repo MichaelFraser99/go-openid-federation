@@ -37,13 +37,22 @@ func TestOpenIDRelyingPartyMetadata_VerifyMetadata(t *testing.T) {
 			},
 			wantErr: true,
 		},
-		"jwks and jwks_uri must not be used together": {
+		"jwks and jwks_uri together are permitted per OpenID Federation 5.2.1.1": {
 			metadata: OpenIDRelyingPartyMetadata{
 				"redirect_uris": []any{"https://rp.example.com/cb"},
 				"jwks":          map[string]any{"keys": []any{}},
 				"jwks_uri":      "https://rp.example.com/jwks",
 			},
-			wantErr: true,
+			wantErr: false,
+		},
+		"all three key representations together are permitted per OpenID Federation 5.2.1.1": {
+			metadata: OpenIDRelyingPartyMetadata{
+				"redirect_uris":   []any{"https://rp.example.com/cb"},
+				"jwks":            map[string]any{"keys": []any{}},
+				"jwks_uri":        "https://rp.example.com/jwks",
+				"signed_jwks_uri": "https://rp.example.com/signed-jwks",
+			},
+			wantErr: false,
 		},
 		"jwks alone is valid": {
 			metadata: OpenIDRelyingPartyMetadata{

@@ -460,6 +460,8 @@ When metadata is unmarshalled, every statement is checked for claim shape: URL c
 
 A consumer calling a built-in type's `VerifyMetadata` directly therefore gets claim shape only, not a full validation of that type.
 
+A type that carries keys may carry more than one of `jwks`, `jwks_uri` and `signed_jwks_uri`, and no built-in type refuses the combination. Section 5.2.1.1 RECOMMENDS one, expects that some entities will use several, and asks only that their keys SHOULD be the same. The library cannot check that without fetching each set. OpenID Connect Dynamic Client Registration 1.0 and RFC 7591 do say that `jwks` and `jwks_uri` MUST NOT both be present, but that rule is for a registration request and response, not for federation metadata. Earlier releases refused the pair for `openid_relying_party` only.
+
 > **Breaking change.** The required-claim checks moved out of `VerifyMetadata`, so `Metadata.UnmarshalJSON` no longer rejects a statement whose entity type is incomplete, and a consumer calling a type's `VerifyMetadata` as a full validator loses that half. Judge completeness with `VerifyResolvedMetadata`, or with `Metadata.VerifyResolved` for a whole metadata object.
 
 The claim shape rules run again on the resolved metadata, not only on each statement. A metadata policy can set a parameter to a value the parser would have refused on input, so judging only the input leaves the rule escapable: a trust anchor whose policy set `token_endpoint_auth_signing_alg` to `{"value": "none"}` previously resolved, and the resolver signed `"none"` into the response. The same asymmetry applied to every shape rule, not only to `none`.

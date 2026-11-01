@@ -1,6 +1,7 @@
 package trust_chain
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -51,6 +52,33 @@ func TestBuildTrustChain_TheExpiryIsTheEarliestInTheWholeChain(t *testing.T) {
 			}
 			if resolved.Exp != *expiry {
 				t.Errorf("expected BuildTrustChain and ResolveMetadata to agree on the expiry, got %d and %d", *expiry, resolved.Exp)
+			}
+		})
+	}
+}
+
+func TestBuildTrustChain_RefusesAChainWhoseExpiryHasPassed(t *testing.T) {
+	tests := map[string]struct {
+		subordinateExpiredFor time.Duration
+	}{
+		"a subordinate statement just past its exp":              {subordinateExpiredFor: time.Second},
+		"a subordinate statement 30 seconds past its exp":        {subordinateExpiredFor: 30 * time.Second},
+		"a subordinate statement near the edge of the allowance": {subordinateExpiredFor: model.ClockSkewLeeway - 5*time.Second},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			past := time.Now().Add(-tc.subordinateExpiredFor).Unix()
+			client, leaf, anchor := federationWithClaims(t, "example.com", federationClaims{subordinate: map[string]any{"exp": past, "iat": past - 600}})
+			chain, _, expiry, err := BuildTrustChain(t.Context(), model.Configuration{HttpClient: client}, leaf, anchor, resolvecache.New())
+			if err == nil {
+				t.Fatalf("[10.4] a chain whose expiry has passed must be refused, got expiry %d (now %d)", *expiry, time.Now().Unix())
+			}
+			if !errors.Is(err, model.ErrInvalidTrustChain) {
+				t.Errorf("[10.4] expected a chain whose expiry has passed to be invalid_trust_chain, got %v", err)
+			}
+			if chain != nil || expiry != nil {
+				t.Errorf("[10.4] expected no chain alongside the refusal, got %d entries and expiry %v", len(chain), expiry)
 			}
 		})
 	}

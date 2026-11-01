@@ -10,14 +10,6 @@ var (
 )
 
 func NewEssential(operatorValue any) (*Essential, error) {
-	if _, ok := operatorValue.([]any); ok {
-		return nil, fmt.Errorf("operator value must be a boolean")
-	}
-	if operatorValue == nil {
-		return &Essential{
-			operatorValue: false,
-		}, nil
-	}
 	if bOperatorValue, ok := operatorValue.(bool); !ok {
 		return nil, fmt.Errorf("operator value must be a boolean")
 	} else {

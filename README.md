@@ -576,6 +576,8 @@ A value that refers to itself, or that shares so much structure that walking it 
 
 All seven operators from the specification are implemented: `value`, `add`, `default`, `one_of`, `subset_of`, `superset_of` and `essential`.
 
+> **Breaking change.** `essential` takes a boolean only, which section 6.1.3.1.7 lists as its one operand type. `"essential": null` was read as `false`, and it now produces a policy error, as section 6.1.3 requires for an operand type the operator does not support. Omitting `essential` is still the same as `false`.
+
 Policies are combined down a trust chain by `model.ProcessAndExtractPolicy` and applied to a subject's metadata by `model.ApplyPolicy`. Operators resolve in a fixed order: `value`, `add`, `default`, `one_of`, `subset_of`, `superset_of`, then `essential`. Combinations that cannot be satisfied, such as a `subset_of` and a `superset_of` with no overlap, are rejected when the policies are merged.
 
 Policy comes from the subordinate statements in the chain and from nowhere else. `ProcessAndExtractPolicy` reads every statement whose `iss` differs from its `sub`, which is what makes a statement a subordinate statement, and skips the self-issued entity configurations at either end. So neither the subject nor the trust anchor can write policy for the subject through its own entity configuration, and a chain that omits the trust anchor's entity configuration, which the specification permits, still contributes every policy it holds. A policy carried in an entity configuration is also refused outright when the statement is validated.

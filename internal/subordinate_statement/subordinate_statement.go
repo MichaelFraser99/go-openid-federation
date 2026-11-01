@@ -75,7 +75,7 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 		return nil, nil, model.NewInvalidTrustChainError("non-200 response from the issuer's federation fetch endpoint")
 	}
 
-	if !strings.Contains(response.Header.Get("Content-Type"), "application/entity-statement+jwt") { //todo: check on this - not sure if it has to be an exact match or not...
+	if !model.IsEntityStatementMediaType(response.Header.Get("Content-Type")) {
 		cfg.LogInfo(ctx, "invalid Content-Type response from the issuer's federation fetch response", slog.String("issuer", string(issuer.Sub)), slog.String("content_type", model.TruncateForResponse(response.Header.Get("Content-Type"))))
 		return nil, nil, model.NewInvalidTrustChainError("invalid Content-Type response from the issuer's federation fetch response")
 	}

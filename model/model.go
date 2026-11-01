@@ -63,6 +63,7 @@ var defaultSigningAlgorithms = []jwa.Algorithm{
 	jwa.RS256, jwa.RS384, jwa.RS512,
 	jwa.PS256, jwa.PS384, jwa.PS512,
 	jwa.Ed25519, jwa.EdDSA,
+	jwa.MLDSA44, jwa.MLDSA65, jwa.MLDSA87,
 }
 
 func DefaultSigningAlgorithms() []jwa.Algorithm {

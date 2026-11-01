@@ -85,7 +85,7 @@ func VerifyIssuedSignature(ctx context.Context, token, kid, alg string, signer c
 		return fmt.Errorf("failed to derive the public key of the signing key: %s", err.Error())
 	}
 	(*publicJWK)["kid"] = kid
-	return VerifyAgainstJwks(ctx, token, kid, josemodel.Jwks{Keys: []map[string]any{*publicJWK}}, model.DefaultSigningAlgorithms)
+	return VerifyAgainstJwks(ctx, token, kid, josemodel.Jwks{Keys: []map[string]any{*publicJWK}}, model.DefaultSigningAlgorithms())
 }
 
 func SelectKey(jwks josemodel.Jwks, kid string) (map[string]any, error) {

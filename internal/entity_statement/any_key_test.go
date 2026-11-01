@@ -124,7 +124,7 @@ func TestVerifyAgainstAnyKey(t *testing.T) {
 					t.Fatalf("[%s] a key this library cannot judge must not panic: %v", tc.reference, recovered)
 				}
 			}()
-			err := VerifyAgainstAnyKey(t.Context(), token, josemodel.Jwks{Keys: tc.keys}, model.DefaultSigningAlgorithms)
+			err := VerifyAgainstAnyKey(t.Context(), token, josemodel.Jwks{Keys: tc.keys}, model.DefaultSigningAlgorithms())
 			if tc.expectErr == "" {
 				if err != nil {
 					t.Fatalf("[%s] expected the signature to verify against a key in the set, got %v", tc.reference, err)
@@ -197,7 +197,7 @@ func TestKeyCanVerify_HonoursWhatTheKeySaysAboutItself(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := KeyCanVerify(tc.key, model.DefaultSigningAlgorithms); got != tc.usable {
+			if got := KeyCanVerify(tc.key, model.DefaultSigningAlgorithms()); got != tc.usable {
 				t.Errorf("[%s] expected usable %v, got %v: a key this deployment can never verify with must be refused before a walk, not after one", tc.reference, tc.usable, got)
 			}
 		})
@@ -233,7 +233,7 @@ func TestVerifyAgainstAnyKey_TheSigningKeyNeedNotBeLast(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if err := VerifyAgainstAnyKey(t.Context(), token, josemodel.Jwks{Keys: tc.keys}, model.DefaultSigningAlgorithms); err != nil {
+			if err := VerifyAgainstAnyKey(t.Context(), token, josemodel.Jwks{Keys: tc.keys}, model.DefaultSigningAlgorithms()); err != nil {
 				t.Errorf("[%s] every key in the set is tried, so position must not matter, got %v", tc.reference, err)
 			}
 		})
@@ -274,7 +274,7 @@ func TestVerifyAgainstAnyKey_AKeyTheTokenCarriesIsNeverTrusted(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := VerifyAgainstAnyKey(t.Context(), *token, josemodel.Jwks{Keys: tc.keys}, model.DefaultSigningAlgorithms)
+			err := VerifyAgainstAnyKey(t.Context(), *token, josemodel.Jwks{Keys: tc.keys}, model.DefaultSigningAlgorithms())
 			if tc.expectErr {
 				if err == nil {
 					t.Fatalf("[%s] a key the token carries in its own header must never be trusted", tc.reference)

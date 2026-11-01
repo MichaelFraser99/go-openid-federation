@@ -58,22 +58,37 @@ type Configuration struct {
 	SigningAlgorithms []jwa.Algorithm
 }
 
-var DefaultSigningAlgorithms = []jwa.Algorithm{
+var defaultSigningAlgorithms = []jwa.Algorithm{
 	jwa.ES256, jwa.ES384, jwa.ES512,
 	jwa.RS256, jwa.RS384, jwa.RS512,
 	jwa.PS256, jwa.PS384, jwa.PS512,
 	jwa.Ed25519, jwa.EdDSA,
 }
 
-func (cfg *Configuration) AcceptedSigningAlgorithms() []jwa.Algorithm {
-	if cfg.SigningAlgorithms == nil {
-		return slices.Clone(DefaultSigningAlgorithms)
+func DefaultSigningAlgorithms() []jwa.Algorithm {
+	return slices.Clone(defaultSigningAlgorithms)
+}
+
+func refusedSigningAlgorithm(algorithm jwa.Algorithm) bool {
+	switch algorithm {
+	case jwa.HS256, jwa.HS384, jwa.HS512, jwa.Unknown:
+		return true
+	default:
+		return false
 	}
-	accepted := make([]jwa.Algorithm, 0, len(cfg.SigningAlgorithms))
-	for _, algorithm := range cfg.SigningAlgorithms {
-		if slices.Contains(DefaultSigningAlgorithms, algorithm) && !slices.Contains(accepted, algorithm) {
-			accepted = append(accepted, algorithm)
+}
+
+func (cfg *Configuration) AcceptedSigningAlgorithms() []jwa.Algorithm {
+	configured := cfg.SigningAlgorithms
+	if configured == nil {
+		configured = defaultSigningAlgorithms
+	}
+	accepted := make([]jwa.Algorithm, 0, len(configured))
+	for _, algorithm := range configured {
+		if refusedSigningAlgorithm(algorithm) || !slices.Contains(defaultSigningAlgorithms, algorithm) || slices.Contains(accepted, algorithm) {
+			continue
 		}
+		accepted = append(accepted, algorithm)
 	}
 	return accepted
 }
@@ -86,11 +101,10 @@ func (cfg *Configuration) VerifySigningAlgorithms() error {
 		return NewServerError("SigningAlgorithms is set but empty, so no statement could be verified")
 	}
 	for _, algorithm := range cfg.SigningAlgorithms {
-		switch algorithm {
-		case jwa.HS256, jwa.HS384, jwa.HS512:
+		if refusedSigningAlgorithm(algorithm) && algorithm != jwa.Unknown {
 			return NewServerError(fmt.Sprintf("SigningAlgorithms names %s, which this library never accepts: a federation key is published, so a symmetric key would not be secret", algorithm.String()))
 		}
-		if !slices.Contains(DefaultSigningAlgorithms, algorithm) {
+		if refusedSigningAlgorithm(algorithm) || !slices.Contains(defaultSigningAlgorithms, algorithm) {
 			named := algorithm.String()
 			if named == "" {
 				named = "an algorithm go-jose does not define"

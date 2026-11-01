@@ -50,10 +50,10 @@ func TestVerifyAgainstJwks_AcceptsOnlyTheAlgorithmsItIsGiven(t *testing.T) {
 		algorithms []jwa.Algorithm
 		expectErr  string
 	}{
-		"Ed25519 under the default":                  {token: ed, key: edPublic, algorithms: model.DefaultSigningAlgorithms},
+		"Ed25519 under the default":                  {token: ed, key: edPublic, algorithms: model.DefaultSigningAlgorithms()},
 		"Ed25519 under a list that names it":         {token: ed, key: edPublic, algorithms: []jwa.Algorithm{jwa.Ed25519}},
 		"Ed25519 under a list that does not name it": {token: ed, key: edPublic, algorithms: []jwa.Algorithm{jwa.ES256}, expectErr: "names an algorithm this deployment does not accept"},
-		"EdDSA under the default":                    {token: eddsa, key: edPublic, algorithms: model.DefaultSigningAlgorithms},
+		"EdDSA under the default":                    {token: eddsa, key: edPublic, algorithms: model.DefaultSigningAlgorithms()},
 		"EdDSA under a list that does not name it":   {token: eddsa, key: edPublic, algorithms: []jwa.Algorithm{jwa.Ed25519}, expectErr: "names an algorithm this deployment does not accept"},
 		"an empty list accepts nothing":              {token: ed, key: edPublic, algorithms: []jwa.Algorithm{}, expectErr: "does not accept"},
 	}
@@ -92,7 +92,7 @@ func TestVerifyAgainstJwks_RefusesHSItselfRatherThanLeavingItToGoJose(t *testing
 	}
 	oct := map[string]any{"kid": "oct", "kty": "oct", "k": base64.RawURLEncoding.EncodeToString(secret)}
 
-	err = VerifyAgainstJwks(t.Context(), *token, "oct", josemodel.Jwks{Keys: []map[string]any{oct}}, model.DefaultSigningAlgorithms)
+	err = VerifyAgainstJwks(t.Context(), *token, "oct", josemodel.Jwks{Keys: []map[string]any{oct}}, model.DefaultSigningAlgorithms())
 	if err == nil || !strings.Contains(err.Error(), "names an algorithm this deployment does not accept") {
 		t.Fatalf("[3.2] HS256 must be refused by this library's own list, got %v", err)
 	}
@@ -105,7 +105,7 @@ func TestKeyCanVerify_FollowsTheAlgorithmsItIsGiven(t *testing.T) {
 		algorithms []jwa.Algorithm
 		usable     bool
 	}{
-		"an Ed25519 key under the default":                         {key: edPublic, algorithms: model.DefaultSigningAlgorithms, usable: true},
+		"an Ed25519 key under the default":                         {key: edPublic, algorithms: model.DefaultSigningAlgorithms(), usable: true},
 		"an Ed25519 key under a list without Ed25519 or EdDSA":     {key: edPublic, algorithms: []jwa.Algorithm{jwa.ES256, jwa.RS256}},
 		"an Ed25519 key under a list naming only EdDSA":            {key: edPublic, algorithms: []jwa.Algorithm{jwa.EdDSA}, usable: true},
 		"an Ed25519 key declaring Ed25519 under a list without it": {key: withMember(edPublic, "alg", "Ed25519"), algorithms: []jwa.Algorithm{jwa.EdDSA}},

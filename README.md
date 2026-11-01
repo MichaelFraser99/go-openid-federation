@@ -767,6 +767,16 @@ Two exceptions worth knowing, rather than inferring from the above:
 - **The entity configuration path classifies by hop, not by fault.** An entity configuration this server cannot fetch answers 404 — `not_found` for the subject, `invalid_trust_anchor` for an entity further up — because at that point the walk has not found the entity rather than failed to validate a statement. So one unreachable peer answers 404 at its entity configuration and 400 at its fetch endpoint.
 - **A transport error that already carries a class keeps it, all the way to the response.** A consumer whose `HttpClient` refuses a destination by policy can wrap any of the twelve federation sentinels, and that class is what the caller receives — `model.ReclassifyWithDescription` keeps it while replacing the description with this library's own, because the transport's text names the endpoint the peer published. The lookup runs in a fixed order, so an error carrying more than one sentinel always resolves to the same class.
 
+So the answer for a peer that can't be reached, or answers badly, depends on where that peer sits in the chain. This is deliberate: the class says which step failed, and the description says why.
+
+| Where the failing peer sits | Status | Code |
+| --- | --- | --- |
+| The subject's own entity configuration | 404 | `not_found` |
+| An entity configuration further up, including the trust anchor's | 404 | `invalid_trust_anchor` |
+| A fetch endpoint, for a subordinate statement | 400 | `invalid_trust_chain` |
+
+A fetched subordinate statement whose metadata is unusable answers 400 `invalid_metadata` instead, and a transport error that carries a class keeps it, as above. A peer's own failure never answers 503. That class is kept for this server's own condition: its deadline running out, or your `HttpClient` classifying a transport error as `temporarily_unavailable`.
+
 The description a caller receives carries no text this server was given by a peer: a peer's error, a URL a peer published, a value from a peer's statement, or a key a superior registered. The detail goes to the log instead, so an operator can still tell one fetch failure from another while a caller cannot read a third party's internals out of a response. What a peer chooses is bounded before it reaches a log, so a peer cannot turn one request into megabytes of records.
 
 ## Extensions

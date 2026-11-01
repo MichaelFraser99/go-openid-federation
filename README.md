@@ -605,6 +605,10 @@ Two consequences are worth knowing. Irregular spacing does not make a chain unre
 
 An array operand is a list of scope sets rather than single values for `value`, `default` and `add`, so `{"value": ["openid", "openid accounts"]}` is legal and flattens to `openid accounts` on the way out. It does not hold for `subset_of`, `superset_of` or `one_of`, whose elements are compared whole against the subject's tokens: `{"subset_of": ["openid profile"]}` matches no token and silently empties the parameter, which is [#198](https://github.com/MichaelFraser99/go-openid-federation/issues/198).
 
+`add`, `one_of`, `subset_of` and `superset_of` take an array whose elements are all strings, all numbers, or all objects, which are the element types section 6.1.3.1 lists for them. Any other operand is a policy error, as section 6.1.3 requires: an element that is a boolean, `null` or an array, or an array that mixes types. Two levels whose operands for the same parameter are each valid, but combine into a mixed array, also produce a policy error. So does `add` applied to a metadata parameter of another type: `add: [1, 2]` on a `contacts` of strings is a policy error, not `["a@example.com", 1, 2]`. `value` and `default` are not restricted in this way. They accept an object, which section 6.1.3.1 does not list, so that a superior can pin an object-valued parameter such as `jwks`.
+
+> **Breaking change.** These four operators accepted any array, so `add: [true]` resolved to `[true]`, and `one_of: [true, false]` and `subset_of: [null]` parsed. A subordinate statement whose policy carries such an operand is now refused.
+
 To implement an operator outside this set, satisfy `model.MetadataPolicyOperator`:
 
 ```go

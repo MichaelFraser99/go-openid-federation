@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"maps"
 	"math"
 	"net/http"
 	"net/url"
@@ -1332,7 +1331,7 @@ func (p PolicyOperators) clone() PolicyOperators {
 func (m *Metadata) clone() *Metadata {
 	copied := &Metadata{}
 	for entityType, parameters := range m.byEntityType() {
-		copied.setEntityType(entityType, maps.Clone(parameters))
+		copied.setEntityType(entityType, cloneValue(parameters).(map[string]any))
 	}
 	return copied
 }

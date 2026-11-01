@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"testing"
+	"time"
 )
 
 func encodedPolicy(t *testing.T, policy *MetadataPolicy) string {
@@ -229,5 +230,104 @@ func TestProcessAndExtractPolicy_TheResultSharesNothingWithTheChain(t *testing.T
 	}
 	if unrecognised[0] != "x_unknown" {
 		t.Errorf("writing into the result reached level 1's unrecognised operators: it is now %v", unrecognised)
+	}
+}
+
+func TestPolicyResolution_NothingHandedOutReachesBackIntoTheChain(t *testing.T) {
+	const (
+		leaf         = EntityIdentifier("https://leaf.example.com")
+		intermediate = EntityIdentifier("https://int.example.com")
+		anchor       = EntityIdentifier("https://ta.example.com")
+	)
+	statement := chainPolicy(t, `{"openid_relying_party":{"contacts":{"add":["a@example.com"]},"x_object":{"value":{"k":"v"}},"x_objects":{"add":[{"a":1}]}}}`)
+	before := encodedPolicy(t, statement)
+	chain := []EntityStatement{
+		{Iss: leaf, Sub: leaf},
+		{Iss: intermediate, Sub: leaf, MetadataPolicy: statement},
+		{Iss: anchor, Sub: anchor},
+	}
+
+	merged, err := ProcessAndExtractPolicy(chain)
+	if err != nil {
+		t.Fatalf("expected the policy to combine, got %v", err)
+	}
+	mergedBefore := encodedPolicy(t, merged)
+
+	t.Run("through an operand the merged policy hands out", func(t *testing.T) {
+		contacts := merged.OpenIDRelyingPartyMetadata["contacts"].Metadata[0].OperatorValue().([]any)
+		contacts[0] = "written@example.com"
+		object := merged.OpenIDRelyingPartyMetadata["x_object"].Metadata[0].OperatorValue().(map[string]any)
+		object["k"] = "written"
+		if got := encodedPolicy(t, statement); got != before {
+			t.Errorf("writing into an operand of the result changed the chain's policy from %s to %s", before, got)
+		}
+		if got := encodedPolicy(t, merged); got != mergedBefore {
+			t.Errorf("writing into an operand OperatorValue returned changed the merged policy from %s to %s", mergedBefore, got)
+		}
+	})
+
+	t.Run("through the metadata a policy resolved", func(t *testing.T) {
+		untouched := []any{"keep"}
+		rp := OpenIDRelyingPartyMetadata{"client_name": "rp", "x_objects": []any{map[string]any{"b": 2}}, "x_untouched": untouched}
+		subject := EntityStatement{Iss: leaf, Sub: leaf, Metadata: &Metadata{OpenIDRelyingPartyMetadata: &rp}}
+
+		resolved, err := ApplyPolicy(subject, *merged)
+		if err != nil {
+			t.Fatalf("expected the policy to apply, got %v", err)
+		}
+		out := *resolved.Metadata.OpenIDRelyingPartyMetadata
+		out["contacts"].([]any)[0] = "written@example.com"
+		out["x_object"].(map[string]any)["k"] = "written"
+		for _, element := range out["x_objects"].([]any) {
+			element.(map[string]any)["a"] = "written"
+			element.(map[string]any)["b"] = "written"
+		}
+		out["x_untouched"].([]any)[0] = "written"
+
+		if got := encodedPolicy(t, statement); got != before {
+			t.Errorf("writing into resolved metadata changed the chain's policy from %s to %s", before, got)
+		}
+		if got := encodedPolicy(t, merged); got != mergedBefore {
+			t.Errorf("writing into resolved metadata changed the merged policy from %s to %s", mergedBefore, got)
+		}
+		if b := rp["x_objects"].([]any)[0].(map[string]any)["b"]; b != 2 {
+			t.Errorf("writing into resolved metadata reached an object the subject holds: it is now %v", b)
+		}
+		if untouched[0] != "keep" {
+			t.Errorf("writing into resolved metadata reached an array the policy never touched, which the subject holds: it is now %v", untouched[0])
+		}
+	})
+}
+
+func TestCloneValue_StopsOnASelfReferentialValue(t *testing.T) {
+	cyclic := map[string]any{}
+	cyclic["self"] = cyclic
+	list := []any{nil}
+	list[0] = list
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = cloneValue(cyclic)
+		_ = cloneValue(list)
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("copying a value that refers to itself did not finish")
+	}
+}
+
+func TestCloneValue_KeepsGoTypes(t *testing.T) {
+	original := map[string]any{"names": []string{"a", "b"}, "nested": map[string]int{"n": 1}}
+	copied := cloneValue(original).(map[string]any)
+	names, ok := copied["names"].([]string)
+	if !ok {
+		t.Fatalf("expected a []string to stay a []string, got %T", copied["names"])
+	}
+	names[0] = "written"
+	copied["nested"].(map[string]int)["n"] = 2
+	if original["names"].([]string)[0] != "a" || original["nested"].(map[string]int)["n"] != 1 {
+		t.Errorf("the copy shares storage with the original: %v", original)
 	}
 }

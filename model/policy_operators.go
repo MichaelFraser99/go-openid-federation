@@ -110,6 +110,51 @@ func (w *operandWalk) step() bool {
 	return w.remaining >= 0
 }
 
+func cloneValue(value any) any {
+	return newOperandWalk().clone(value)
+}
+
+func (w *operandWalk) clone(value any) any {
+	if value == nil || !w.step() {
+		return value
+	}
+	original := reflect.ValueOf(value)
+	switch original.Kind() {
+	case reflect.Map:
+		if original.IsNil() {
+			return value
+		}
+		copied := reflect.MakeMapWithSize(original.Type(), original.Len())
+		entries := original.MapRange()
+		for entries.Next() {
+			copied.SetMapIndex(entries.Key(), w.cloneInto(original.Type().Elem(), entries.Value()))
+		}
+		return copied.Interface()
+	case reflect.Slice:
+		if original.IsNil() {
+			return value
+		}
+		copied := reflect.MakeSlice(original.Type(), original.Len(), original.Len())
+		for i := range original.Len() {
+			copied.Index(i).Set(w.cloneInto(original.Type().Elem(), original.Index(i)))
+		}
+		return copied.Interface()
+	default:
+		return value
+	}
+}
+
+func (w *operandWalk) cloneInto(elementType reflect.Type, element reflect.Value) reflect.Value {
+	if element.Kind() == reflect.Interface && element.IsNil() {
+		return reflect.Zero(elementType)
+	}
+	copied := w.clone(element.Interface())
+	if copied == nil {
+		return reflect.Zero(elementType)
+	}
+	return reflect.ValueOf(copied)
+}
+
 func normaliseOperand(value any) (any, bool) {
 	return newOperandWalk().normalise(value)
 }

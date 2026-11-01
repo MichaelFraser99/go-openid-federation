@@ -25,7 +25,7 @@ type SupersetOf struct {
 }
 
 func (s SupersetOf) OperatorValue() any {
-	return s.operatorValue
+	return cloneValue(s.operatorValue)
 }
 
 func (s SupersetOf) ToSlice(key string) MetadataPolicyOperator {

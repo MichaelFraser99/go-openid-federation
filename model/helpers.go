@@ -345,7 +345,7 @@ func applyPolicyToMetadata(metadata map[string]any, policy map[string]PolicyOper
 			if resolved == nil {
 				delete(metadata, k)
 			} else {
-				metadata[k] = resolved
+				metadata[k] = cloneValue(resolved)
 			}
 		}
 	}

@@ -25,7 +25,7 @@ type SubsetOf struct {
 }
 
 func (s SubsetOf) OperatorValue() any {
-	return s.operatorValue
+	return cloneValue(s.operatorValue)
 }
 
 func (s SubsetOf) ToSlice(key string) MetadataPolicyOperator {

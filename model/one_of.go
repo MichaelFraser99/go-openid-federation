@@ -25,7 +25,7 @@ type OneOf struct {
 }
 
 func (o OneOf) OperatorValue() any {
-	return o.operatorValue
+	return cloneValue(o.operatorValue)
 }
 
 func (o OneOf) ToSlice(key string) MetadataPolicyOperator {

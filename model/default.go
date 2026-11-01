@@ -36,7 +36,7 @@ type Default struct {
 }
 
 func (d Default) OperatorValue() any {
-	return d.operatorValue
+	return cloneValue(d.operatorValue)
 }
 
 func (d Default) ToSlice(key string) MetadataPolicyOperator {

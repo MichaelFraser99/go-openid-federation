@@ -458,7 +458,7 @@ The following entity types are supported.
 
 Each is a `map[string]any` with its own validation, split across two points in the chain.
 
-When metadata is unmarshalled, every statement is checked for claim shape: URL claims are HTTPS with no fragment component, and `issuer` and `credential_issuer` also refuse a query, string array claims are arrays of strings, object claims are objects, and signing algorithm claims exclude `none` where an algorithm is required. An empty object is accepted, so an entity may declare a type without asserting anything about it.
+When metadata is unmarshalled, every statement is checked for claim shape: URL claims are HTTPS with no fragment component, string array claims are arrays of strings, object claims are objects, and signing algorithm claims exclude `none` where an algorithm is required. `issuer` and `credential_issuer` also refuse a query. An empty object is accepted, so an entity may declare a type without asserting anything about it.
 
 A consumer calling a built-in type's `VerifyMetadata` directly therefore gets claim shape only, not a full validation of that type.
 

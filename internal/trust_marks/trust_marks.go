@@ -160,7 +160,9 @@ func FilterByTrusted(ctx context.Context, cfg model.Configuration, resolved *mod
 			resolved.Exp = *validated.Expiry
 		}
 	}
-	cfg.LogInfo(ctx, "dropped trust marks the trust anchor does not trust or this resolver could not verify", slog.Int("dropped", presented-len(trustedTrustMarks)), slog.Int("presented", presented))
+	if presented > 0 {
+		cfg.LogInfo(ctx, "dropped trust marks the trust anchor does not trust or this resolver could not verify", slog.Int("dropped", presented-len(trustedTrustMarks)), slog.Int("presented", presented))
+	}
 	resolved.TrustMarks = trustedTrustMarks
 	return nil
 }

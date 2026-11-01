@@ -150,12 +150,12 @@ func (s *Server) retrieverError(err error, fallback string) error {
 	return model.NewServerError(fallback)
 }
 
-type loggedServerFault struct{ error }
+type loggedFailure struct{ error }
 
-func (e loggedServerFault) Unwrap() error { return e.error }
+func (e loggedFailure) Unwrap() error { return e.error }
 
 func (s *Server) logFailure(ctx context.Context, msg string, response error, args ...any) {
-	if errors.As(response, new(loggedServerFault)) {
+	if errors.As(response, new(loggedFailure)) {
 		return
 	}
 	if _, code := errorStatusAndCode(response); code == model.ServerError {
@@ -208,10 +208,7 @@ func (s *Server) loadSubordinate(ctx context.Context, identifier model.EntityIde
 			}
 			classified := s.retrieverError(err, subordinateRetrievalFailureError)
 			s.logFailure(ctx, "error retrieving subordinate cfg", classified, slog.String("error", err.Error()))
-			if _, code := errorStatusAndCode(classified); code == model.ServerError {
-				return nil, &s.cfg.SignerConfiguration, loggedServerFault{classified}
-			}
-			return nil, &s.cfg.SignerConfiguration, classified
+			return nil, &s.cfg.SignerConfiguration, loggedFailure{classified}
 		}
 		if subordinate.SignerConfiguration != nil {
 			return subordinate, subordinate.SignerConfiguration, nil

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"math"
 	"net/http"
 	"net/url"
@@ -310,7 +311,9 @@ func (cfg *ServerConfiguration) GetSubordinateJWKs(ctx context.Context) ([]Signe
 	if err != nil {
 		return nil, err
 	}
-	for _, subordinateConfiguration := range subordinates {
+	identifiers := slices.Sorted(maps.Keys(subordinates))
+	for _, identifier := range identifiers {
+		subordinateConfiguration := subordinates[identifier]
 		if subordinateConfiguration == nil {
 			continue
 		}

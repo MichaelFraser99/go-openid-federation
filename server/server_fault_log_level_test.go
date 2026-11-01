@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -17,10 +18,11 @@ import (
 type levelCountingHandler struct {
 	mu     *sync.Mutex
 	counts map[slog.Level]int
+	causes map[string]int
 }
 
 func newLevelCountingHandler() levelCountingHandler {
-	return levelCountingHandler{mu: &sync.Mutex{}, counts: map[slog.Level]int{}}
+	return levelCountingHandler{mu: &sync.Mutex{}, counts: map[slog.Level]int{}, causes: map[string]int{}}
 }
 
 func (h levelCountingHandler) Enabled(context.Context, slog.Level) bool { return true }
@@ -29,7 +31,25 @@ func (h levelCountingHandler) Handle(_ context.Context, record slog.Record) erro
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.counts[record.Level]++
+	record.Attrs(func(attr slog.Attr) bool {
+		if attr.Key == "error" {
+			h.causes[attr.Value.String()]++
+		}
+		return true
+	})
 	return nil
+}
+
+func (h levelCountingHandler) causeLines(substring string) int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	lines := 0
+	for cause, n := range h.causes {
+		if strings.Contains(cause, substring) {
+			lines += n
+		}
+	}
+	return lines
 }
 
 func (h levelCountingHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
@@ -89,6 +109,7 @@ func TestServer_AFaultOfThisServersOwnIsLoggedAtErrorOnceAndACallersFaultIsNot(t
 		path      string
 		status    int
 		errors    int
+		cause     string
 	}{
 		{
 			name:      "the entity configuration when this server cannot read its subordinate signers",
@@ -105,6 +126,7 @@ func TestServer_AFaultOfThisServersOwnIsLoggedAtErrorOnceAndACallersFaultIsNot(t
 			path:      "/fetch?sub=https://leaf.example.com",
 			status:    http.StatusInternalServerError,
 			errors:    1,
+			cause:     "db.internal",
 		},
 		{
 			name:      "a subordinate statement for a subordinate registered with no keys",
@@ -166,6 +188,24 @@ func TestServer_AFaultOfThisServersOwnIsLoggedAtErrorOnceAndACallersFaultIsNot(t
 			path:   "/extended-list?claims=subordinate_statement",
 			status: http.StatusInternalServerError,
 			errors: 1,
+			cause:  "db.internal",
+		},
+		{
+			name:      "an extended listing with subordinate statements while the subordinate store is temporarily unavailable",
+			reference: "8.9 temporarily_unavailable",
+			configure: func(cfg *model.ServerConfiguration) {
+				cfg.MetadataRetriever = classifiedSubordinateRetriever{err: model.NewTemporarilyUnavailableError("database down")}
+				cfg.Extensions.ExtendedListing = model.ExtendedListingConfiguration{
+					Enabled:   true,
+					SizeLimit: 50,
+					MetadataRetriever: &testExtendedListingRetriever{result: &model.ExtendedListingResponse{
+						ImmediateSubordinateEntities: []map[string]any{{"id": "https://leaf.example.com"}},
+					}},
+				}
+			},
+			path:   "/extended-list?claims=subordinate_statement",
+			status: http.StatusServiceUnavailable,
+			cause:  "database down",
 		},
 	}
 
@@ -191,6 +231,11 @@ func TestServer_AFaultOfThisServersOwnIsLoggedAtErrorOnceAndACallersFaultIsNot(t
 
 			if got := logs.count(slog.LevelError); got != tc.errors {
 				t.Errorf("[%s] a server_error must leave exactly one Error line, because the response carries fixed text and the log is the only record of why, and a fault of the peer or caller must leave none: expected %d, got %d", tc.reference, tc.errors, got)
+			}
+			if tc.cause != "" {
+				if got := logs.causeLines(tc.cause); got != 1 {
+					t.Errorf("[%s] a store fault must be logged once, where its cause is known: expected 1 line carrying %q, got %d", tc.reference, tc.cause, got)
+				}
 			}
 		})
 	}

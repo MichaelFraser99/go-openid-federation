@@ -1,12 +1,14 @@
 package trust_chain
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"crypto/rsa"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -435,7 +437,8 @@ func TestResolveMetadata_ConfiguredTrustAnchorKeys(t *testing.T) {
 			subjectKey := chainSigningKey(t)
 			chain := anchoredChain(t, anchorKey, subjectKey)
 
-			cfg := model.Configuration{TrustAnchors: tc.configure(t, anchorKey)}
+			var errorLogs bytes.Buffer
+			cfg := model.Configuration{TrustAnchors: tc.configure(t, anchorKey), Logger: slog.New(slog.NewJSONHandler(&errorLogs, &slog.HandlerOptions{Level: slog.LevelError}))}
 			_, err := ResolveMetadata(t.Context(), cfg, chainAnchor, chainAnchor, chain, nil)
 
 			if tc.expectErr != "" {
@@ -448,6 +451,9 @@ func TestResolveMetadata_ConfiguredTrustAnchorKeys(t *testing.T) {
 				if strings.Contains(tc.expectErr, "can verify a signature") || strings.Contains(tc.expectErr, "no http client") {
 					if !errors.Is(err, model.ErrServerError) {
 						t.Errorf("[%s] a fault in this deployment's own configuration is a server fault, got %v", tc.reference, err)
+					}
+					if strings.Contains(tc.expectErr, "can verify a signature") && !strings.Contains(errorLogs.String(), "no key configured for the requested trust anchor can verify a signature") {
+						t.Errorf("[%s] a configured key set no key in which can verify is the operator's to fix, so it must be logged at Error, got %q", tc.reference, errorLogs.String())
 					}
 					return
 				}

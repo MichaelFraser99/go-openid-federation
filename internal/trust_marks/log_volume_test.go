@@ -323,3 +323,28 @@ func TestFilterByTrusted_ConsidersAtMostTheTrustMarkLimitInTheOrderListed(t *tes
 		})
 	}
 }
+
+func TestFilterByTrusted_ASubjectPresentingNoTrustMarksWritesNoSummary(t *testing.T) {
+	tests := []struct {
+		name  string
+		marks []model.TrustMarkHolder
+	}{
+		{name: "a nil list", marks: nil},
+		{name: "an empty list", marks: []model.TrustMarkHolder{}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logs := &recordingHandler{}
+			cfg := model.Configuration{Logger: slog.New(logs)}
+			resolved := &model.ResolveResponse{Sub: "https://leaf.example.com", TrustMarks: tc.marks}
+
+			if err := FilterByTrusted(t.Context(), cfg, resolved, model.EntityStatement{Sub: "https://ta.example.com"}, nil); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if summaries := logs.withAttr(slog.LevelInfo, "dropped"); len(summaries) != 0 {
+				t.Errorf("a resolve with no trust marks has nothing to summarise, got %d summary lines", len(summaries))
+			}
+		})
+	}
+}

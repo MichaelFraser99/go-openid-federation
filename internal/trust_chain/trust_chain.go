@@ -109,7 +109,7 @@ func verifyTrustAnchorRequested(ctx context.Context, cfg model.Configuration, re
 		return model.NewInvalidTrustAnchorError("the requested trust anchor is not one this deployment is configured to trust")
 	}
 	if len(entity_statement.UsableVerificationKeys(keys, cfg.AcceptedSigningAlgorithms()).Keys) == 0 {
-		cfg.LogInfo(ctx, "no key configured for the requested trust anchor can verify a signature, so no chain can ever be anchored in it", slog.String("trust_anchor", string(requested)))
+		cfg.LogError(ctx, "no key configured for the requested trust anchor can verify a signature, so no chain can ever be anchored in it", slog.String("trust_anchor", string(requested)))
 		return model.NewServerError("the keys configured for the requested trust anchor hold no key that can verify a signature")
 	}
 	return nil

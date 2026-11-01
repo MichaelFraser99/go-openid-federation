@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"fmt"
+	"mime"
 	"net/url"
 	"reflect"
 	"slices"
@@ -396,13 +397,17 @@ func VerifyIssuedStatement(claims []byte, registry EntityTypeRegistry) error {
 	return nil
 }
 
+const EntityStatementMediaType = "application/entity-statement+jwt"
+
+func IsEntityStatementMediaType(contentType string) bool {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	return err == nil && mediaType == EntityStatementMediaType
+}
+
 const MaxErrorDescriptionBytes = 256
 
 func TruncateForResponse(value string) string {
-	if len(value) <= MaxErrorDescriptionBytes {
-		return value
-	}
-	return value[:MaxErrorDescriptionBytes] + "..."
+	return TruncateAtCharacter(value, MaxErrorDescriptionBytes)
 }
 
 func VerifyChainExpiry(exp int64) error {

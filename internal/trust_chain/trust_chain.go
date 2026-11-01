@@ -491,6 +491,10 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 			if parsedSub, parsedIss, err = finalEntryEndpoints(ctx, cfg, trustChain); err != nil {
 				return nil, err
 			}
+			if *parsedSub == *parsedIss {
+				cfg.LogInfo(ctx, "the entry before the trust anchor's entity configuration is itself an entity configuration", slog.String("trust_anchor", string(trustAnchorEntityIdentifier)), slog.String("entity", model.TruncateForResponse(string(*parsedSub))))
+				return nil, model.NewInvalidTrustChainError("the entry before the trust anchor's entity configuration must be a subordinate statement issued by the trust anchor, not an entity configuration")
+			}
 		}
 	}
 

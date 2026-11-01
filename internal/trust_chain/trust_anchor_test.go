@@ -255,6 +255,62 @@ func TestResolveMetadata_WithNoKeysHeldTheAnchorIsFetchedNotTakenFromTheChain(t 
 	}
 }
 
+func TestResolveMetadata_AChainRepeatingTheAnchorsConfigurationIsRefusedWhetherOrNotKeysAreHeld(t *testing.T) {
+	client, subject, anchor := federationWithClaims(t, "example.com", federationClaims{})
+	built, parsed, _, err := BuildTrustChain(t.Context(), model.Configuration{HttpClient: client}, subject, anchor, nil)
+	if err != nil {
+		t.Fatalf("the fixture is wrong: the genuine chain does not build, %v", err)
+	}
+	forgedAnchor := forgedChain(t, chainSigningKey(t), subject, anchor)[2]
+	genuineAnchor := built[2]
+
+	tests := []struct {
+		name    string
+		chain   []string
+		resolve bool
+	}{
+		{name: "the genuine chain", chain: built, resolve: true},
+		{name: "the genuine anchor configuration twice", chain: append(slices.Clone(built), genuineAnchor)},
+		{name: "the genuine anchor configuration then a forged one", chain: append(slices.Clone(built), forgedAnchor)},
+		{name: "a forged anchor configuration twice in place of the genuine one", chain: append(slices.Clone(built[:2]), forgedAnchor, forgedAnchor)},
+		{name: "the genuine anchor configuration five times", chain: append(slices.Clone(built[:2]), genuineAnchor, genuineAnchor, genuineAnchor, genuineAnchor, genuineAnchor)},
+		{name: "the subject's configuration directly followed by the anchor's", chain: []string{built[0], genuineAnchor}},
+	}
+
+	configurations := []struct {
+		name           string
+		cfg            model.Configuration
+		anchorKeysHeld bool
+	}{
+		{name: "no keys held", cfg: model.Configuration{HttpClient: client}},
+		{name: "the anchor's keys held", cfg: model.Configuration{HttpClient: client, TrustAnchors: map[model.EntityIdentifier]josemodel.Jwks{anchor: parsed[2].JWKs}}, anchorKeysHeld: true},
+	}
+
+	for _, tc := range tests {
+		for _, configuration := range configurations {
+			t.Run(tc.name+" with "+configuration.name, func(t *testing.T) {
+				supplied := slices.Clone(tc.chain)
+				_, err := ResolveMetadata(t.Context(), configuration.cfg, anchor, anchor, tc.chain, nil)
+				if !slices.Equal(tc.chain, supplied) {
+					t.Error("the caller's chain must be left as the caller supplied it")
+				}
+				if tc.resolve {
+					if err != nil {
+						t.Fatalf("[4] a genuine trust chain must resolve, got %v", err)
+					}
+					return
+				}
+				if err == nil {
+					t.Fatal("[4] a trust chain ends in at most one entity configuration of the trust anchor, after a subordinate statement it issued, so this chain must be refused")
+				}
+				if !configuration.anchorKeysHeld && !errors.Is(err, model.ErrInvalidTrustChain) {
+					t.Errorf("[4] expected the malformed chain to be refused as an invalid trust chain, got %v", err)
+				}
+			})
+		}
+	}
+}
+
 func TestResolveMetadata_ConfiguredTrustAnchorKeys(t *testing.T) {
 	tests := []struct {
 		name      string

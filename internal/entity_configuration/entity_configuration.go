@@ -85,7 +85,7 @@ func fetch(ctx context.Context, cfg model.Configuration, entityIdentifier model.
 	}
 	cfg.LogInfo(ctx, "entity configuration retrieved", slog.String("subject", string(entityIdentifier)))
 
-	if !strings.Contains(response.Header.Get("Content-Type"), "application/entity-statement+jwt") { //todo: check on this - not sure if it has to be an exact match or not...
+	if !model.IsEntityStatementMediaType(response.Header.Get("Content-Type")) {
 		return nil, nil, fmt.Errorf("invalid Content-Type response from %q's entity configuration: %s", entityIdentifier, model.TruncateForResponse(response.Header.Get("Content-Type")))
 	}
 

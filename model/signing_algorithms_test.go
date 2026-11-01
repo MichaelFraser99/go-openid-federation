@@ -62,7 +62,7 @@ func TestConfiguration_VerifySigningAlgorithms(t *testing.T) {
 		"HS384":                   {configured: []jwa.Algorithm{jwa.HS384}, expectErr: "HS384"},
 		"HS512":                   {configured: []jwa.Algorithm{jwa.HS512}, expectErr: "HS512"},
 		"undefined":               {configured: []jwa.Algorithm{jwa.Unknown}, expectErr: "an algorithm go-jose does not define"},
-		"ML-DSA":                  {configured: []jwa.Algorithm{jwa.MLDSA44}, expectErr: "ML-DSA-44, which this library cannot verify with"},
+		"ML-DSA":                  {configured: []jwa.Algorithm{jwa.MLDSA44, jwa.MLDSA65, jwa.MLDSA87}},
 	}
 
 	for name, tc := range tests {

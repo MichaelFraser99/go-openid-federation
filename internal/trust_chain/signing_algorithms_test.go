@@ -106,7 +106,6 @@ func TestBuildTrustChain_AnUnusableAlgorithmListIsRefusedBeforeAnyRequest(t *tes
 		{name: "HS384", algorithms: []jwa.Algorithm{jwa.HS384}},
 		{name: "HS512", algorithms: []jwa.Algorithm{jwa.HS512}},
 		{name: "an algorithm go-jose does not define", algorithms: []jwa.Algorithm{jwa.Unknown}},
-		{name: "ML-DSA, which this library does not yet accept", algorithms: []jwa.Algorithm{jwa.MLDSA65}},
 	}
 
 	for _, tc := range tests {

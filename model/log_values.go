@@ -9,15 +9,22 @@ import (
 
 const MaxLoggedValueBytes = 1024
 
-func truncateLoggedValue(value string) string {
-	if len(value) <= MaxLoggedValueBytes {
+func TruncateAtCharacter(value string, limit int) string {
+	if len(value) <= limit {
 		return value
 	}
-	cut := MaxLoggedValueBytes
-	for cut > 0 && !utf8.RuneStart(value[cut]) {
+	cut := limit
+	for step := 0; step < utf8.UTFMax-1 && cut > 0 && !utf8.RuneStart(value[cut]); step++ {
 		cut--
 	}
+	if !utf8.RuneStart(value[cut]) {
+		cut = limit
+	}
 	return value[:cut] + "..."
+}
+
+func truncateLoggedValue(value string) string {
+	return TruncateAtCharacter(value, MaxLoggedValueBytes)
 }
 
 func boundLogArgs(args []any) []any {

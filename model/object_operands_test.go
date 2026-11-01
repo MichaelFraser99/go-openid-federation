@@ -263,17 +263,18 @@ func TestOperandSet_NilCandidate(t *testing.T) {
 }
 
 func TestProcessAndExtractPolicy_NullOperandValueDoesNotPanic(t *testing.T) {
-	var policy MetadataPolicy
-	if err := json.Unmarshal([]byte(`{"openid_relying_party":{"contacts":{"value":["a"],"subset_of":[null,"a"]}}}`), &policy); err != nil {
-		t.Fatalf("the policy fixture did not parse: %v", err)
-	}
-	subordinate := EntityStatement{Iss: "https://ta.example.com", Sub: "https://leaf.example.com", MetadataPolicy: &policy}
-
 	defer func() {
 		if r := recover(); r != nil {
 			t.Fatalf("a null element in a peer supplied operand panicked: %v", r)
 		}
 	}()
+
+	var policy MetadataPolicy
+	if err := json.Unmarshal([]byte(`{"openid_relying_party":{"contacts":{"value":["a"],"subset_of":[null,"a"]}}}`), &policy); err != nil {
+		t.Logf("policy error at parse, which is acceptable: %v", err)
+		return
+	}
+	subordinate := EntityStatement{Iss: "https://ta.example.com", Sub: "https://leaf.example.com", MetadataPolicy: &policy}
 
 	if _, err := ProcessAndExtractPolicy([]EntityStatement{subordinate}); err != nil {
 		t.Logf("policy error, which is acceptable: %v", err)

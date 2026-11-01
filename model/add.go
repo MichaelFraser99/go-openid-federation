@@ -40,7 +40,19 @@ func (a Add) String() string {
 }
 
 func (a Add) Resolve(metadataParameterValue any) (any, error) {
-	return a.combineArray(metadataParameterValue)
+	combined, err := a.combineArray(metadataParameterValue)
+	if err != nil {
+		return nil, err
+	}
+	sliceValue := reflect.ValueOf(combined)
+	elements := make([]any, sliceValue.Len())
+	for i := range sliceValue.Len() {
+		elements[i] = sliceValue.Index(i).Interface()
+	}
+	if fault := listElementsFault(elements); fault != "" {
+		return nil, fmt.Errorf("the metadata parameter with the 'add' operand added must be an array of one of strings, numbers or objects, and %s", fault)
+	}
+	return combined, nil
 }
 
 func (a Add) ResolutionHierarchy() int {

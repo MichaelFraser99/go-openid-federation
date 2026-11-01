@@ -36,7 +36,63 @@ func operandSliceFrom(operatorValue any) ([]any, error) {
 	for i := range sliceValue.Len() {
 		anySlice[i] = sliceValue.Index(i).Interface()
 	}
+	if fault := listElementsFault(anySlice); fault != "" {
+		return nil, fmt.Errorf("operator value must be an array of one of strings, numbers or objects, and %s", fault)
+	}
 	return anySlice, nil
+}
+
+func listElementsFault(elements []any) string {
+	elementType := ""
+	for _, element := range elements {
+		named := listOperandElementType(element)
+		if named == "" {
+			return "holds " + jsonTypeName(element)
+		}
+		if elementType != "" && named != elementType {
+			return fmt.Sprintf("mixes %s and %s", elementType, named)
+		}
+		elementType = named
+	}
+	return ""
+}
+
+func listOperandElementType(element any) string {
+	if element == nil {
+		return ""
+	}
+	if _, ok := element.(json.Number); ok {
+		return "numbers"
+	}
+	switch reflect.TypeOf(element).Kind() {
+	case reflect.String:
+		return "strings"
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
+		return "numbers"
+	case reflect.Map:
+		if reflect.TypeOf(element).Key().Kind() == reflect.String {
+			return "objects"
+		}
+	}
+	return ""
+}
+
+func jsonTypeName(value any) string {
+	if value == nil {
+		return "null"
+	}
+	switch reflect.TypeOf(value).Kind() {
+	case reflect.Bool:
+		return "a boolean"
+	case reflect.Slice, reflect.Array:
+		return "an array"
+	case reflect.Map:
+		return "an object with keys that are not strings"
+	default:
+		return "a value of type " + reflect.TypeOf(value).String()
+	}
 }
 
 const operandWalkBudget = 100_000

@@ -234,12 +234,15 @@ func (cfg *ServerConfiguration) GetSubordinate(ctx context.Context, identifier E
 	cached := i.subordinates[identifier]
 	i.mu.RUnlock()
 
-	if cached != nil && time.Now().UTC().Before(time.Unix(cached.CachedAt, 0).Add(i.SubordinateCacheTime).UTC()) {
-		return cached, nil
+	if cfg.MetadataRetriever == nil {
+		if cached != nil {
+			return cached, nil
+		}
+		return nil, NewNotFoundError(fmt.Sprintf("subordinate entity %s not found", identifier))
 	}
 
-	if cfg.MetadataRetriever == nil {
-		return nil, NewNotFoundError(fmt.Sprintf("subordinate entity %s not found", identifier))
+	if cached != nil && time.Now().UTC().Before(time.Unix(cached.CachedAt, 0).Add(i.SubordinateCacheTime).UTC()) {
+		return cached, nil
 	}
 
 	entity, err := cfg.MetadataRetriever.GetSubordinate(ctx, identifier)

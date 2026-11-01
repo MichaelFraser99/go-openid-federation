@@ -93,7 +93,6 @@ Setting `IntermediateConfiguration` marks an entity as an authority and enables 
 ```go
 intermediate := &model.IntermediateConfiguration{
 	SubordinateStatementLifetime: time.Hour,
-	SubordinateCacheTime:         5 * time.Minute,
 }
 
 intermediate.AddSubordinate("https://rp.example.com", &model.SubordinateConfiguration{
@@ -367,6 +366,12 @@ type SubordinateStatusRetriever interface {
 ```
 
 Subordinates retrieved through a `Retriever` are cached for `IntermediateConfiguration.SubordinateCacheTime`. `FlushCache` invalidates the cache.
+
+With no `Retriever`, the subordinates you add with `AddSubordinate` are the store itself, not a cache. They are served until you call `FlushCache`, which removes them all, and `SubordinateCacheTime` does not apply. There is no way to remove one subordinate on its own.
+
+With a `Retriever`, `AddSubordinate` only seeds the cache. `/fetch` serves the entry until `SubordinateCacheTime` passes, and then asks the `Retriever`, whose answer replaces it. `/list` never shows it, because `/list` asks the `Retriever`.
+
+> **Breaking change.** In v0.11.0-rc.2, a subordinate added with `AddSubordinate` and no `Retriever` stopped being served by `/fetch` once `SubordinateCacheTime` had passed, and at once with the zero value, although `/list` still listed it. It is now served for as long as it is held. If you relied on `SubordinateCacheTime` to expire such entries, remove them with `FlushCache` instead.
 
 #### What to return when the subject is unknown
 

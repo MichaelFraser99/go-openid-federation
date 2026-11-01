@@ -72,6 +72,7 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 		}
 		response.ImmediateSubordinateEntities = entities
 
+		published := s.newPublishedKeys()
 		for i, subordinateEntity := range response.ImmediateSubordinateEntities {
 			identifier, ok := subordinateEntity["id"].(string)
 			if !ok {
@@ -86,9 +87,9 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 			}
 
 			//todo: this is going to need some form of caching mechanism to not be extremely expensive to run - we might want to drop this parameter from the draft
-			token, err := subordinate_statement.New(ctx, *parsedIdentifier, s.loadSubordinate(ctx, *parsedIdentifier), s.cfg)
+			token, err := subordinate_statement.New(ctx, *parsedIdentifier, s.loadSubordinate(ctx, *parsedIdentifier, published), s.cfg)
 			if err != nil {
-				if !errors.Is(err, model.ErrNotFound) && !errors.Is(err, model.ErrInvalidSubject) {
+				if !errors.Is(err, model.ErrNotFound) && !errors.Is(err, model.ErrInvalidSubject) && !errors.As(err, new(signerNotPublished)) {
 					s.logFailure(ctx, "error creating subordinate statement", err, slog.String("error", err.Error()))
 					if errors.Is(err, model.ErrTemporarilyUnavailable) {
 						return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(extendedListingUnavailableError))

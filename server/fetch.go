@@ -30,7 +30,7 @@ func (s *Server) Fetch(w http.ResponseWriter, r *http.Request) ResponseFunc {
 		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("an entity cannot issue a subordinate statement for itself"))
 	}
 
-	token, err := subordinate_statement.New(ctx, *parsedSub, s.loadSubordinate(ctx, *parsedSub), s.cfg)
+	token, err := subordinate_statement.New(ctx, *parsedSub, s.loadSubordinate(ctx, *parsedSub, s.newPublishedKeys()), s.cfg)
 	if err != nil {
 		classified := s.retrieverError(err, subordinateStatementUnavailableError)
 		s.logFailure(ctx, "error creating subordinate statement", classified, slog.String("error", err.Error()))

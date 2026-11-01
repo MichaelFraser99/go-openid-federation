@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 
+	josemodel "github.com/MichaelFraser99/go-jose/model"
+	"github.com/MichaelFraser99/go-openid-federation/internal/entity_configuration"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -167,6 +169,35 @@ func (s *Server) logFailure(ctx context.Context, msg string, response error, arg
 
 const subordinateRetrievalFailureError = "unable to retrieve the subordinate configuration at this time"
 
+const subordinateSignerUnpublishedError = "unable to sign a subordinate statement for this subject at this time"
+
+type signerNotPublished struct{ error }
+
+func (e signerNotPublished) Unwrap() error { return e.error }
+
+type publishedKeys struct {
+	once sync.Once
+	cfg  model.ServerConfiguration
+	keys josemodel.Jwks
+	err  error
+}
+
+func (s *Server) newPublishedKeys() *publishedKeys {
+	cfg := s.cfg
+	cfg.Logger = nil
+	return &publishedKeys{cfg: cfg}
+}
+
+func (p *publishedKeys) verify(ctx context.Context, signer model.SignerConfiguration) error {
+	p.once.Do(func() {
+		p.keys, p.err = entity_configuration.PublishedKeySet(ctx, p.cfg)
+	})
+	if p.err != nil {
+		return fmt.Errorf("the published key set cannot be built: %s", p.err.Error())
+	}
+	return entity_configuration.VerifySignerPublished(p.keys, signer)
+}
+
 const unexpectedFailureError = "an unexpected failure occurred while serving this request"
 
 func (s *Server) handle(handler func(http.ResponseWriter, *http.Request) ResponseFunc) http.HandlerFunc {
@@ -198,7 +229,7 @@ func (s *Server) handle(handler func(http.ResponseWriter, *http.Request) Respons
 
 //todo: check all handler functions for duplicated code - prepared to put money on there being a good load of it
 
-func (s *Server) loadSubordinate(ctx context.Context, identifier model.EntityIdentifier) func() (*model.SubordinateConfiguration, *model.SignerConfiguration, error) {
+func (s *Server) loadSubordinate(ctx context.Context, identifier model.EntityIdentifier, published *publishedKeys) func() (*model.SubordinateConfiguration, *model.SignerConfiguration, error) {
 	return func() (*model.SubordinateConfiguration, *model.SignerConfiguration, error) {
 		subordinate, err := s.cfg.GetSubordinate(ctx, identifier)
 		if err != nil {
@@ -211,6 +242,10 @@ func (s *Server) loadSubordinate(ctx context.Context, identifier model.EntityIde
 			return nil, &s.cfg.SignerConfiguration, loggedFailure{classified}
 		}
 		if subordinate.SignerConfiguration != nil {
+			if err := published.verify(ctx, *subordinate.SignerConfiguration); err != nil {
+				s.cfg.LogError(ctx, "refusing to sign with a subordinate signer whose key is not the one this authority publishes under its key ID, because no resolver could verify the statement", slog.String("sub", string(identifier)), slog.String("kid", subordinate.SignerConfiguration.KeyID), slog.String("error", err.Error()))
+				return nil, nil, loggedFailure{signerNotPublished{model.NewServerError(subordinateSignerUnpublishedError)}}
+			}
 			return subordinate, subordinate.SignerConfiguration, nil
 		} else {
 			return subordinate, &s.cfg.SignerConfiguration, nil

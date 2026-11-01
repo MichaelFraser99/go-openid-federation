@@ -278,87 +278,9 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 		entityConfiguration.Metadata = &metadata
 	}
 
-	if cfg.SignerConfiguration.KeyID == "" {
-		return nil, fmt.Errorf("key ID cannot be empty")
-	}
-
-	publicJWK, err := jwk.PublicJwk(cfg.SignerConfiguration.Signer.Public())
+	jwks, err := PublishedKeySet(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to convert provided signer public key to a jwk: %s", err.Error())
-	}
-	(*publicJWK)["kid"] = cfg.SignerConfiguration.KeyID
-	(*publicJWK)["alg"] = cfg.SignerConfiguration.Algorithm
-
-	jwks := josemodel.Jwks{}
-	jwks.Opts.EnforceUniqueKIDs = true
-	seen := map[string]struct{}{}
-	for _, key := range cfg.EntityConfiguration.JWKs.Keys {
-		kid, ok := key["kid"]
-		if !ok {
-			return nil, fmt.Errorf("all provided jwk values in entity cfg must have a `kid` claim - missing from one or more")
-		}
-		sKid, ok := kid.(string)
-		if !ok {
-			return nil, fmt.Errorf("one or more provided jwk values have a malformed `kid` claim")
-		}
-		if _, duplicate := seen[sKid]; duplicate {
-			return nil, fmt.Errorf("all provided jwk values in entity cfg must have unique `kid` claims - %q appears more than once", sKid)
-		}
-		if err := model.ValidateJWKShape(key); err != nil {
-			return nil, fmt.Errorf("the provided jwk value with key ID %q %s", model.TruncateForResponse(sKid), err.Error())
-		}
-		if err := model.VerifyPublishableJWK(key); err != nil {
-			return nil, fmt.Errorf("refusing to publish the jwk value with key ID %q because it %s", model.TruncateForResponse(sKid), err.Error())
-		}
-		if err := verifyConfiguredKey(key, model.VerifyKeyStrength); err != nil {
-			return nil, fmt.Errorf("the provided jwk value with key ID %q %s", model.TruncateForResponse(sKid), err.Error())
-		}
-		seen[sKid] = struct{}{}
-		jwks.Keys = append(jwks.Keys, key)
-	}
-
-	if existing, _ := jwks.RetrieveByKeyID(cfg.SignerConfiguration.KeyID); len(existing) > 0 {
-		if err := publishedKeyUsableForSigning(existing[0], *publicJWK, cfg.SignerConfiguration.Signer.Public()); err != nil {
-			return nil, fmt.Errorf("a configured jwk uses the signing key ID %q but %s, so the issued statement could not be verified", cfg.SignerConfiguration.KeyID, err.Error())
-		}
-	} else {
-		jwks.Keys = append(jwks.Keys, *publicJWK)
-	}
-
-	if cfg.IntermediateConfiguration != nil {
-		subordinateSignerConfigurations, err := cfg.GetSubordinateJWKs(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get subordinate signer configurations: %s", err.Error())
-		}
-		for _, signerConfiguration := range subordinateSignerConfigurations {
-			apkJWK, err := jwk.PublicJwk(signerConfiguration.Signer.Public())
-			if err != nil {
-				return nil, fmt.Errorf("failed to convert override signer public key to a jwk: %s", err.Error())
-			}
-			(*apkJWK)["kid"] = signerConfiguration.KeyID
-			(*apkJWK)["alg"] = signerConfiguration.Algorithm
-
-			if err := model.VerifyIssuanceAlgorithm(signerConfiguration.Algorithm); err != nil {
-				cfg.LogError(ctx, "not publishing a subordinate signer key because its algorithm cannot be signed with, so statements it signs could not be verified", slog.String("kid", model.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
-				continue
-			}
-
-			if err := model.VerifyKeyStrength(*apkJWK, signerConfiguration.Algorithm); err != nil {
-				cfg.LogError(ctx, "not publishing a subordinate signer key because its modulus is outside the sizes this library verifies for the algorithm it signs with, so statements it signs cannot be verified", slog.String("kid", model.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
-				continue
-			}
-
-			if existing, _ := jwks.RetrieveByKeyID(signerConfiguration.KeyID); len(existing) > 0 {
-				if err := publishedKeyUsableForSigning(existing[0], *apkJWK, signerConfiguration.Signer.Public()); err != nil {
-					cfg.LogError(ctx, "not publishing a subordinate signer key because a key already published under its key ID does not match it, so statements it signs could not be verified", slog.String("kid", model.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
-				}
-				continue
-			}
-			if err := jwks.Add(*apkJWK); err != nil {
-				cfg.LogError(ctx, "not publishing a subordinate signer key because it could not be added to the published key set", slog.String("kid", model.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
-				continue
-			}
-		}
+		return nil, err
 	}
 
 	entityConfiguration.JWKs = jwks
@@ -433,6 +355,110 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 	}
 
 	return token, nil
+}
+
+func PublishedKeySet(ctx context.Context, cfg model.ServerConfiguration) (josemodel.Jwks, error) {
+	if cfg.SignerConfiguration.KeyID == "" {
+		return josemodel.Jwks{}, fmt.Errorf("key ID cannot be empty")
+	}
+
+	publicJWK, err := jwk.PublicJwk(cfg.SignerConfiguration.Signer.Public())
+	if err != nil {
+		return josemodel.Jwks{}, fmt.Errorf("failed to convert provided signer public key to a jwk: %s", err.Error())
+	}
+	(*publicJWK)["kid"] = cfg.SignerConfiguration.KeyID
+	(*publicJWK)["alg"] = cfg.SignerConfiguration.Algorithm
+
+	jwks := josemodel.Jwks{}
+	jwks.Opts.EnforceUniqueKIDs = true
+	seen := map[string]struct{}{}
+	for _, key := range cfg.EntityConfiguration.JWKs.Keys {
+		kid, ok := key["kid"]
+		if !ok {
+			return josemodel.Jwks{}, fmt.Errorf("all provided jwk values in entity cfg must have a `kid` claim - missing from one or more")
+		}
+		sKid, ok := kid.(string)
+		if !ok {
+			return josemodel.Jwks{}, fmt.Errorf("one or more provided jwk values have a malformed `kid` claim")
+		}
+		if _, duplicate := seen[sKid]; duplicate {
+			return josemodel.Jwks{}, fmt.Errorf("all provided jwk values in entity cfg must have unique `kid` claims - %q appears more than once", sKid)
+		}
+		if err := model.ValidateJWKShape(key); err != nil {
+			return josemodel.Jwks{}, fmt.Errorf("the provided jwk value with key ID %q %s", model.TruncateForResponse(sKid), err.Error())
+		}
+		if err := model.VerifyPublishableJWK(key); err != nil {
+			return josemodel.Jwks{}, fmt.Errorf("refusing to publish the jwk value with key ID %q because it %s", model.TruncateForResponse(sKid), err.Error())
+		}
+		if err := verifyConfiguredKey(key, model.VerifyKeyStrength); err != nil {
+			return josemodel.Jwks{}, fmt.Errorf("the provided jwk value with key ID %q %s", model.TruncateForResponse(sKid), err.Error())
+		}
+		seen[sKid] = struct{}{}
+		jwks.Keys = append(jwks.Keys, key)
+	}
+
+	if existing, _ := jwks.RetrieveByKeyID(cfg.SignerConfiguration.KeyID); len(existing) > 0 {
+		if err := publishedKeyUsableForSigning(existing[0], *publicJWK, cfg.SignerConfiguration.Signer.Public()); err != nil {
+			return josemodel.Jwks{}, fmt.Errorf("a configured jwk uses the signing key ID %q but %s, so the issued statement could not be verified", cfg.SignerConfiguration.KeyID, err.Error())
+		}
+	} else {
+		jwks.Keys = append(jwks.Keys, *publicJWK)
+	}
+
+	if cfg.IntermediateConfiguration != nil {
+		subordinateSignerConfigurations, err := cfg.GetSubordinateJWKs(ctx)
+		if err != nil {
+			return josemodel.Jwks{}, fmt.Errorf("failed to get subordinate signer configurations: %s", err.Error())
+		}
+		for _, signerConfiguration := range subordinateSignerConfigurations {
+			apkJWK, err := jwk.PublicJwk(signerConfiguration.Signer.Public())
+			if err != nil {
+				return josemodel.Jwks{}, fmt.Errorf("failed to convert override signer public key to a jwk: %s", err.Error())
+			}
+			(*apkJWK)["kid"] = signerConfiguration.KeyID
+			(*apkJWK)["alg"] = signerConfiguration.Algorithm
+
+			if err := model.VerifyIssuanceAlgorithm(signerConfiguration.Algorithm); err != nil {
+				cfg.LogError(ctx, "not publishing a subordinate signer key because its algorithm cannot be signed with, so statements it signs could not be verified", slog.String("kid", model.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
+				continue
+			}
+
+			if err := model.VerifyKeyStrength(*apkJWK, signerConfiguration.Algorithm); err != nil {
+				cfg.LogError(ctx, "not publishing a subordinate signer key because its modulus is outside the sizes this library verifies for the algorithm it signs with, so statements it signs cannot be verified", slog.String("kid", model.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
+				continue
+			}
+
+			if existing, _ := jwks.RetrieveByKeyID(signerConfiguration.KeyID); len(existing) > 0 {
+				if err := publishedKeyUsableForSigning(existing[0], *apkJWK, signerConfiguration.Signer.Public()); err != nil {
+					cfg.LogError(ctx, "not publishing a subordinate signer key because a key already published under its key ID does not match it, so statements it signs could not be verified", slog.String("kid", model.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
+				}
+				continue
+			}
+			if err := jwks.Add(*apkJWK); err != nil {
+				cfg.LogError(ctx, "not publishing a subordinate signer key because it could not be added to the published key set", slog.String("kid", model.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
+				continue
+			}
+		}
+	}
+
+	return jwks, nil
+}
+
+func VerifySignerPublished(published josemodel.Jwks, signer model.SignerConfiguration) error {
+	signerJWK, err := jwk.PublicJwk(signer.Signer.Public())
+	if err != nil {
+		return fmt.Errorf("failed to convert the signer's public key to a jwk: %s", err.Error())
+	}
+	(*signerJWK)["kid"] = signer.KeyID
+	(*signerJWK)["alg"] = signer.Algorithm
+	existing, _ := published.RetrieveByKeyID(signer.KeyID)
+	if len(existing) == 0 {
+		return fmt.Errorf("the signer's key ID %q is not in the published key set", model.TruncateForResponse(signer.KeyID))
+	}
+	if err := publishedKeyUsableForSigning(existing[0], *signerJWK, signer.Signer.Public()); err != nil {
+		return fmt.Errorf("the key published under the signer's key ID %q %s", model.TruncateForResponse(signer.KeyID), err.Error())
+	}
+	return nil
 }
 
 func verifyConfiguredKey(key map[string]any, strength func(key map[string]any, alg string) error) error {

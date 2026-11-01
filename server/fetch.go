@@ -32,8 +32,9 @@ func (s *Server) Fetch(w http.ResponseWriter, r *http.Request) ResponseFunc {
 
 	token, err := subordinate_statement.New(ctx, *parsedSub, s.loadSubordinate(ctx, *parsedSub), s.cfg)
 	if err != nil {
-		s.cfg.LogInfo(ctx, "error creating subordinate statement", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, s.retrieverError(err, subordinateStatementUnavailableError))
+		classified := s.retrieverError(err, subordinateStatementUnavailableError)
+		s.logFailure(ctx, "error creating subordinate statement", classified, slog.String("error", err.Error()))
+		return s.RespondWithError(ctx, w, classified)
 	}
 
 	return s.RespondWithEntityStatement(w, []byte(*token))

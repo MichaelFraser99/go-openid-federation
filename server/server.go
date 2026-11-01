@@ -147,6 +147,21 @@ func (s *Server) retrieverError(err error, fallback string) error {
 	return model.NewServerError(fallback)
 }
 
+type loggedServerFault struct{ error }
+
+func (e loggedServerFault) Unwrap() error { return e.error }
+
+func (s *Server) logFailure(ctx context.Context, msg string, response error, args ...any) {
+	if errors.As(response, new(loggedServerFault)) {
+		return
+	}
+	if _, code := errorStatusAndCode(response); code == model.ServerError {
+		s.cfg.LogError(ctx, msg, args...)
+		return
+	}
+	s.cfg.LogInfo(ctx, msg, args...)
+}
+
 const subordinateRetrievalFailureError = "unable to retrieve the subordinate configuration at this time"
 
 const unexpectedFailureError = "an unexpected failure occurred while serving this request"
@@ -184,11 +199,16 @@ func (s *Server) loadSubordinate(ctx context.Context, identifier model.EntityIde
 	return func() (*model.SubordinateConfiguration, *model.SignerConfiguration, error) {
 		subordinate, err := s.cfg.GetSubordinate(ctx, identifier)
 		if err != nil {
-			s.cfg.LogInfo(ctx, "error retrieving subordinate cfg", slog.String("error", err.Error()))
 			if errors.Is(err, model.ErrNotFound) {
+				s.cfg.LogInfo(ctx, "error retrieving subordinate cfg", slog.String("error", err.Error()))
 				return nil, &s.cfg.SignerConfiguration, nil
 			}
-			return nil, &s.cfg.SignerConfiguration, s.retrieverError(err, subordinateRetrievalFailureError)
+			classified := s.retrieverError(err, subordinateRetrievalFailureError)
+			s.logFailure(ctx, "error retrieving subordinate cfg", classified, slog.String("error", err.Error()))
+			if _, code := errorStatusAndCode(classified); code == model.ServerError {
+				return nil, &s.cfg.SignerConfiguration, loggedServerFault{classified}
+			}
+			return nil, &s.cfg.SignerConfiguration, classified
 		}
 		if subordinate.SignerConfiguration != nil {
 			return subordinate, subordinate.SignerConfiguration, nil

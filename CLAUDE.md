@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-A Go library implementing the [OpenID Federation](https://openid.net/specs/openid-federation-1_1.html) specification. It provides the building blocks for participating in a federation as either a **server** (an entity/intermediate/trust anchor that publishes statements and serves federation endpoints) or a **client** (a relying party that builds and resolves trust chains). This is a library, not a runnable service — the `Makefile` `build` target that produces an AWS Lambda `bootstrap`/`main.zip` refers to a `main.go` that does not exist in this repo; treat it as a downstream-consumer packaging convention, not something you can run here.
+A Go library implementing the [OpenID Federation](https://openid.net/specs/openid-federation-1_1.html) specification. It provides the building blocks for participating in a federation as either a **server** (an entity/intermediate/trust anchor that publishes statements and serves federation endpoints) or a **client** (a relying party that builds and resolves trust chains). This is a library, not a runnable service, so the `Makefile` has a `test` target only.
 
 ## Commands
 

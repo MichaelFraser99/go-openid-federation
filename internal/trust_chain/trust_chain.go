@@ -20,6 +20,8 @@ import (
 )
 
 func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEntityIdentifier, targetTrustAnchorEntityIdentifier model.EntityIdentifier, cache *resolvecache.Cache) (trustChain []string, parsedTrustChain []model.EntityStatement, expiry *int64, err error) {
+	ctx, cancel := context.WithTimeout(ctx, cfg.ResolveTimeLimit())
+	defer cancel()
 	cfg.LogInfo(ctx, "building chain between entities", slog.String("leaf", string(targetLeafEntityIdentifier)), slog.String("trust_anchor", string(targetTrustAnchorEntityIdentifier)))
 	if targetLeafEntityIdentifier == targetTrustAnchorEntityIdentifier {
 		return nil, nil, nil, model.NewInvalidRequestError("the subject must not be the trust anchor it is resolved against")
@@ -458,6 +460,8 @@ func retrieveTrustAnchor(ctx context.Context, cfg model.Configuration, trustAnch
 }
 
 func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityIdentifier, trustAnchorEntityIdentifier model.EntityIdentifier, trustChain []string, cache *resolvecache.Cache) (*model.ResolveResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, cfg.ResolveTimeLimit())
+	defer cancel()
 	cfg.LogInfo(ctx, "resolving metadata from trust chain", slog.String("issuer", string(issuerEntityIdentifier)), slog.String("trust_anchor", string(trustAnchorEntityIdentifier)), slog.Int("chain_length", len(trustChain)))
 
 	if err := verifyTrustAnchorRequested(ctx, cfg, trustAnchorEntityIdentifier); err != nil {

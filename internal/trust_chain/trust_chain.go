@@ -86,6 +86,10 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 }
 
 func verifyTrustAnchorRequested(ctx context.Context, cfg model.Configuration, requested model.EntityIdentifier) error {
+	if err := cfg.VerifySigningAlgorithms(); err != nil {
+		cfg.LogError(ctx, "the configured signing algorithms are unusable", slog.String("error", err.Error()))
+		return err
+	}
 	if requested == "" {
 		cfg.LogInfo(ctx, "no trust anchor was named, so a chain cannot be anchored")
 		return model.NewInvalidRequestError("a trust anchor must be named to resolve a trust chain")
@@ -98,7 +102,7 @@ func verifyTrustAnchorRequested(ctx context.Context, cfg model.Configuration, re
 		cfg.LogInfo(ctx, "the requested trust anchor is not one this deployment is configured to trust", slog.String("requested", string(requested)))
 		return model.NewInvalidTrustAnchorError("the requested trust anchor is not one this deployment is configured to trust")
 	}
-	if len(entity_statement.UsableVerificationKeys(keys).Keys) == 0 {
+	if len(entity_statement.UsableVerificationKeys(keys, cfg.AcceptedSigningAlgorithms()).Keys) == 0 {
 		cfg.LogInfo(ctx, "no key configured for the requested trust anchor can verify a signature, so no chain can ever be anchored in it", slog.String("trust_anchor", string(requested)))
 		return model.NewServerError("the keys configured for the requested trust anchor hold no key that can verify a signature")
 	}
@@ -115,12 +119,12 @@ func verifyTrustAnchor(ctx context.Context, cfg model.Configuration, expected mo
 	if !configured {
 		return nil
 	}
-	usable := entity_statement.UsableVerificationKeys(keys)
+	usable := entity_statement.UsableVerificationKeys(keys, cfg.AcceptedSigningAlgorithms())
 	if len(usable.Keys) == 0 {
 		return model.NewServerError("the keys configured for the requested trust anchor hold no key that can verify a signature")
 	}
 
-	if err := entity_statement.VerifyAgainstAnyKey(ctx, signedAnchor, usable); err != nil {
+	if err := entity_statement.VerifyAgainstAnyKey(ctx, signedAnchor, usable, cfg.AcceptedSigningAlgorithms()); err != nil {
 		cfg.LogError(ctx, "trust anchor entity configuration not signed by any key configured for it", slog.String("trust_anchor", string(expected)), slog.String("error", model.TruncateForResponse(err.Error())))
 		return model.NewInvalidTrustAnchorError("the trust anchor entity configuration is not signed by any key configured for it")
 	}
@@ -153,7 +157,7 @@ func verifyChainLinks(ctx context.Context, cfg model.Configuration, signedChain 
 			cfg.LogInfo(ctx, "trust chain entry malformed", slog.Int("entry", i), slog.String("error", model.TruncateForResponse(err.Error())))
 			return model.NewInvalidTrustChainError(fmt.Sprintf("entry %d in the trust chain is malformed", i))
 		}
-		if err = entity_statement.VerifyAgainstJwks(ctx, signedChain[i], *kid, parsedChain[i+1].JWKs); err != nil {
+		if err = entity_statement.VerifyAgainstJwks(ctx, signedChain[i], *kid, parsedChain[i+1].JWKs, cfg.AcceptedSigningAlgorithms()); err != nil {
 			cfg.LogInfo(ctx, "trust chain entry not signed by a key published in the statement above it", slog.Int("entry", i), slog.String("kid", model.TruncateForResponse(*kid)), slog.String("error", model.TruncateForResponse(err.Error())))
 			return model.NewInvalidTrustChainError(fmt.Sprintf("entry %d in the trust chain is not signed by a key published for it in the statement above it", i))
 		}
@@ -600,7 +604,7 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 	}
 
 	cfg.LogInfo(ctx, "verifying subject entity configuration against the key published by its superior", slog.String("kid", *subjectKid))
-	if err = entity_statement.VerifyAgainstJwks(ctx, trustChain[0], *subjectKid, processedChain[1].JWKs); err != nil {
+	if err = entity_statement.VerifyAgainstJwks(ctx, trustChain[0], *subjectKid, processedChain[1].JWKs, cfg.AcceptedSigningAlgorithms()); err != nil {
 		cfg.LogInfo(ctx, "subject entity configuration not signed by a key published for it by its superior", slog.String("kid", model.TruncateForResponse(*subjectKid)), slog.String("error", model.TruncateForResponse(err.Error())))
 		return nil, model.NewInvalidTrustChainError("the subject's entity configuration is not signed by the key registered for it in the subordinate statement above it")
 	}

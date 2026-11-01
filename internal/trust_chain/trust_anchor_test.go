@@ -348,10 +348,10 @@ func TestResolveMetadata_ConfiguredTrustAnchorKeys(t *testing.T) {
 			expectErr: "no key that can verify a signature",
 		},
 		{
-			name:      "an anchor configured with an Ed25519 key this library cannot verify with is this deployment's own fault",
+			name:      "an anchor configured with an Ed448 key this library cannot verify with is this deployment's own fault",
 			reference: "8.9",
 			configure: func(*testing.T, *rsa.PrivateKey) map[model.EntityIdentifier]josemodel.Jwks {
-				return map[model.EntityIdentifier]josemodel.Jwks{chainAnchor: {Keys: []map[string]any{{"kid": "ed", "kty": "OKP", "crv": "Ed25519", "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}}}}
+				return map[model.EntityIdentifier]josemodel.Jwks{chainAnchor: {Keys: []map[string]any{{"kid": "ed", "kty": "OKP", "crv": "Ed448", "x": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4"}}}}
 			},
 			expectErr: "no key that can verify a signature",
 		},
@@ -823,7 +823,7 @@ func TestResolveMetadata_AnUnusableConfiguredSetCostsNoRequest(t *testing.T) {
 		reference string
 		keys      []map[string]any
 	}{
-		{name: "an Ed25519 key", reference: "8.9", keys: []map[string]any{{"kid": "ed", "kty": "OKP", "crv": "Ed25519", "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}}},
+		{name: "an Ed448 key", reference: "8.9", keys: []map[string]any{{"kid": "ed", "kty": "OKP", "crv": "Ed448", "x": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4"}}},
 		{name: "a symmetric key", reference: "8.9", keys: []map[string]any{{"kid": "oct", "kty": "oct", "k": "AQAB"}}},
 		{name: "an RSA key published for an algorithm this library cannot verify with", reference: "8.9", keys: []map[string]any{{"kid": "rsa", "kty": "RSA", "n": "AQAB", "e": "AQAB", "alg": "EdDSA"}}},
 		{name: "a key with no kty", reference: "8.9", keys: []map[string]any{{"kid": "broken"}}},
@@ -946,7 +946,7 @@ func TestVerifyTrustAnchor_RefusesAnUnusableConfiguredSetAtTheChainToo(t *testin
 		expectErr error
 	}{
 		{name: "the anchor's own key", reference: "10.2", keys: []map[string]any{anchorKeySet(t, anchorKey.Public(), nil).Keys[0]}},
-		{name: "an Ed25519 key", reference: "8.9", keys: []map[string]any{{"kid": "ed", "kty": "OKP", "crv": "Ed25519", "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}}, expectErr: model.ErrServerError},
+		{name: "an Ed448 key", reference: "8.9", keys: []map[string]any{{"kid": "ed", "kty": "OKP", "crv": "Ed448", "x": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4"}}, expectErr: model.ErrServerError},
 		{name: "a key with no kty", reference: "8.9", keys: []map[string]any{{"kid": "broken"}}, expectErr: model.ErrServerError},
 	}
 

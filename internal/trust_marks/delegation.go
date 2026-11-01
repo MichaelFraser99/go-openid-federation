@@ -211,7 +211,7 @@ func verifyDelegation(ctx context.Context, cfg model.Configuration, mark model.T
 
 	unusable := 0
 	for _, selectedKey := range selectedKeys {
-		if err := entity_statement.VerifySelectedKey(delegation, selectedKey); err != nil {
+		if err := entity_statement.VerifySelectedKey(delegation, selectedKey, cfg.AcceptedSigningAlgorithms()); err != nil {
 			cfg.LogError(ctx, "an owner key named by the delegation cannot verify it", slog.String("kid", model.TruncateForResponse(kid)), slog.String("owner", string(owner.Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
 			unusable++
 			continue

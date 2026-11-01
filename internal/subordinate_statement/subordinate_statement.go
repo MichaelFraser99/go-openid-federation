@@ -175,7 +175,7 @@ func validate(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 		return nil, fmt.Errorf("malformed header claim 'kid'")
 	}
 
-	if err = entity_statement.VerifyAgainstJwks(ctx, subordinateStatementJwt, sKid, issuer.JWKs); err != nil {
+	if err = entity_statement.VerifyAgainstJwks(ctx, subordinateStatementJwt, sKid, issuer.JWKs, cfg.AcceptedSigningAlgorithms()); err != nil {
 		return nil, err
 	}
 	for _, claim := range []string{"authority_hints", "trust_anchor_hints", "trust_marks", "trust_mark_issuers", "trust_mark_owners"} {

@@ -52,6 +52,9 @@ func listOperandElementType(element any) string {
 	if element == nil {
 		return ""
 	}
+	if _, ok := element.(json.Number); ok {
+		return "numbers"
+	}
 	switch reflect.TypeOf(element).Kind() {
 	case reflect.String:
 		return "strings"

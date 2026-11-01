@@ -210,7 +210,7 @@ func TestOperands_AddDeduplicatesValuesWithNoJSONEncoding(t *testing.T) {
 	}{
 		{
 			name:     "an infinity already present in the metadata",
-			metadata: []any{"x", math.Inf(1)},
+			metadata: []any{1.0, math.Inf(1)},
 			operand:  []any{math.Inf(1)},
 			expect:   2,
 		},
@@ -228,7 +228,7 @@ func TestOperands_AddDeduplicatesValuesWithNoJSONEncoding(t *testing.T) {
 		},
 		{
 			name:     "an operand the metadata does not hold",
-			metadata: []any{"x"},
+			metadata: []any{1.0},
 			operand:  []any{math.Inf(1)},
 			expect:   2,
 		},

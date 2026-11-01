@@ -105,3 +105,63 @@ func TestProcessAndExtractPolicy_MergingOperandsOfDifferentTypesIsAPolicyError(t
 		})
 	}
 }
+
+func TestApplyPolicy_AddDoesNotMixItsOperandIntoMetadataOfAnotherType(t *testing.T) {
+	tests := map[string]struct {
+		parameter string
+		metadata  any
+		operand   string
+		expect    []any
+		expectErr bool
+	}{
+		"numbers added to strings":                    {metadata: []any{"a@example.com"}, operand: `[1,2]`, expectErr: true},
+		"strings added to numbers":                    {metadata: []any{1.0}, operand: `["a"]`, expectErr: true},
+		"objects added to strings":                    {metadata: []any{"a"}, operand: `[{"b":1}]`, expectErr: true},
+		"strings added to a metadata of booleans":     {metadata: []any{true}, operand: `["a"]`, expectErr: true},
+		"strings added to strings":                    {metadata: []any{"a@example.com"}, operand: `["b@example.com"]`, expect: []any{"a@example.com", "b@example.com"}},
+		"numbers added to numbers":                    {metadata: []any{1.0}, operand: `[2]`, expect: []any{1.0, 2.0}},
+		"strings added to an empty array":             {metadata: []any{}, operand: `["a"]`, expect: []any{"a"}},
+		"strings added where the parameter is absent": {operand: `["a"]`, expect: []any{"a"}},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			parameter := tc.parameter
+			if parameter == "" {
+				parameter = "contacts"
+			}
+			policy := chainPolicy(t, `{"openid_relying_party":{"`+parameter+`":{"add":`+tc.operand+`}}}`)
+			rp := OpenIDRelyingPartyMetadata{"client_name": "rp"}
+			if tc.metadata != nil {
+				rp[parameter] = tc.metadata
+			}
+			subject := EntityStatement{Sub: "https://leaf.example.com", Iss: "https://leaf.example.com", Metadata: &Metadata{OpenIDRelyingPartyMetadata: &rp}}
+
+			resolved, err := ApplyPolicy(subject, *policy)
+			if tc.expectErr {
+				if err == nil {
+					t.Fatalf("[6.1.3.1.2] add must not leave a mixed or unsupported array, got %v", (*resolved.Metadata.OpenIDRelyingPartyMetadata)[parameter])
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("expected add to resolve, got %v", err)
+			}
+			got := (*resolved.Metadata.OpenIDRelyingPartyMetadata)[parameter]
+			encodedGot, _ := json.Marshal(got)
+			encodedExpect, _ := json.Marshal(tc.expect)
+			if string(encodedGot) != string(encodedExpect) {
+				t.Errorf("expected %s, got %s", encodedExpect, encodedGot)
+			}
+		})
+	}
+}
+
+func TestPolicyOperators_AJSONNumberIsANumber(t *testing.T) {
+	if _, err := NewOneOf([]any{json.Number("1"), "a"}); err == nil {
+		t.Errorf("[6.1.3] a json.Number beside a string is a mixed array")
+	}
+	if _, err := NewOneOf([]any{json.Number("1"), 2.0}); err != nil {
+		t.Errorf("a json.Number beside a float64 is an array of numbers, got %v", err)
+	}
+}

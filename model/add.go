@@ -40,7 +40,14 @@ func (a Add) String() string {
 }
 
 func (a Add) Resolve(metadataParameterValue any) (any, error) {
-	return a.combineArray(metadataParameterValue)
+	combined, err := a.combineArray(metadataParameterValue)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := operandSliceFrom(combined); err != nil {
+		return nil, fmt.Errorf("the metadata parameter with the 'add' operand added is not an array of one of strings, numbers or objects: %w", err)
+	}
+	return combined, nil
 }
 
 func (a Add) ResolutionHierarchy() int {

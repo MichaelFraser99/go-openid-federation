@@ -52,6 +52,9 @@ func (s *Server) SetHttpClient(client *http.Client) {
 func (s *Server) AddAuthorityHint(entityIdentifier model.EntityIdentifier) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if slices.Contains(s.authorityHints, entityIdentifier) {
+		return
+	}
 	hints := make([]model.EntityIdentifier, len(s.authorityHints), len(s.authorityHints)+1)
 	copy(hints, s.authorityHints)
 	s.authorityHints = append(hints, entityIdentifier)

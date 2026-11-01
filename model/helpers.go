@@ -399,10 +399,7 @@ func VerifyIssuedStatement(claims []byte, registry EntityTypeRegistry) error {
 const MaxErrorDescriptionBytes = 256
 
 func TruncateForResponse(value string) string {
-	if len(value) <= MaxErrorDescriptionBytes {
-		return value
-	}
-	return value[:MaxErrorDescriptionBytes] + "..."
+	return TruncateAtCharacter(value, MaxErrorDescriptionBytes)
 }
 
 func VerifyChainExpiry(exp int64) error {

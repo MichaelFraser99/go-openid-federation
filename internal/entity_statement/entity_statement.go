@@ -19,10 +19,7 @@ import (
 const maxQuotedHeaderBytes = 64
 
 func truncateHeaderValue(value string) string {
-	if len(value) <= maxQuotedHeaderBytes {
-		return value
-	}
-	return value[:maxQuotedHeaderBytes] + "..."
+	return model.TruncateAtCharacter(value, maxQuotedHeaderBytes)
 }
 
 func ValidateStatementHeader(headMap map[string]any) error {

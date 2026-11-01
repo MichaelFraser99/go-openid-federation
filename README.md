@@ -29,6 +29,7 @@ Requires Go 1.27 or later.
 | --- | --- |
 | `model` | Entity statements, metadata, metadata policy operators, entity identifiers, federation errors |
 | `server` | `net/http` handlers for the federation endpoints |
+| `client` | Trust chain building and metadata resolution for a relying party or other consumer: `Client.BuildTrustChain` and `Client.ResolveMetadata` |
 | `server_test` | `TestServer` helper that stands up a four-entity federation over `httptest` |
 | `model_test` | Test helpers for the model package |
 
@@ -457,7 +458,7 @@ The following entity types are supported.
 
 Each is a `map[string]any` with its own validation, split across two points in the chain.
 
-When metadata is unmarshalled, every statement is checked for claim shape: URL claims are HTTPS with no query or fragment component, string array claims are arrays of strings, object claims are objects, and signing algorithm claims exclude `none` where an algorithm is required. An empty object is accepted, so an entity may declare a type without asserting anything about it.
+When metadata is unmarshalled, every statement is checked for claim shape: URL claims are HTTPS with no fragment component, string array claims are arrays of strings, object claims are objects, and signing algorithm claims exclude `none` where an algorithm is required. `issuer` and `credential_issuer` also refuse a query. An empty object is accepted, so an entity may declare a type without asserting anything about it.
 
 A consumer calling a built-in type's `VerifyMetadata` directly therefore gets claim shape only, not a full validation of that type.
 
@@ -614,29 +615,24 @@ An array operand is a list of scope sets rather than single values for `value`, 
 
 > **Breaking change.** These four operators accepted any array, so `add: [true]` resolved to `[true]`, and `one_of: [true, false]` and `subset_of: [null]` parsed. A subordinate statement whose policy carries such an operand is now refused.
 
-To implement an operator outside this set, satisfy `model.MetadataPolicyOperator`:
-
-```go
-type MetadataPolicyOperator interface {
-	String() string
-	Resolve(metadataParameterValue any) (any, error)
-	ResolutionHierarchy() int
-	Merge(valueToMerge any) (MetadataPolicyOperator, error)
-	OperatorValue() any
-	ToSlice(key string) MetadataPolicyOperator
-	CheckForConflict(containsFunc func(policyType reflect.Type) (MetadataPolicyOperator, bool)) error
-}
-```
+An operator this library does not define is ignored, as section 6.1.3.2 requires, unless the statement names it in `metadata_policy_crit`, in which case the statement is refused. A custom operator can't be registered. `model.MetadataPolicyOperator` is exported, but the parser only recognises the seven operators above, and a merge keeps only those seven, so an operator implemented outside this library is dropped ([#96](https://github.com/MichaelFraser99/go-openid-federation/issues/96)).
 
 ## Trust chains
 
-`/resolve` builds a chain from the subject up to the requested trust anchor by walking `authority_hints` depth first, backtracking on dead ends and skipping entities already checked. The walk is bounded (see [Limits](#limits)) and is refused with a 404 `invalid_trust_anchor` naming the bound when one is reached. Each step is verified: signatures against the issuer's published keys, `iss` and `sub` against the expected entities, and the subject's signing key against the JWKS in the subordinate statement above it.
+`/resolve` builds a chain from the subject up to the requested trust anchor by walking `authority_hints` depth first, backtracking on dead ends and skipping entities already checked. The walk finds a route through entity configurations first, and only then fetches the subordinate statements along it. If one of those fetches fails, the request fails, and no other route is tried ([#123](https://github.com/MichaelFraser99/go-openid-federation/issues/123)). The walk is bounded (see [Limits](#limits)) and is refused with a 404 `invalid_trust_anchor` naming the bound when one is reached. Each step is verified: signatures against the issuer's published keys, `iss` and `sub` against the expected entities, and the subject's signing key against the JWKS in the subordinate statement above it.
 
 A resolved response expires at the earliest expiry in the chain rather than the subject's own. Where a trust mark expires sooner, the response expiry is reduced to match.
 
 The `expiry` that `Client.BuildTrustChain` returns is the same value: the earliest `exp` of every statement in the chain, subordinate statements included, as section 10.4 requires. Earlier releases computed it from the entity configurations alone, before the subordinate statements were fetched, so a caller caching a chain for that long kept trusting it after a subordinate statement in it had expired. `/resolve` was not affected, because it recomputes the expiry from the whole chain. An intermediate's own entity configuration is not a member of the chain under section 1.2, so it no longer bounds this value. A chain whose only short-lived statement is an intermediate's configuration therefore reports a later expiry than before. That is section 10.4's definition, and trust is unaffected, because an intermediate's keys come from its superior's subordinate statement, not from its own configuration. An intermediate configuration that has already expired still refuses the chain before any subordinate statement is fetched.
 
-Trust marks in a resolve response are filtered against the trust anchor's `trust_mark_issuers` claim. A trust mark whose type the anchor does not list, or whose issuer it has not authorised, is dropped from the response. Resolution continues.
+Trust marks in a resolve response are filtered against the trust anchor's `trust_mark_issuers` claim. A trust mark whose type the anchor does not list, or whose issuer it has not authorised, is dropped from the response. An empty issuer list for a type means any issuer may issue it. A mark that is kept has also passed these checks:
+
+- its `sub` is the entity presenting it;
+- its header carries a non-empty `kid` that names a federation entity key its issuer publishes, and the signature verifies against that key;
+- its issuer has a trust chain to the same trust anchor, which is built within the request's bounds;
+- where the anchor names an owner for the type in `trust_mark_owners`, it carries a valid `delegation`.
+
+A mark that fails any of these is dropped, and resolution continues.
 
 ### Constraints
 
@@ -785,7 +781,7 @@ func TestSomething(t *testing.T) {
 make test
 ```
 
-Linting is handled by golangci-lint v2.6.1, run in CI and via pre-commit. To run the hooks locally:
+Linting is handled by golangci-lint v2.15.0, run in CI and via pre-commit. To run the hooks locally:
 
 ```sh
 pre-commit install
@@ -808,8 +804,21 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | Trust mark type identifiers as object member names | Member names in `trust_mark_issuers` and `trust_mark_owners` are not checked against a syntax, because §7.1 makes a URL RECOMMENDED rather than required and the one MUST, collision resistance, is not checkable | [#140](https://github.com/MichaelFraser99/go-openid-federation/issues/140) |
 | Statement validation text on the resolve path | `ResolveMetadata` revalidates a chain `BuildTrustChain` already validated, and those three paths still carry the parser's text, which names peer claims. Reachable through `Client.ResolveMetadata`, and through `/resolve` only where a statement expires between the two passes | [#184](https://github.com/MichaelFraser99/go-openid-federation/issues/184) |
 | `subordinate_statement` on an unlistable entity | Table 4 of the extended listing draft makes the attribute a MUST when requested, and an entity the subordinate store does not hold is returned without it | [#126](https://github.com/MichaelFraser99/go-openid-federation/issues/126) |
-| Shape rules after a policy is applied | Required claims and the relying party key pair are checked on the resolved metadata, the remaining claim shape rules are not, so a policy can set a value the parser would refuse | [#144](https://github.com/MichaelFraser99/go-openid-federation/issues/144) |
 | Policy merge against trust chain length | Cost grows faster than the chain. `MaxTrustChainDepth` now bounds the chain, which bounds the cost, but the merge still re-keys the whole accumulated array on every level | [#153](https://github.com/MichaelFraser99/go-openid-federation/issues/153) |
+| Chain building after a failed subordinate statement fetch | The walk finds a route first and then fetches its subordinate statements. One failed fetch fails the request, and no other route is tried | [#123](https://github.com/MichaelFraser99/go-openid-federation/issues/123) |
+| Entity identifiers with a path | `Configure` serves the endpoints at the server root, so an entity whose identifier has a path is not served at its advertised URL | [#128](https://github.com/MichaelFraser99/go-openid-federation/issues/128) |
+| Duplicate member names in `metadata_policy` | Accepted, and the last one wins (section 6.1.2) | [#168](https://github.com/MichaelFraser99/go-openid-federation/issues/168) |
+| Duplicate and folded member names in exported types | Types a consumer decodes still match member names case-insensitively, and resolve duplicates last-wins | [#178](https://github.com/MichaelFraser99/go-openid-federation/issues/178) |
+| One broken entity type in a resolution | Refuses the whole resolution, including for a caller that asked for a different entity type | [#158](https://github.com/MichaelFraser99/go-openid-federation/issues/158) |
+| An entity type registered under a built-in identifier | Does not replace the built-in check | [#74](https://github.com/MichaelFraser99/go-openid-federation/issues/74) |
+| Custom policy operators | Cannot be registered, parsed from JSON or merged | [#96](https://github.com/MichaelFraser99/go-openid-federation/issues/96) |
+| `value` against a parameter of a different JSON type | Refused, rather than replacing the parameter | [#103](https://github.com/MichaelFraser99/go-openid-federation/issues/103) |
+| Deduplication of operands | Merges distinct objects whose members differ only in type, and rewrites values `value`, `default` and `add` must preserve | [#154](https://github.com/MichaelFraser99/go-openid-federation/issues/154), [#99](https://github.com/MichaelFraser99/go-openid-federation/issues/99) |
+| `subset_of` with an empty intersection | Stores a nil slice, which marshals as `null` | [#102](https://github.com/MichaelFraser99/go-openid-federation/issues/102) |
+| `scope` operators | `one_of` on `scope` can never be satisfied, a scope array operand is tokenised by some operators and not others, and a resolved `scope` of `""` passes verification | [#197](https://github.com/MichaelFraser99/go-openid-federation/issues/197), [#198](https://github.com/MichaelFraser99/go-openid-federation/issues/198), [#200](https://github.com/MichaelFraser99/go-openid-federation/issues/200) |
+| A resolve response and the delegations behind it | A resolve response can outlive the delegation that authorises one of its trust marks | [#204](https://github.com/MichaelFraser99/go-openid-federation/issues/204) |
+| Issuing a superior's `metadata` claim | The claim is consumed, but a superior cannot be configured to issue it | [#155](https://github.com/MichaelFraser99/go-openid-federation/issues/155) |
+| A resolver that is also the trust anchor | Fetches its own entity configuration over HTTP, so an outage of its own signer reads as the caller's fault | [#195](https://github.com/MichaelFraser99/go-openid-federation/issues/195) |
 
 ## License
 

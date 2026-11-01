@@ -350,12 +350,13 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 
 			if existing, _ := jwks.RetrieveByKeyID(signerConfiguration.KeyID); len(existing) > 0 {
 				if err := publishedKeyUsableForSigning(existing[0], *apkJWK, signerConfiguration.Signer.Public()); err != nil {
-					return nil, fmt.Errorf("subordinate signer key ID %q is already published but %s, so statements signed with it could not be verified", signerConfiguration.KeyID, err.Error())
+					cfg.LogError(ctx, "not publishing a subordinate signer key because a key already published under its key ID does not match it, so statements it signs could not be verified", slog.String("kid", model.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
 				}
 				continue
 			}
 			if err := jwks.Add(*apkJWK); err != nil {
-				return nil, fmt.Errorf("failed to publish subordinate signer key %q: %s", signerConfiguration.KeyID, err.Error())
+				cfg.LogError(ctx, "not publishing a subordinate signer key because it could not be added to the published key set", slog.String("kid", model.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
+				continue
 			}
 		}
 	}

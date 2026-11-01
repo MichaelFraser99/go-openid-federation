@@ -44,8 +44,13 @@ func (a Add) Resolve(metadataParameterValue any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := operandSliceFrom(combined); err != nil {
-		return nil, fmt.Errorf("the metadata parameter with the 'add' operand added is not an array of one of strings, numbers or objects: %w", err)
+	sliceValue := reflect.ValueOf(combined)
+	elements := make([]any, sliceValue.Len())
+	for i := range sliceValue.Len() {
+		elements[i] = sliceValue.Index(i).Interface()
+	}
+	if fault := listElementsFault(elements); fault != "" {
+		return nil, fmt.Errorf("the metadata parameter with the 'add' operand added must be an array of one of strings, numbers or objects, and %s", fault)
 	}
 	return combined, nil
 }

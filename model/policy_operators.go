@@ -33,19 +33,28 @@ func operandSliceFrom(operatorValue any) ([]any, error) {
 
 	sliceValue := reflect.ValueOf(operatorValue)
 	anySlice := make([]any, sliceValue.Len())
-	elementType := ""
 	for i := range sliceValue.Len() {
 		anySlice[i] = sliceValue.Index(i).Interface()
-		named := listOperandElementType(anySlice[i])
+	}
+	if fault := listElementsFault(anySlice); fault != "" {
+		return nil, fmt.Errorf("operator value must be an array of one of strings, numbers or objects, and %s", fault)
+	}
+	return anySlice, nil
+}
+
+func listElementsFault(elements []any) string {
+	elementType := ""
+	for _, element := range elements {
+		named := listOperandElementType(element)
 		if named == "" {
-			return nil, fmt.Errorf("operator value must be an array of strings, numbers or objects, and holds %s", jsonTypeName(anySlice[i]))
+			return "holds " + jsonTypeName(element)
 		}
 		if elementType != "" && named != elementType {
-			return nil, fmt.Errorf("operator value must be an array of one of strings, numbers or objects, and mixes %s and %s", elementType, named)
+			return fmt.Sprintf("mixes %s and %s", elementType, named)
 		}
 		elementType = named
 	}
-	return anySlice, nil
+	return ""
 }
 
 func listOperandElementType(element any) string {

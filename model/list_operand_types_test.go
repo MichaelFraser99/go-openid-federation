@@ -142,6 +142,9 @@ func TestApplyPolicy_AddDoesNotMixItsOperandIntoMetadataOfAnotherType(t *testing
 				if err == nil {
 					t.Fatalf("[6.1.3.1.2] add must not leave a mixed or unsupported array, got %v", (*resolved.Metadata.OpenIDRelyingPartyMetadata)[parameter])
 				}
+				if strings.Contains(err.Error(), "mixes") && (!strings.Contains(err.Error(), "metadata parameter") || strings.Contains(err.Error(), "operator value")) {
+					t.Errorf("expected the error to name the metadata parameter, not the operator value, got %v", err)
+				}
 				return
 			}
 			if err != nil {

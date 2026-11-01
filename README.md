@@ -23,6 +23,35 @@ Requires Go 1.27 or later.
 > - **Stricter keys from peers.** An EC key whose `x` or `y` is not the full size of its curve, and an RSA key whose `n` or `e` carries a leading zero octet, are now refused, as RFC 7518 sections 6.2.1.2 and 2 require. A peer publishing one can no longer be verified.
 > - **Expiry is exclusive.** A statement, trust mark or delegation has expired once the current time reaches its `exp` plus `model.ClockSkewLeeway`, as RFC 7519 section 4.1.4 requires ("MUST be before"). Earlier releases accepted it for one more second.
 
+## Upgrading
+
+Each change you may have to act on is marked **Breaking change** in the section it concerns. The lists below link to those sections.
+
+### From v0.11.0-rc.2
+
+- [Installation](#installation): this release requires `go-jose` v0.11.0 and Go 1.27.
+- [Query parameters](#query-parameters): a `sub` that spells the server's own identifier differently is refused.
+- [Limits](#limits): `MaxRequestPeerBytes`, `MaxPeerResponseTime`, `MaxResolveTime`, `MaxTrustMarks`, `MaxStatementValues` and `MaxAuthorityHints` are new, and `Server.Configure` no longer installs `http.DefaultClient`.
+- [Retriever interfaces](#retriever-interfaces): a subordinate added with `AddSubordinate` and no `Retriever` no longer expires.
+- [Per-subordinate signing keys](#per-subordinate-signing-keys): a signer whose `KeyID` is already published for a different key is left out, and `/.well-known/openid-federation` no longer answers 500.
+- [Entity statements and metadata](#entity-statements-and-metadata): more statements are refused, `PolicyOperators` has an `Unrecognised` field, and `Metadata.VerifyResolved` applies the shape rules and takes the subject's identifier.
+- [How operand values are compared](#how-operand-values-are-compared): `essential` takes a boolean only, operator combinations are checked across levels, and the four list operators are held to their element types.
+- [Trust chains](#trust-chains): the fetch endpoint is requested as published, and trust mark refusals are logged at Info.
+- [Constraints](#constraints): `EntityStatement.Constraints` is typed, and constraints are enforced.
+- [Anchoring a chain a caller supplies](#anchoring-a-chain-a-caller-supplies): with no `TrustAnchors`, `Client.ResolveMetadata` fetches the anchor's entity configuration itself.
+- [Errors](#errors): signer errors are classified, and `/list` keeps every class a retriever gives.
+
+### From v0.10.0
+
+Every change in the list above applies, and so do these:
+
+- [Limits](#limits): `MaxTrustChainDepth` defaults to 10, and `MaxEntitiesTraversed` and `MaxTrustMarkIssuers` are new.
+- [Retriever interfaces](#retriever-interfaces): a bare `error` for an unknown subject answers 500.
+- [Entity statements and metadata](#entity-statements-and-metadata): three `EntityStatement` fields changed type or were removed, and the required-claim checks moved out of `VerifyMetadata`.
+- [Custom entity types](#custom-entity-types): a subject whose entity type is incomplete after resolution is refused.
+- [How operand values are compared](#how-operand-values-are-compared): `ProcessAndExtractPolicy` skips self-issued statements, and the superior's `metadata` claim is applied.
+- [Anchoring a chain a caller supplies](#anchoring-a-chain-a-caller-supplies): a chain of one entry does not resolve, `Client.ResolveMetadata` takes a `trustAnchor` argument and never returns nil metadata, and `TrustAnchors` restricts which anchors `/resolve` serves.
+
 ## Packages
 
 | Package | Purpose |
@@ -307,6 +336,10 @@ Use `Configure` to mount the endpoints. It wraps every route it registers, so a 
 
 The signer's public key is added to the published JWKS, keyed by `kid`, if not already present.
 
+`Server.AddAuthorityHint` adds a superior to `authority_hints` once. An identifier already present, compared as an exact string, is not added again. Two spellings of one entity, such as with and without a trailing `/`, are both kept, as they are when `authority_hints` is read.
+
+When `/.well-known/openid-federation`, `/fetch`, `/trust-mark` or a subordinate lookup fails with 500 `server_error`, the cause is logged at error level, once. The response carries a fixed description, so the log is the only record of the cause. Any other class, including `temporarily_unavailable` and every 4xx, is logged at Info.
+
 When the library resolves a trust chain, it follows federation endpoints derived from untrusted entity identifiers and metadata. `model.ValidateEntityIdentifier` validates identifier syntax only. It does not resolve hosts or restrict which addresses a hostname may target. Deployments that expose `/resolve` or use the client-side resolution helpers should provide an `HttpClient` whose transport rejects disallowed destinations, including private, loopback, link-local and other reserved address ranges, and whose redirect handling preserves the same policy.
 
 ### IntermediateConfiguration
@@ -326,6 +359,8 @@ When the library resolves a trust chain, it follows federation endpoints derived
 | `Configuration.MaxTrustChainDepth` | `model.DefaultMaxTrustChainDepth`, 10 | Entities on one path from the leaf to a trust anchor |
 | `Configuration.MaxEntitiesTraversed` | `model.DefaultMaxEntitiesTraversed`, 1024 | Entity configurations one request may fetch while walking `authority_hints`, across every chain it builds |
 | `Configuration.MaxTrustMarkIssuers` | `model.DefaultMaxTrustMarkIssuers`, 64 | Distinct trust mark issuers resolved for one subject |
+| `Configuration.MaxTrustMarks` | `model.DefaultMaxTrustMarks`, 64 | Trust marks one resolve verifies for its subject, in the order the subject lists them. Marks past the limit are left out of the response without being verified |
+| `Configuration.MaxResolveTime` | `model.DefaultMaxResolveTime`, 30s | How long one `/resolve` request, or one `Client.BuildTrustChain` or `Client.ResolveMetadata` call, may take, trust mark issuer walks included |
 | `Configuration.MaxStatementValues` | `model.DefaultMaxStatementValues`, 10,000 | JSON values in the header or body of one peer statement, trust mark or delegation, or of one entry in a chain passed to `Client.ResolveMetadata`. Separately, JSON values in the headers and bodies of all the trust marks one statement carries, and of their delegations |
 | `Configuration.MaxAuthorityHints` | `model.DefaultMaxAuthorityHints`, 64 | `authority_hints` an entity configuration may list when the walk is to follow them |
 
@@ -336,7 +371,9 @@ When the library resolves a trust chain, it follows federation endpoints derived
 > - `MaxRequestPeerBytes` is new and defaults to 64 MiB. It bounds what one request holds, which the other two did not: a peer may split its bytes across responses however it likes, and `MaxEntitiesTraversed` × `MaxPeerResponseBytes` set a ceiling of 1 GiB per request. Size it against the memory available to the process, not against the number of peers. Note it charges an estimate of retained memory rather than the bytes on the wire, so budget several times the size of your statements — see below for the formula and what a real statement costs.
 > - `MaxPeerResponseTime` is new and defaults to 10 seconds. Nothing bounded a peer in time before: `Server.Configure` installed `http.DefaultClient` when no `HttpClient` was given, and that has no timeout, so a peer that accepted a connection and never answered held the request open. The deadline is derived from the request context rather than set on a client, so it applies to whatever client you supply, and it never outlives your own cancellation.
 > - **`Server.Configure` no longer installs `http.DefaultClient`** when `HttpClient` is unset. That client has no timeout and follows a redirect from an `https` entity identifier to plain `http`. Set `HttpClient` yourself. Without one, a request that needs to fetch from a peer answers 500 `server_error`, as this server's own fault. Earlier releases either used the unguarded client or reported the missing client as a peer that could not be found.
-> - Zero no longer means unlimited for either: it selects the default. Set a large value to restore the old behaviour.
+> - `MaxResolveTime` is new and defaults to 30 seconds. It bounds the whole request, where `MaxPeerResponseTime` bounds one peer. A deadline on the context you pass in can only make it shorter. Reaching it answers 503 `temporarily_unavailable`, because it is this server that did not complete the request. A `Client` caller whose walks take longer must raise it.
+> - `MaxTrustMarks` is new and defaults to 64. A subject that lists more trust marks has the rest left out of resolve responses without being verified, and the resolve still succeeds. Section 8.3 lets a response carry only verified marks.
+> - Zero no longer means unlimited for any of these: it selects the default. Set a large value to restore the old behaviour.
 > - A consumer who already set `MaxTrustChainDepth` themselves gets the same 404 as before, but with a description naming the bound rather than one that reads as an unknown trust anchor.
 > - A trust mark whose issuer cannot be walked within the bounds is omitted from the response, as any unverifiable mark is. Section 8.3 requires a response to carry only verified trust marks, so the resolve still succeeds.
 
@@ -358,15 +395,13 @@ So the budget is not a count of bytes on the wire, and an operator raising it is
 
 A statement padded to defeat the bound is charged far more than its size, which is the point of the per-value cost: a body of `[0,0,0,…]` whose parsed form retains over fifty times its own length is charged for the values, not the bytes.
 
-The deadline bounds one peer, not the whole walk, and the worst case is long. A request may fetch `MaxEntitiesTraversed` entity configurations. Subordinate statements are not counted against that bound, so it may fetch a further `(1 + MaxTrustMarkIssuers)` × `(MaxTrustChainDepth - 1)` = 585 peers at the defaults. Every one of those may take the full deadline. So a graph of slow-but-responsive peers can hold one request for about `(1024 + 585)` × 10s, which is four and a half hours.
-
-**Impose a ceiling on the request as a whole.** At these defaults that is not optional. Set a timeout on your own HTTP server, or cancel the context you pass in. The library cannot choose the value for you, because only you know what your callers will wait for.
+`MaxPeerResponseTime` bounds one peer, and `MaxResolveTime` bounds the request. Without the second, the worst case is long. A request may fetch `MaxEntitiesTraversed` entity configurations. Subordinate statements are not counted against that bound, so it may fetch a further `(1 + MaxTrustMarkIssuers)` × `(MaxTrustChainDepth - 1)` = 585 peers at the defaults. Every one of those may take the full peer deadline, so a graph of slow-but-responsive peers could hold one request for about `(1024 + 585)` × 10s, which is four and a half hours. `MaxResolveTime` ends it at 30 seconds instead. If your callers wait for less, set it lower, or cancel the context you pass in.
 
 A request may also step into at most `MaxTrustChainDepth` × `MaxEntitiesTraversed` entities. One entity is stepped into many times when several paths lead to it, and the step bound is the backstop for a graph that defeats the memory of dead ends described below.
 
 The default fetch bound is sized above what the other two need: a request may build one chain for the subject and one for each of `MaxTrustMarkIssuers` issuers, so a federation whose chains run to the full depth needs `(64 + 1) × 10 = 650` fetches before anything is wrong. Raising `MaxTrustChainDepth` or `MaxTrustMarkIssuers` without raising this one can starve the later issuer walks.
 
-Reaching any of the three answers 404 `invalid_trust_anchor`, the code section 8.9 defines for a trust anchor that "cannot be found or used", with a description naming the bound. Five other conditions answer the same code: a chain that does not end in the named anchor, an anchor absent from a populated `TrustAnchors` map, an anchor whose entity configuration no configured key verifies, an omitted anchor whose entity configuration cannot be retrieved, and a walk that reaches no anchor at all. Only the bounds also wrap `model.ErrLimitReached`. It is deliberately neither a `server_error` nor a `temporarily_unavailable`: the graph is the caller's choice, walking less of it than asked is not a fault of this server, and retrying gives the same answer. Consumers can separate the two cases with `errors.Is(err, model.ErrLimitReached)`. An operator reading a response body sees which bound was reached; a caller reading only the code cannot tell a bound from a genuinely unreachable anchor, which is deliberate, since the resolver does not know what lies past its own bound.
+Reaching any of the three count bounds answers 404 `invalid_trust_anchor`, the code section 8.9 defines for a trust anchor that "cannot be found or used", with a description naming the bound. Five other conditions answer the same code: a chain that does not end in the named anchor, an anchor absent from a populated `TrustAnchors` map, an anchor whose entity configuration no configured key verifies, an omitted anchor whose entity configuration cannot be retrieved, and a walk that reaches no anchor at all. Only the bounds also wrap `model.ErrLimitReached`. It is deliberately neither a `server_error` nor a `temporarily_unavailable`: the graph is the caller's choice, walking less of it than asked is not a fault of this server, and retrying gives the same answer. Consumers can separate the two cases with `errors.Is(err, model.ErrLimitReached)`. An operator reading a response body sees which bound was reached; a caller reading only the code cannot tell a bound from a genuinely unreachable anchor, which is deliberate, since the resolver does not know what lies past its own bound.
 
 The bounds and the memory of dead ends span one resolve. `Server` builds a chain for the subject and another for each distinct trust mark issuer against a single budget, so one branch of the subject's graph can spend the budget that later issuer walks would have used. `Client.BuildTrustChain` and `Client.ResolveMetadata` each start their own, so a consumer calling both gets two budgets.
 
@@ -436,7 +471,9 @@ Entries in `ImmediateSubordinateEntities` are `map[string]any`, and each one mus
 
 ### Per-subordinate signing keys
 
-A `SubordinateConfiguration` may carry its own `SignerConfiguration`. When present, that key signs the subordinate statement instead of the server's key, and its public half is published in the authority's JWKS. Its `Algorithm` follows the same rule as the server's. A per-subordinate signer whose algorithm this library cannot sign with is left out of the authority's published key set, and the drop is logged, so one subordinate's misconfiguration doesn't take down the authority's entity configuration.
+A `SubordinateConfiguration` may carry its own `SignerConfiguration`. When present, that key signs the subordinate statement instead of the server's key, and its public half is published in the authority's JWKS. Its `Algorithm` follows the same rule as the server's. A per-subordinate signer whose algorithm this library cannot sign with is left out of the authority's published key set, and the drop is logged at error level, so one subordinate's misconfiguration doesn't take down the authority's entity configuration. The same applies to a signer whose `KeyID` is already published for a different key, whether another subordinate's or the authority's own: the first key published under that `KeyID` is kept. A `KeyID` shared by the same key is published once, with no log.
+
+> **Breaking change.** A per-subordinate signer whose `KeyID` was already published for a different key made `/.well-known/openid-federation` answer 500 for the whole authority. Its key is now left out instead. `/fetch` still signs that subordinate's statements with it, and resolvers refuse them, because the key published under that `KeyID` is a different one. Give each signer its own `KeyID`.
 
 ## Entity statements and metadata
 
@@ -691,7 +728,9 @@ Trust marks in a resolve response are filtered against the trust anchor's `trust
 - its issuer has a trust chain to the same trust anchor, which is built within the request's bounds;
 - where the anchor names an owner for the type in `trust_mark_owners`, it carries a valid `delegation`.
 
-A mark that fails any of these is dropped, and resolution continues.
+A mark that fails any of these is dropped, and resolution continues. At most `MaxTrustMarks` marks are considered, in the order the subject lists them (see [Limits](#limits)). Each refusal is logged at Info, because a subject chooses what it lists, and one Info line per resolve gives how many of the marks it presented were dropped. The one refusal logged at error level is a trust mark issuer this deployment could not walk for a fault of its own, such as a missing `HttpClient`.
+
+> **Breaking change.** Trust mark and delegation refusals were logged at error level, so a subject listing junk marks could fill an error log. If you alert on them, alert on the Info summary line instead.
 
 ### Constraints
 
@@ -794,7 +833,7 @@ Errors are returned to callers as a JSON object with `error` and `error_descript
 
 **A condition a peer or a caller caused is never a `server_error`.** `server_error` is left for this server's own faults, such as a signer it cannot use or a retriever that failed for a reason it does not classify.
 
-`temporarily_unavailable` means **this** server, and nothing else. Section 8.9 defines it as "The server hosting the federation endpoint is currently unable to handle the request due to temporary overloading or maintenance", and the server hosting the endpoint being requested is this one. So it answers only where this server did not complete its own request — its context deadline or a cancellation — or where your own signer or retriever reports a temporary fault with `model.ErrTemporarilyUnavailable`. It is deliberately not used for a peer this server could not reach: that peer is not hosting the endpoint the caller asked for.
+`temporarily_unavailable` means **this** server, and nothing else. Section 8.9 defines it as "The server hosting the federation endpoint is currently unable to handle the request due to temporary overloading or maintenance", and the server hosting the endpoint being requested is this one. So it answers only where this server did not complete its own request — its context deadline, which includes `MaxResolveTime` (see [Limits](#limits)), or a cancellation — or where your own signer or retriever reports a temporary fault with `model.ErrTemporarilyUnavailable`. It is deliberately not used for a peer this server could not reach: that peer is not hosting the endpoint the caller asked for.
 
 **A signer error is this server's own fault, so every endpoint that signs answers it the same way.** The answer is 500 `server_error` with the endpoint's fixed description. The signer's text goes to the log and not to the caller, because it can name a key or an account. Any class that the signer's error wraps is ignored, with one exception: an error that wraps `model.ErrTemporarilyUnavailable` answers 503 `temporarily_unavailable`. Use it for a fault that a retry can clear, such as a throttled or briefly unreachable KMS. A permission fault or a bad key gives the same answer on every retry, so leave it unwrapped.
 

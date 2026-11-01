@@ -136,3 +136,23 @@ func withMember(key map[string]any, member string, value any) map[string]any {
 	copied[member] = value
 	return copied
 }
+
+func TestVerifyIssuedSignature_RefusesAnAlgorithmThisLibraryDoesNotSignWith(t *testing.T) {
+	signer, err := jws.GetSigner(jwa.ES256, nil)
+	if err != nil {
+		t.Fatalf("failed to build the signer: %v", err)
+	}
+	token := signedAs(t, signer, jwa.ES256)
+	if err := VerifyIssuedSignature(t.Context(), token, "k", "ES256", signer); err != nil {
+		t.Fatalf("the fixture is wrong: a statement this signer issued under ES256 must verify, got %v", err)
+	}
+	for algorithm, expect := range map[string]string{
+		"EdDSA": "sign with Ed25519",
+		"HS256": "a symmetric key would not be secret",
+		"es256": "is not a supported signing algorithm",
+	} {
+		if err := VerifyIssuedSignature(t.Context(), token, "k", algorithm, signer); err == nil || !strings.Contains(err.Error(), expect) {
+			t.Errorf("[3.2 step 3] expected %q to be refused naming %q, got %v", algorithm, expect, err)
+		}
+	}
+}

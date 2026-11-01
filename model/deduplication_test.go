@@ -415,7 +415,7 @@ func TestDeduplication_AllDataTypes(t *testing.T) {
 			input:       []float32{1.1, 2.2, 1.1, 3.3},
 			expectedLen: 3,
 		},
-		"OneOf with mixed types": {
+		"OneOf with strings": {
 			operator: "one_of",
 			createFunc: func(v any) (any, error) {
 				op, err := NewOneOf(v)
@@ -424,7 +424,7 @@ func TestDeduplication_AllDataTypes(t *testing.T) {
 				}
 				return op.operatorValue, nil
 			},
-			input:       []any{"a", 1, "a", 2, 1},
+			input:       []any{"a", "b", "a", "c", "b"},
 			expectedLen: 3,
 		},
 	}

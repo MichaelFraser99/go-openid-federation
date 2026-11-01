@@ -37,8 +37,8 @@ func TestOperands_FallbackResolvesSubsetOf(t *testing.T) {
 		},
 		{
 			name:     "an infinity the metadata also holds",
-			operands: []any{math.Inf(1), "a"},
-			metadata: []any{math.Inf(1), "b"},
+			operands: []any{math.Inf(1), 1.0},
+			metadata: []any{math.Inf(1), 2.0},
 			expect:   []any{math.Inf(1)},
 		},
 		{

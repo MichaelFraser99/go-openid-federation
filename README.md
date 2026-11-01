@@ -267,6 +267,7 @@ Use `Configure` to mount the endpoints. It wraps every route it registers, so a 
 | `TrustMarkRetriever` | Enables the trust mark endpoints |
 | `TrustAnchors` | Keys held for each trust anchor this deployment trusts. Optional, but setting it restricts which anchors `/resolve` serves. See [Anchoring a chain a caller supplies](#anchoring-a-chain-a-caller-supplies) |
 | `HostToASCII` | Optional `func(host string) (string, error)` that converts an internationalised host to its ASCII form, so `naming_constraints` can match it. Unset, such a host is refused under any naming constraint. See [Constraints](#constraints) |
+| `EntityIdentifierResolver` | Optional `model.EntityIdentifierResolver` that turns the `sub` and `trust_anchor` query parameters into entity identifiers. Unset, it is `model.StandardEntityIdentifierResolver`, which applies `model.ValidateEntityIdentifier` and answers `invalid_request` for a malformed value. A resolver of your own replaces that validation on those parameters, for example to map an alias to an identifier, so it must return only identifiers it has validated itself |
 | `SigningAlgorithms` | Optional `[]jwa.Algorithm`: the signing algorithms this deployment accepts on every statement, trust mark and delegation it verifies. Unset, it is `model.DefaultSigningAlgorithms()`: ES256/384/512, RS256/384/512, PS256/384/512, Ed25519, `EdDSA` for verification only, and ML-DSA-44/65/87 (RFC 9964), whose keys are published as `AKP`. A chain may mix them, as section 3 allows, and one key set may hold classical and ML-DSA keys side by side. Section 3 leaves the choice to the federation, and RFC 8725 section 3.1 requires a library to let you make it. Set it to narrow the list to your federation's. A statement signed with an algorithm outside it is refused as the peer's fault. `none` and the HS family are never accepted, whatever you set, because a federation key is published and a published symmetric key is not secret. An empty list, an HS algorithm, or one this library cannot verify with answers `server_error` before any request |
 
 The signer's public key is added to the published JWKS, keyed by `kid`, if not already present.
@@ -398,6 +399,12 @@ A `SubordinateConfiguration` may carry its own `SignerConfiguration`. When prese
 ## Entity statements and metadata
 
 `model.EntityStatement` covers both entity configurations and subordinate statements. Its `UnmarshalJSON` enforces the required claims `iss`, `sub`, `iat`, `exp` and `jwks`, validates entity identifiers, and reads `jwks` as a JWK Set.
+
+> **Breaking change.** Three `EntityStatement` fields changed type or were removed between v0.10.0 and v0.11.0-rc.2, so code that uses them no longer compiles:
+>
+> - `Crit` and `MetadataPolicyCrit` are removed. A statement carrying either claim is refused when it is parsed, and the library cannot emit either, so there is no field to set.
+> - `TrustMarkOwners` was `any` and is now `map[string]TrustMarkOwner`.
+> - `SourceEndpoint` was `any` and is now `*string`.
 
 > **Breaking change.** Statements that earlier releases accepted are now refused.
 >
@@ -605,6 +612,12 @@ Resolving by hand, rather than through `ResolveMetadata`, means four steps in th
 **`model.ApplyPolicy` checks no operator *combination*.** It does judge an operator against the metadata it is applied to — a `superset_of` that is not met, a `one_of` that does not match, a `value` of the wrong type, a non-string `scope` — but nothing about whether the operators are permitted together. `model.ProcessAndExtractPolicy` is what enforces section 6.1.3.1's combination rules: that the values of `add` are a subset of the values of `value`, that `value` is a subset of `subset_of`, and the rest. It applies them to each statement's own policy as well as across a merge, so a chain of one statement is checked too.
 
 Calling `ApplyPolicy` on a policy that has not been through `ProcessAndExtractPolicy` therefore applies it as written, including combinations the specification makes a policy error — `{"value": ["a"], "add": ["b"]}` resolves to `["a","b"]` with no error rather than refusing. Skipping the step is what does it, not the length of the chain.
+
+> **Breaking change.** In v0.11.0-rc.2, operator combinations were checked within one statement only, and each of these was accepted. Each is now a policy error, so a chain carrying one is refused during resolution:
+>
+> - **A combination split across levels.** `{"add": ["a"], "subset_of": ["a", "b"]}` at one level and `{"add": ["b"], "subset_of": ["b", "c"]}` at another merge into an `add` that its `subset_of` does not allow.
+> - **A `scope` escalation.** A superior's `{"value": "openid profile", "add": ["openid"]}` and a lower level's `{"add": ["admin"]}` merge into an `add` that its `value` does not hold.
+> - **An unmatchable `scope` element.** An element of `superset_of` or `one_of` on `scope` that is empty or holds whitespace, which no subject's scope can ever match.
 
 `scope` is handled as a special case. It travels as a space delimited string but is operated on as a list, so an operator's value is converted to its slice form at three points — before two policies are merged, before one statement's own operators are checked against each other, and before resolution — and the result is rejoined afterwards. All three split on an ASCII space and drop empty runs. RFC 6749 section 3.3 gives `scope = scope-token *( SP scope-token )` with `scope-token = 1*( %x21 / %x23-5B / %x5D-7E )`, which allows exactly one space between values and none at either end, so dropping empty runs is leniency this library chooses rather than something the ABNF defines. What the ABNF does settle is which characters separate values: only an ASCII space does.
 

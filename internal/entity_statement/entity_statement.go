@@ -77,8 +77,8 @@ func VerifyIssuedSignature(ctx context.Context, token, kid, alg string, signer c
 	if err := ValidateStatementHeader(map[string]any{"typ": "entity-statement+jwt", "alg": alg}); err != nil {
 		return err
 	}
-	if jwa.GetAlgorithm(alg) == jwa.Unknown {
-		return fmt.Errorf("%q is not a supported signing algorithm", truncateHeaderValue(alg))
+	if err := model.VerifyIssuanceAlgorithm(alg); err != nil {
+		return err
 	}
 	publicJWK, err := jwk.PublicJwk(signer.Public())
 	if err != nil {

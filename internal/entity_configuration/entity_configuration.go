@@ -338,6 +338,11 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 			(*apkJWK)["kid"] = signerConfiguration.KeyID
 			(*apkJWK)["alg"] = signerConfiguration.Algorithm
 
+			if err := model.VerifyIssuanceAlgorithm(signerConfiguration.Algorithm); err != nil {
+				cfg.LogError(ctx, "not publishing a subordinate signer key because its algorithm cannot be signed with, so statements it signs could not be verified", slog.String("kid", model.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
+				continue
+			}
+
 			if err := model.VerifyKeyStrength(*apkJWK, signerConfiguration.Algorithm); err != nil {
 				cfg.LogError(ctx, "not publishing a subordinate signer key because its modulus is outside the sizes this library verifies for the algorithm it signs with, so statements it signs cannot be verified", slog.String("kid", model.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
 				continue
@@ -405,8 +410,8 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 		return nil, fmt.Errorf("refusing to publish an entity configuration this implementation would reject: %s", err.Error())
 	}
 
-	if jwa.GetAlgorithm(cfg.SignerConfiguration.Algorithm) == jwa.Unknown {
-		return nil, fmt.Errorf("refusing to publish an entity configuration this implementation would reject: %q is not a supported signing algorithm", cfg.SignerConfiguration.Algorithm)
+	if err := model.VerifyIssuanceAlgorithm(cfg.SignerConfiguration.Algorithm); err != nil {
+		return nil, fmt.Errorf("refusing to publish an entity configuration this implementation would reject: %s", err.Error())
 	}
 
 	token, err := jwt.New(cfg.SignerConfiguration.Signer, map[string]any{

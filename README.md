@@ -253,7 +253,7 @@ Use `Configure` to mount the endpoints. It wraps every route it registers, so a 
 | `Logger` | Optional `*slog.Logger`. Logging is skipped when nil. Each value the library logs is truncated to `model.MaxLoggedValueBytes` (1 KiB), because many of them are chosen by a caller or a peer |
 | `EntityTypes` | Extension entity types, merged over the built-in definitions |
 | `DiscardUnrecognisedEntityTypes` | Removes entity types absent from the registry. Defaults to preserving them |
-| `SignerConfiguration` | The entity's signing key, key ID and algorithm. If the signer returns an error, the endpoint answers 500 `server_error`, or 503 if the error wraps `model.ErrTemporarilyUnavailable`. See [Errors](#errors) |
+| `SignerConfiguration` | The entity's signing key, key ID and algorithm. If the signer returns an error, the endpoint answers 500 `server_error`, or 503 if the error wraps `model.ErrTemporarilyUnavailable`. See [Errors](#errors). `Algorithm` must name, exactly and in its registered case, an algorithm this library signs with: ES256/384/512, RS256/384/512, PS256/384/512, Ed25519, or ML-DSA-44/65/87. `EdDSA` is refused with a pointer to `Ed25519`, because go-jose accepts it only for verification. The HS family is never used, because a published symmetric key is not secret. Any of these answers `server_error` from the endpoint that would have signed, with the reason in the log |
 | `EntityIdentifier` | The entity's own identifier |
 | `AuthorityHints` | Identifiers of the entity's immediate superiors |
 | `TrustMarks` | Trust marks to publish in the entity configuration |
@@ -392,7 +392,7 @@ Entries in `ImmediateSubordinateEntities` are `map[string]any`, and each one mus
 
 ### Per-subordinate signing keys
 
-A `SubordinateConfiguration` may carry its own `SignerConfiguration`. When present, that key signs the subordinate statement instead of the server's key, and its public half is published in the authority's JWKS.
+A `SubordinateConfiguration` may carry its own `SignerConfiguration`. When present, that key signs the subordinate statement instead of the server's key, and its public half is published in the authority's JWKS. Its `Algorithm` follows the same rule as the server's. A per-subordinate signer whose algorithm this library cannot sign with is left out of the authority's published key set, and the drop is logged, so one subordinate's misconfiguration doesn't take down the authority's entity configuration.
 
 ## Entity statements and metadata
 

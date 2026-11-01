@@ -48,6 +48,10 @@ func (s *Server) TrustMarkStatus(w http.ResponseWriter, r *http.Request) Respons
 	statusMap["iat"] = time.Now().UTC().Unix()
 	statusMap["trust_mark"] = trustMark
 
+	if err := model.VerifyIssuanceAlgorithm(s.cfg.SignerConfiguration.Algorithm); err != nil {
+		s.cfg.LogError(ctx, "the configured signing algorithm cannot be signed with", slog.String("error", err.Error()))
+		return s.RespondWithError(ctx, w, model.NewServerError(trustMarkStatusUnavailableError))
+	}
 	token, err := jwt.New(s.cfg.SignerConfiguration.Signer, map[string]any{
 		"kid": s.cfg.SignerConfiguration.KeyID,
 		"typ": "trust-mark-status-response+jwt",

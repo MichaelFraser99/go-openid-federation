@@ -79,6 +79,10 @@ func (s *Server) Resolve(w http.ResponseWriter, r *http.Request) ResponseFunc {
 		return s.RespondWithError(ctx, w, model.NewServerError(resolveUnavailableError))
 	}
 
+	if err := model.VerifyIssuanceAlgorithm(s.cfg.SignerConfiguration.Algorithm); err != nil {
+		s.cfg.LogError(ctx, "the configured signing algorithm cannot be signed with", slog.String("error", err.Error()))
+		return s.RespondWithError(ctx, w, model.NewServerError(resolveUnavailableError))
+	}
 	token, err := jwt.New(s.cfg.SignerConfiguration.Signer, map[string]any{
 		"kid": s.cfg.SignerConfiguration.KeyID,
 		"typ": "resolve-response+jwt",

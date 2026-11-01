@@ -324,8 +324,8 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		return nil, fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %s", err.Error())
 	}
 
-	if jwa.GetAlgorithm(signerConfiguration.Algorithm) == jwa.Unknown {
-		return nil, fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %q is not a supported signing algorithm", signerConfiguration.Algorithm)
+	if err := model.VerifyIssuanceAlgorithm(signerConfiguration.Algorithm); err != nil {
+		return nil, fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %s", err.Error())
 	}
 
 	token, err := jwt.New(signerConfiguration.Signer, map[string]any{

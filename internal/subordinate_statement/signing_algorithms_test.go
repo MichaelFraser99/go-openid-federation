@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/MichaelFraser99/go-jose/jwa"
+	"github.com/MichaelFraser99/go-jose/jws"
+	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -37,5 +39,31 @@ func TestValidate_HoldsTheStatementToTheConfiguredAlgorithms(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "PS256") {
 		t.Errorf("the refusal must not carry the alg the peer chose, got %v", err)
+	}
+}
+
+func TestNew_RefusesASubordinateSignerAlgorithmByName(t *testing.T) {
+	for algorithm, expect := range map[string]string{
+		"EdDSA": "sign with Ed25519",
+		"HS256": "a symmetric key would not be secret",
+		"es256": "is not a supported signing algorithm",
+	} {
+		t.Run(algorithm, func(t *testing.T) {
+			signer, err := jws.GetSigner(jwa.ES256, nil)
+			if err != nil {
+				t.Fatalf("failed to build the signer: %v", err)
+			}
+			retrieve := func() (*model.SubordinateConfiguration, *model.SignerConfiguration, error) {
+				return &model.SubordinateConfiguration{JWKs: josemodel.Jwks{Keys: []map[string]any{{"kid": "good", "kty": "EC", "crv": "P-256", "x": "AQAB", "y": "AQAB"}}}},
+					&model.SignerConfiguration{Signer: signer, KeyID: "ta", Algorithm: algorithm}, nil
+			}
+			_, err = New(t.Context(), "https://leaf.example.com", retrieve, model.ServerConfiguration{
+				EntityIdentifier:          "https://ta.example.com",
+				IntermediateConfiguration: &model.IntermediateConfiguration{SubordinateStatementLifetime: time.Hour},
+			})
+			if err == nil || !strings.Contains(err.Error(), expect) {
+				t.Errorf("[3.2 step 3] expected the subordinate statement to be refused naming %q, got %v", expect, err)
+			}
+		})
 	}
 }

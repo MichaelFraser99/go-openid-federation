@@ -43,7 +43,7 @@ func TestOAuthClientMetadata_VerifyMetadata(t *testing.T) {
 			},
 			wantErr: true,
 		},
-		"jwks and jwks_uri together permitted per RFC 7591": {
+		"jwks and jwks_uri together permitted per OpenID Federation 5.2.1.1": {
 			metadata: OAuthClientMetadata{
 				"jwks":     map[string]any{"keys": []any{}},
 				"jwks_uri": "https://client.example.com/jwks",

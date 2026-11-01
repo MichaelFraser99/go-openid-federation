@@ -289,22 +289,47 @@ func TestResolveMetadata_SingleEntryChainIsJudgedOnItsOwnMetadata(t *testing.T) 
 	}
 }
 
-func TestResolveMetadata_SuperiorCannotCreateAnInvalidCombination(t *testing.T) {
-	chain := chainWithClaims(t,
-		map[string]any{"openid_relying_party": map[string]any{
-			"redirect_uris": []any{"https://leaf.example.com/cb"},
-			"jwks":          map[string]any{"keys": []any{}},
-		}},
-		map[string]any{"metadata": map[string]any{"openid_relying_party": map[string]any{
-			"jwks_uri": "https://ta.example.com/leaf/jwks",
-		}}})
-
-	_, err := resolveTrustingSuppliedAnchor(t, t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chain, nil)
-	if err == nil {
-		t.Fatal("a superior must not be able to produce resolved metadata holding both key parameters")
+func TestResolveMetadata_ARelyingPartyMayCarryMoreThanOneKeyRepresentation(t *testing.T) {
+	tests := []struct {
+		name     string
+		subject  map[string]any
+		superior map[string]any
+	}{
+		{
+			name: "the subject publishes both itself",
+			subject: map[string]any{"openid_relying_party": map[string]any{
+				"redirect_uris": []any{"https://leaf.example.com/cb"},
+				"jwks":          map[string]any{"keys": []any{}},
+				"jwks_uri":      "https://leaf.example.com/jwks",
+			}},
+		},
+		{
+			name: "the superior supplies the second",
+			subject: map[string]any{"openid_relying_party": map[string]any{
+				"redirect_uris": []any{"https://leaf.example.com/cb"},
+				"jwks":          map[string]any{"keys": []any{}},
+			}},
+			superior: map[string]any{"metadata": map[string]any{"openid_relying_party": map[string]any{
+				"jwks_uri": "https://ta.example.com/leaf/jwks",
+			}}},
+		},
 	}
-	if !strings.Contains(err.Error(), "'jwks' and 'jwks_uri' must not be used together") {
-		t.Errorf("expected the key parameter rule to be the reason, got %q", err.Error())
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			chain := chainWithClaims(t, tc.subject, tc.superior)
+			resolved, err := resolveTrustingSuppliedAnchor(t, t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chain, nil)
+			if err != nil {
+				t.Fatalf("[5.2.1.1] more than one JWK Set representation is RECOMMENDED against, not refused, got %v", err)
+			}
+			rp := *resolved.Metadata.OpenIDRelyingPartyMetadata
+			if _, ok := rp["jwks"]; !ok {
+				t.Errorf("expected jwks in the resolved metadata, got %v", rp)
+			}
+			if _, ok := rp["jwks_uri"]; !ok {
+				t.Errorf("expected jwks_uri in the resolved metadata, got %v", rp)
+			}
+		})
 	}
 }
 

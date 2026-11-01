@@ -399,18 +399,18 @@ func (strictRP) VerifyResolvedMetadata(metadata map[string]any) error {
 	return VerifyRequiredClaims(metadata, "client_name")
 }
 
-func TestOpenIDRelyingPartyMetadata_KeyParameterPairIsJudgedAtBothPoints(t *testing.T) {
+func TestOpenIDRelyingPartyMetadata_KeyParameterPairIsPermittedAtBothPoints(t *testing.T) {
 	both := OpenIDRelyingPartyMetadata{
 		"redirect_uris": []any{"https://rp.example.com/cb"},
 		"jwks":          map[string]any{"keys": []any{}},
 		"jwks_uri":      "https://rp.example.com/jwks",
 	}
 
-	if err := both.VerifyMetadata(); err == nil {
-		t.Error("expected a statement carrying both key parameters to be refused")
+	if err := both.VerifyMetadata(); err != nil {
+		t.Errorf("[5.2.1.1] expected a statement carrying both key parameters to be accepted, got %v", err)
 	}
-	if err := both.VerifyResolvedMetadata(); err == nil {
-		t.Error("expected resolved metadata carrying both key parameters to be refused")
+	if err := both.VerifyResolvedMetadata(); err != nil {
+		t.Errorf("[5.2.1.1] expected resolved metadata carrying both key parameters to be accepted, got %v", err)
 	}
 }
 

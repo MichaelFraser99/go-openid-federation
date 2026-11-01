@@ -21,14 +21,14 @@ func TestVerifyResolved_AppliesTheRulesTheParserApplies(t *testing.T) {
 			}},
 			refused: true,
 		},
-		"an rp carrying both jwks and jwks_uri": {
-			reference: "OpenID Federation 5.2.1",
+		"an rp carrying both jwks and jwks_uri, which 5.2.1.1 permits": {
+			reference: "OpenID Federation 5.2.1.1",
 			metadata: &Metadata{OpenIDRelyingPartyMetadata: &OpenIDRelyingPartyMetadata{
 				"redirect_uris": []any{"https://leaf.example.com/cb"},
 				"jwks":          map[string]any{"keys": []any{}},
 				"jwks_uri":      "https://leaf.example.com/jwks",
 			}},
-			refused: true,
+			refused: false,
 		},
 		"an as token_endpoint_auth_signing_alg_values_supported holding none": {
 			reference: "OIDC Registration 2",

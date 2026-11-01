@@ -32,7 +32,7 @@ type Value struct {
 }
 
 func (v Value) OperatorValue() any {
-	return v.operatorValue
+	return cloneValue(v.operatorValue)
 }
 
 func (v Value) ToSlice(key string) MetadataPolicyOperator {

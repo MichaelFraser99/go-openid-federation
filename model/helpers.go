@@ -125,7 +125,7 @@ func sortAndValidatePolicy(policy *MetadataPolicy) error {
 					candidates = append(candidates, operator.ToSlice(parameter))
 				}
 			}
-			if err := validatePoliciesCanCombine(sortByPriority(candidates)); err != nil {
+			if err := validatePoliciesCanCombine(sortByPriority(slices.Clone(candidates))); err != nil {
 				return err
 			}
 		}
@@ -156,7 +156,7 @@ func ProcessAndExtractPolicy(trustChain []EntityStatement) (*MetadataPolicy, err
 		}
 
 		if finalisedPolicy == nil {
-			finalisedPolicy = metadataPolicy
+			finalisedPolicy = metadataPolicy.clone()
 			continue
 		}
 
@@ -178,7 +178,7 @@ func ProcessAndExtractPolicy(trustChain []EntityStatement) (*MetadataPolicy, err
 func applyPolicy(existing, policy map[string]PolicyOperators) (map[string]PolicyOperators, error) {
 	if policy != nil {
 		if existing == nil {
-			existing = policy
+			existing = clonePolicyParameters(policy)
 		} else {
 			for k, policies := range existing {
 				if policyOp, found := policy[k]; found {
@@ -192,7 +192,7 @@ func applyPolicy(existing, policy map[string]PolicyOperators) (map[string]Policy
 
 			for k, policyOp := range policy {
 				if _, found := existing[k]; !found {
-					existing[k] = policyOp
+					existing[k] = policyOp.clone()
 				}
 			}
 		}
@@ -205,9 +205,9 @@ func MergePolicyOperators(claimName string, policySetA, policySetB PolicyOperato
 	if len(policySetA.Metadata) == 0 && len(policySetB.Metadata) == 0 {
 		return nil, nil
 	} else if len(policySetA.Metadata) == 0 {
-		return policySetB.Metadata, nil
+		return slices.Clone(policySetB.Metadata), nil
 	} else if len(policySetB.Metadata) == 0 {
-		return policySetA.Metadata, nil
+		return slices.Clone(policySetA.Metadata), nil
 	} else {
 		structuredA := structureAsMap(policySetA.Metadata)
 		structuredB := structureAsMap(policySetB.Metadata)
@@ -291,6 +291,7 @@ func ApplyPolicy(subject EntityStatement, policy MetadataPolicy) (*EntityStateme
 	if subject.Metadata == nil { //if no metadata
 		return &subject, nil
 	}
+	subject.Metadata = subject.Metadata.clone()
 
 	policies := policy.byEntityType()
 	for entityType, metadata := range subject.Metadata.byEntityType() {
@@ -344,7 +345,7 @@ func applyPolicyToMetadata(metadata map[string]any, policy map[string]PolicyOper
 			if resolved == nil {
 				delete(metadata, k)
 			} else {
-				metadata[k] = resolved
+				metadata[k] = cloneValue(resolved)
 			}
 		}
 	}

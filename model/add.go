@@ -28,7 +28,7 @@ type Add struct {
 }
 
 func (a Add) OperatorValue() any {
-	return a.operatorValue
+	return cloneValue(a.operatorValue)
 }
 
 func (a Add) ToSlice(key string) MetadataPolicyOperator {

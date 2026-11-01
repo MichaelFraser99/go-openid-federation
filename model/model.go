@@ -1306,6 +1306,36 @@ func (m *Metadata) setEntityType(entityType string, parameters map[string]any) {
 	}
 }
 
+func (m *MetadataPolicy) clone() *MetadataPolicy {
+	copied := &MetadataPolicy{}
+	for entityType, parameters := range m.byEntityType() {
+		if parameters != nil {
+			copied.setEntityType(entityType, clonePolicyParameters(parameters))
+		}
+	}
+	return copied
+}
+
+func clonePolicyParameters(parameters map[string]PolicyOperators) map[string]PolicyOperators {
+	copied := make(map[string]PolicyOperators, len(parameters))
+	for parameter, operators := range parameters {
+		copied[parameter] = operators.clone()
+	}
+	return copied
+}
+
+func (p PolicyOperators) clone() PolicyOperators {
+	return PolicyOperators{Metadata: slices.Clone(p.Metadata), Unrecognised: slices.Clone(p.Unrecognised)}
+}
+
+func (m *Metadata) clone() *Metadata {
+	copied := &Metadata{}
+	for entityType, parameters := range m.byEntityType() {
+		copied.setEntityType(entityType, cloneValue(parameters).(map[string]any))
+	}
+	return copied
+}
+
 func (m *MetadataPolicy) setEntityType(entityType string, operators map[string]PolicyOperators) {
 	switch entityType {
 	case "federation_entity":

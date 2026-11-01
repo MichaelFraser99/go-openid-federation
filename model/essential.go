@@ -24,7 +24,7 @@ type Essential struct {
 }
 
 func (s Essential) OperatorValue() any {
-	return s.operatorValue
+	return cloneValue(s.operatorValue)
 }
 
 func (s Essential) ToSlice(key string) MetadataPolicyOperator {

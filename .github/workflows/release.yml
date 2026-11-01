@@ -7,11 +7,15 @@ on:
         description: Semver bump level
         type: choice
         required: true
-        default: patch
+        default: minor
         options:
           - patch
           - minor
           - major
+      expected:
+        description: The version you expect this run to tag, such as v0.11.0. The run stops if it computes another
+        type: string
+        required: true
 
 jobs:
   release:
@@ -27,19 +31,37 @@ jobs:
           go-version-file: 'go.mod'
       - name: Tests
         run: go test ./...
+      - name: Tests (race detector)
+        run: go test -race ./...
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.15.0
       - name: Compute next version
         id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+          EXPECTED: ${{ inputs.expected }}
         run: |
+          if ! [[ "$EXPECTED" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::expected must be a version such as v0.11.0"
+            exit 1
+          fi
           latest=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
           latest=${latest:-v0.0.0}
           IFS='.' read -r major minor patch <<< "${latest#v}"
-          case "${{ inputs.bump }}" in
+          case "$BUMP" in
             major) major=$((major + 1)); minor=0; patch=0 ;;
             minor) minor=$((minor + 1)); patch=0 ;;
             patch) patch=$((patch + 1)) ;;
           esac
+          next="v${major}.${minor}.${patch}"
+          if [ "$next" != "$EXPECTED" ]; then
+            echo "::error::a $BUMP bump from $latest is $next, not the expected $EXPECTED"
+            exit 1
+          fi
           echo "previous=$latest" >> "$GITHUB_OUTPUT"
-          echo "next=v${major}.${minor}.${patch}" >> "$GITHUB_OUTPUT"
+          echo "next=$next" >> "$GITHUB_OUTPUT"
       - name: Create tag and release
         env:
           GH_TOKEN: ${{ github.token }}

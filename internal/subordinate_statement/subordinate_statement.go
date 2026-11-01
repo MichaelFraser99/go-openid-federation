@@ -21,6 +21,18 @@ import (
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
+func fetchRequest(ctx context.Context, fetchEndpoint string, subject model.EntityIdentifier) (*http.Request, error) {
+	endpoint, err := url.Parse(fetchEndpoint)
+	if err != nil {
+		return nil, err
+	}
+	if endpoint.RawQuery != "" {
+		endpoint.RawQuery += "&"
+	}
+	endpoint.RawQuery += "sub=" + url.QueryEscape(string(subject))
+	return http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+}
+
 func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityStatement, subject model.EntityIdentifier) (*string, *model.EntityStatement, error) {
 	if cfg.HttpClient == nil {
 		return nil, nil, model.NewServerError("no http client present")
@@ -39,14 +51,7 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 	fetchCtx, cancel := context.WithTimeout(ctx, cfg.PeerResponseTimeLimit())
 	defer cancel()
 
-	request, err := http.NewRequestWithContext(fetchCtx, http.MethodGet, fmt.Sprintf("%ssub=%s", func() string {
-		trimmedString := strings.TrimSuffix(fetchEndpoint, "/")
-		if strings.Contains(trimmedString, "?") {
-			return trimmedString + "&"
-		} else {
-			return trimmedString + "?"
-		}
-	}(), url.QueryEscape(string(subject))), nil)
+	request, err := fetchRequest(fetchCtx, fetchEndpoint, subject)
 	if err != nil {
 		cfg.LogInfo(ctx, "the issuer's federation fetch endpoint is not a usable url", slog.String("issuer", string(issuer.Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
 		return nil, nil, model.NewInvalidTrustChainError("the issuer's federation fetch endpoint is not a usable url")

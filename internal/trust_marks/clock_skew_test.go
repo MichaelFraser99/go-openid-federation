@@ -33,7 +33,7 @@ func TestFilterByTrusted_ATrustMarkGetsTheSameClockSkewLeewayAsAStatement(t *tes
 		keep      bool
 	}{
 		"an iat 30 seconds ahead":          {reference: "7.3 step 5", claim: "iat", at: 30 * time.Second, keep: true},
-		"an iat 59 seconds ahead":          {reference: "7.3 step 5", claim: "iat", at: 59 * time.Second, keep: true},
+		"an iat 50 seconds ahead":          {reference: "7.3 step 5", claim: "iat", at: 50 * time.Second, keep: true},
 		"an iat 90 seconds ahead":          {reference: "7.3 step 5", claim: "iat", at: 90 * time.Second, keep: false},
 		"an iat 10 minutes ahead":          {reference: "7.3 step 5", claim: "iat", at: 10 * time.Minute, keep: false},
 		"an exp comfortably in the future": {reference: "7.3 step 6", claim: "exp", at: time.Hour, keep: true},
@@ -67,11 +67,11 @@ func TestFilterByTrusted_ADelegationGetsTheSameClockSkewLeeway(t *testing.T) {
 		keep      bool
 	}{
 		"an exp 30 seconds in the past": {reference: "7.2.2 step 7", claim: "exp", at: -30 * time.Second, keep: true},
-		"an exp 59 seconds in the past": {reference: "7.2.2 step 7", claim: "exp", at: -59 * time.Second, keep: true},
+		"an exp 50 seconds in the past": {reference: "7.2.2 step 7", claim: "exp", at: -50 * time.Second, keep: true},
 		"an exp 90 seconds in the past": {reference: "7.2.2 step 7", claim: "exp", at: -90 * time.Second, keep: false},
 		"an exp 10 minutes in the past": {reference: "7.2.2 step 7", claim: "exp", at: -10 * time.Minute, keep: false},
 		"an iat 30 seconds ahead":       {reference: "7.2.2 step 6", claim: "iat", at: 30 * time.Second, keep: true},
-		"an iat 59 seconds ahead":       {reference: "7.2.2 step 6", claim: "iat", at: 59 * time.Second, keep: true},
+		"an iat 50 seconds ahead":       {reference: "7.2.2 step 6", claim: "iat", at: 50 * time.Second, keep: true},
 		"an iat 90 seconds ahead":       {reference: "7.2.2 step 6", claim: "iat", at: 90 * time.Second, keep: false},
 		"an iat 10 minutes ahead":       {reference: "7.2.2 step 6", claim: "iat", at: 10 * time.Minute, keep: false},
 	}

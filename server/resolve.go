@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -16,7 +17,8 @@ import (
 const resolveUnavailableError = "unable to resolve entities at this time"
 
 func (s *Server) Resolve(w http.ResponseWriter, r *http.Request) ResponseFunc {
-	ctx := r.Context()
+	ctx, cancel := context.WithTimeout(r.Context(), s.cfg.ResolveTimeLimit())
+	defer cancel()
 	sub := r.URL.Query().Get("sub")
 	trustAnchor := r.URL.Query().Get("trust_anchor")
 	entityTypes := r.URL.Query()["entity_type"]
@@ -61,6 +63,10 @@ func (s *Server) Resolve(w http.ResponseWriter, r *http.Request) ResponseFunc {
 	if err = trust_marks.FilterByTrusted(ctx, s.cfg.Configuration, resolved, parsedTrustChain[len(parsedTrustChain)-1], cache); err != nil {
 		s.cfg.LogInfo(ctx, "error filtering trust marks", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, err)
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		s.cfg.LogInfo(ctx, "the resolve request did not complete before its deadline", slog.String("error", ctxErr.Error()))
+		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(resolveUnavailableError))
 	}
 
 	if resolved.Metadata != nil {

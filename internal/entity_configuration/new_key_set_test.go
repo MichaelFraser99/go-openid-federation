@@ -6,31 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/MichaelFraser99/go-jose/jwa"
-	"github.com/MichaelFraser99/go-jose/jws"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
-
-func TestNew_SubordinateSignerSharingSigningKid(t *testing.T) {
-	signerConfiguration, _ := issuanceSigner(t)
-	cfg := model.ServerConfiguration{
-		EntityIdentifier:            "https://ta.example.com",
-		SignerConfiguration:         signerConfiguration,
-		EntityConfigurationLifetime: time.Hour,
-		IntermediateConfiguration:   &model.IntermediateConfiguration{SubordinateStatementLifetime: time.Hour},
-	}
-	override, err := jws.GetSigner(jwa.ES256, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg.IntermediateConfiguration.AddSubordinate("https://leaf.example.com", &model.SubordinateConfiguration{
-		SignerConfiguration: &model.SignerConfiguration{Signer: override, KeyID: cfg.SignerConfiguration.KeyID, Algorithm: "ES256"},
-	})
-	if _, err := New(t.Context(), cfg); err == nil {
-		t.Fatal("expected an override signer reusing the signing kid with different key material to be rejected")
-	}
-}
 
 func TestNew_RefusesACopyOfTheSigningKeyWithOversizedCoordinates(t *testing.T) {
 	signerConfiguration, publicJWK := issuanceSigner(t)

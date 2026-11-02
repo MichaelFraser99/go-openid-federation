@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"math"
 	"net/http"
 	"net/url"
@@ -45,8 +46,10 @@ type Configuration struct {
 	MaxRequestPeerBytes  int64
 
 	MaxPeerResponseTime time.Duration
+	MaxResolveTime      time.Duration
 
 	MaxTrustMarkIssuers int
+	MaxTrustMarks       int
 
 	MaxStatementValues int
 	MaxAuthorityHints  int
@@ -157,12 +160,16 @@ func StatementCost(signed string, statement *EntityStatement) int64 {
 
 const DefaultMaxPeerResponseTime = 10 * time.Second
 
+const DefaultMaxResolveTime = 30 * time.Second
+
 const (
 	DefaultEntityConfigurationLifetime  = time.Hour
 	DefaultSubordinateStatementLifetime = time.Hour
 )
 
 const DefaultMaxTrustMarkIssuers = 64
+
+const DefaultMaxTrustMarks = 64
 
 const DefaultMaxStatementValues = 10_000
 
@@ -194,6 +201,13 @@ func (cfg *Configuration) TrustMarkIssuerLimit() int {
 	return DefaultMaxTrustMarkIssuers
 }
 
+func (cfg *Configuration) TrustMarkLimit() int {
+	if cfg.MaxTrustMarks > 0 {
+		return cfg.MaxTrustMarks
+	}
+	return DefaultMaxTrustMarks
+}
+
 func (cfg *Configuration) StatementValuesLimit() int {
 	if cfg.MaxStatementValues > 0 {
 		return cfg.MaxStatementValues
@@ -213,6 +227,13 @@ func (cfg *Configuration) PeerResponseTimeLimit() time.Duration {
 		return cfg.MaxPeerResponseTime
 	}
 	return DefaultMaxPeerResponseTime
+}
+
+func (cfg *Configuration) ResolveTimeLimit() time.Duration {
+	if cfg.MaxResolveTime > 0 {
+		return cfg.MaxResolveTime
+	}
+	return DefaultMaxResolveTime
 }
 
 func (cfg *Configuration) RequestPeerBytesLimit() int64 {
@@ -290,7 +311,9 @@ func (cfg *ServerConfiguration) GetSubordinateJWKs(ctx context.Context) ([]Signe
 	if err != nil {
 		return nil, err
 	}
-	for _, subordinateConfiguration := range subordinates {
+	identifiers := slices.Sorted(maps.Keys(subordinates))
+	for _, identifier := range identifiers {
+		subordinateConfiguration := subordinates[identifier]
 		if subordinateConfiguration == nil {
 			continue
 		}

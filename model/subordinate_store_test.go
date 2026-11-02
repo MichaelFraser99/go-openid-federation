@@ -86,3 +86,48 @@ func TestServerConfiguration_GetSubordinate_ARetrieverResultIsCachedForTheCacheT
 		})
 	}
 }
+
+func TestServerConfiguration_GetSubordinateJWKs_InMemorySignersAreOrderedBySubject(t *testing.T) {
+	tests := []struct {
+		name     string
+		added    []EntityIdentifier
+		expected []string
+	}{
+		{name: "added in order", added: []EntityIdentifier{"https://a.example.com", "https://b.example.com", "https://c.example.com"}, expected: []string{"https://a.example.com", "https://b.example.com", "https://c.example.com"}},
+		{name: "added in reverse", added: []EntityIdentifier{"https://c.example.com", "https://b.example.com", "https://a.example.com"}, expected: []string{"https://a.example.com", "https://b.example.com", "https://c.example.com"}},
+		{name: "added out of order with one subordinate that has no signer", added: []EntityIdentifier{"https://b.example.com", "https://unsigned.example.com", "https://a.example.com"}, expected: []string{"https://a.example.com", "https://b.example.com"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			intermediate := &IntermediateConfiguration{}
+			for _, identifier := range tc.added {
+				subordinate := &SubordinateConfiguration{}
+				if identifier != "https://unsigned.example.com" {
+					subordinate.SignerConfiguration = &SignerConfiguration{KeyID: string(identifier)}
+				}
+				intermediate.AddSubordinate(identifier, subordinate)
+			}
+			cfg := ServerConfiguration{IntermediateConfiguration: intermediate}
+
+			for range 50 {
+				signers, err := cfg.GetSubordinateJWKs(context.Background())
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				got := make([]string, 0, len(signers))
+				for _, signer := range signers {
+					got = append(got, signer.KeyID)
+				}
+				if len(got) != len(tc.expected) {
+					t.Fatalf("expected signers %v, got %v", tc.expected, got)
+				}
+				for i := range got {
+					if got[i] != tc.expected[i] {
+						t.Fatalf("which subordinate keeps a shared key ID must not change between requests, so signers come in subject order: expected %v, got %v", tc.expected, got)
+					}
+				}
+			}
+		})
+	}
+}

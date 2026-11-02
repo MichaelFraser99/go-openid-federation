@@ -31,8 +31,9 @@ func (s *Server) TrustMark(w http.ResponseWriter, r *http.Request) ResponseFunc 
 
 	trustMark, err := trust_marks.Issue(ctx, s.cfg, trustMarkType, *parsedSub)
 	if err != nil {
-		s.cfg.LogInfo(ctx, "error issuing the trust mark", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, s.retrieverError(err, trustMarkUnavailableError))
+		classified := s.retrieverError(err, trustMarkUnavailableError)
+		s.logFailure(ctx, "error issuing the trust mark", classified, slog.String("error", err.Error()))
+		return s.RespondWithError(ctx, w, classified)
 	}
 
 	return s.RespondWithTrustMark(w, []byte(*trustMark))

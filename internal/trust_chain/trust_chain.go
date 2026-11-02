@@ -20,6 +20,8 @@ import (
 )
 
 func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEntityIdentifier, targetTrustAnchorEntityIdentifier model.EntityIdentifier, cache *resolvecache.Cache) (trustChain []string, parsedTrustChain []model.EntityStatement, expiry *int64, err error) {
+	ctx, cancel := context.WithTimeout(ctx, cfg.ResolveTimeLimit())
+	defer cancel()
 	cfg.LogInfo(ctx, "building chain between entities", slog.String("leaf", string(targetLeafEntityIdentifier)), slog.String("trust_anchor", string(targetTrustAnchorEntityIdentifier)))
 	if targetLeafEntityIdentifier == targetTrustAnchorEntityIdentifier {
 		return nil, nil, nil, model.NewInvalidRequestError("the subject must not be the trust anchor it is resolved against")
@@ -65,6 +67,10 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 	parsedTrustChain = append(parsedTrustChain, route[len(route)-1])
 
 	exp = model.CalculateChainExpiration(parsedTrustChain)
+	if err = model.VerifyChainExpiry(exp); err != nil {
+		cfg.LogInfo(ctx, "trust chain expiry unusable", slog.Int64("exp", exp), slog.String("error", model.TruncateForResponse(err.Error())))
+		return nil, nil, nil, err
+	}
 
 	if len(parsedTrustChain) < 3 {
 		return nil, nil, nil, model.NewInvalidTrustChainError("trust chain contains no subordinate statement about the subject")
@@ -103,7 +109,7 @@ func verifyTrustAnchorRequested(ctx context.Context, cfg model.Configuration, re
 		return model.NewInvalidTrustAnchorError("the requested trust anchor is not one this deployment is configured to trust")
 	}
 	if len(entity_statement.UsableVerificationKeys(keys, cfg.AcceptedSigningAlgorithms()).Keys) == 0 {
-		cfg.LogInfo(ctx, "no key configured for the requested trust anchor can verify a signature, so no chain can ever be anchored in it", slog.String("trust_anchor", string(requested)))
+		cfg.LogError(ctx, "no key configured for the requested trust anchor can verify a signature, so no chain can ever be anchored in it", slog.String("trust_anchor", string(requested)))
 		return model.NewServerError("the keys configured for the requested trust anchor hold no key that can verify a signature")
 	}
 	return nil
@@ -454,6 +460,8 @@ func retrieveTrustAnchor(ctx context.Context, cfg model.Configuration, trustAnch
 }
 
 func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityIdentifier, trustAnchorEntityIdentifier model.EntityIdentifier, trustChain []string, cache *resolvecache.Cache) (*model.ResolveResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, cfg.ResolveTimeLimit())
+	defer cancel()
 	cfg.LogInfo(ctx, "resolving metadata from trust chain", slog.String("issuer", string(issuerEntityIdentifier)), slog.String("trust_anchor", string(trustAnchorEntityIdentifier)), slog.Int("chain_length", len(trustChain)))
 
 	if err := verifyTrustAnchorRequested(ctx, cfg, trustAnchorEntityIdentifier); err != nil {
@@ -486,6 +494,10 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 			trustChain = slices.Clone(trustChain[:len(trustChain)-1])
 			if parsedSub, parsedIss, err = finalEntryEndpoints(ctx, cfg, trustChain); err != nil {
 				return nil, err
+			}
+			if *parsedSub == *parsedIss {
+				cfg.LogInfo(ctx, "the entry before the trust anchor's entity configuration is itself an entity configuration", slog.String("trust_anchor", string(trustAnchorEntityIdentifier)), slog.String("entity", model.TruncateForResponse(string(*parsedSub))))
+				return nil, model.NewInvalidTrustChainError("the entry before the trust anchor's entity configuration must be a subordinate statement issued by the trust anchor, not an entity configuration")
 			}
 		}
 	}

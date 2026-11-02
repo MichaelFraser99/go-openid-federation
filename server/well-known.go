@@ -17,8 +17,9 @@ func (s *Server) HandleWellKnown(w http.ResponseWriter, r *http.Request) Respons
 
 	entityConfiguration, err := entity_configuration.New(ctx, cfg)
 	if err != nil {
-		s.cfg.LogInfo(ctx, "error generating entity cfg", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, s.retrieverError(err, entityConfigurationUnavailableError))
+		classified := s.retrieverError(err, entityConfigurationUnavailableError)
+		s.logFailure(ctx, "error generating entity cfg", classified, slog.String("error", err.Error()))
+		return s.RespondWithError(ctx, w, classified)
 	}
 	return s.RespondWithEntityStatement(w, []byte(*entityConfiguration))
 }

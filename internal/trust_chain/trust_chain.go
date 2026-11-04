@@ -23,12 +23,12 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 	ctx, cancel := context.WithTimeout(ctx, cfg.ResolveTimeLimit())
 	defer cancel()
 	cfg.LogInfo(ctx, "building chain between entities", slog.String("leaf", string(targetLeafEntityIdentifier)), slog.String("trust_anchor", string(targetTrustAnchorEntityIdentifier)))
-	if targetLeafEntityIdentifier == targetTrustAnchorEntityIdentifier {
-		return nil, nil, nil, model.NewInvalidRequestError("the subject must not be the trust anchor it is resolved against")
-	}
-
 	if err = verifyTrustAnchorRequested(ctx, cfg, targetTrustAnchorEntityIdentifier); err != nil {
 		return nil, nil, nil, err
+	}
+
+	if targetLeafEntityIdentifier == targetTrustAnchorEntityIdentifier {
+		return anchorAsItsOwnSubject(ctx, cfg, targetTrustAnchorEntityIdentifier, cache)
 	}
 
 	signedRoute, route, _, err := chainUpOne(ctx, cfg, targetLeafEntityIdentifier, targetTrustAnchorEntityIdentifier, []model.EntityIdentifier{}, []model.EntityStatement{}, []string{}, cache, newWalkMemo())
@@ -89,6 +89,24 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 	}
 
 	return trustChain, parsedTrustChain, &exp, nil
+}
+
+func anchorAsItsOwnSubject(ctx context.Context, cfg model.Configuration, trustAnchor model.EntityIdentifier, cache *resolvecache.Cache) ([]string, []model.EntityStatement, *int64, error) {
+	cfg.LogInfo(ctx, "the subject is the trust anchor, so the chain is the trust anchor's own entity configuration", slog.String("trust_anchor", string(trustAnchor)))
+	signedAnchor, anchor, err := retrieveTrustAnchor(ctx, cfg, trustAnchor, cache)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if err = verifyTrustAnchor(ctx, cfg, trustAnchor, *signedAnchor, *anchor); err != nil {
+		return nil, nil, nil, err
+	}
+	parsedTrustChain := []model.EntityStatement{*anchor}
+	exp := model.CalculateChainExpiration(parsedTrustChain)
+	if err = model.VerifyChainExpiry(exp); err != nil {
+		cfg.LogInfo(ctx, "trust chain expiry unusable", slog.Int64("exp", exp), slog.String("error", model.TruncateForResponse(err.Error())))
+		return nil, nil, nil, err
+	}
+	return []string{*signedAnchor}, parsedTrustChain, &exp, nil
 }
 
 func verifyTrustAnchorRequested(ctx context.Context, cfg model.Configuration, requested model.EntityIdentifier) error {

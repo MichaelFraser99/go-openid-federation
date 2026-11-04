@@ -49,7 +49,7 @@ func TestClient_ResolveMetadata_RefusesAMissingOrMalformedTrustAnchor(t *testing
 	}
 }
 
-func TestClient_ResolveMetadata_ASubjectMustNotBeItsOwnTrustAnchor(t *testing.T) {
+func TestClient_ResolveMetadata_ATrustAnchorResolvesAsItsOwnSubject(t *testing.T) {
 	const (
 		subject     = model.EntityIdentifier("https://leaf.example.com")
 		trustAnchor = model.EntityIdentifier("https://ta.example.com")
@@ -79,12 +79,19 @@ func TestClient_ResolveMetadata_ASubjectMustNotBeItsOwnTrustAnchor(t *testing.T)
 			chain:     func(t *testing.T) []string { return bindingChain(t, trustAnchor, higher) },
 		},
 		{
-			name:      "a subject named as its own trust anchor",
-			reference: "4",
+			name:      "a trust anchor resolved as its own subject, which section 10.2 allows at i = 0",
+			reference: "10.2",
 			subject:   trustAnchor,
 			anchor:    trustAnchor,
 			chain:     func(t *testing.T) []string { return bindingChain(t, subject, trustAnchor)[2:] },
-			expectErr: model.ErrInvalidRequest,
+		},
+		{
+			name:      "a leaf's own entity configuration alone, naming the trust anchor",
+			reference: "10.2",
+			subject:   subject,
+			anchor:    trustAnchor,
+			chain:     func(t *testing.T) []string { return bindingChain(t, subject, trustAnchor)[:1] },
+			expectErr: model.ErrInvalidTrustAnchor,
 		},
 	}
 
@@ -100,10 +107,10 @@ func TestClient_ResolveMetadata_ASubjectMustNotBeItsOwnTrustAnchor(t *testing.T)
 				return
 			}
 			if err == nil {
-				t.Fatalf("[%s] section 4 requires a trust chain to include the subordinate statement the trust anchor issued about its subject, which no entity issues about itself, so a chain of one cannot be a trust chain", tc.reference)
+				t.Fatalf("[%s] expected the chain to be refused", tc.reference)
 			}
 			if !errors.Is(err, tc.expectErr) {
-				t.Errorf("[%s] expected %v, matching what /resolve answers for the same request, got %v", tc.reference, tc.expectErr, err)
+				t.Errorf("[%s] expected %v, got %v", tc.reference, tc.expectErr, err)
 			}
 		})
 	}

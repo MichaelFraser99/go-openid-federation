@@ -50,7 +50,7 @@ Every change in the list above applies, and so do these:
 - [Entity statements and metadata](#entity-statements-and-metadata): three `EntityStatement` fields changed type or were removed, and the required-claim checks moved out of `VerifyMetadata`.
 - [Custom entity types](#custom-entity-types): a subject whose entity type is incomplete after resolution is refused.
 - [How operand values are compared](#how-operand-values-are-compared): `ProcessAndExtractPolicy` skips self-issued statements, and the superior's `metadata` claim is applied.
-- [Anchoring a chain a caller supplies](#anchoring-a-chain-a-caller-supplies): a chain of one entry does not resolve, `Client.ResolveMetadata` takes a `trustAnchor` argument and never returns nil metadata, and `TrustAnchors` restricts which anchors `/resolve` serves.
+- [Anchoring a chain a caller supplies](#anchoring-a-chain-a-caller-supplies): a chain of one entry resolves only when it is the trust anchor's own entity configuration, `Client.ResolveMetadata` takes a `trustAnchor` argument and never returns nil metadata, and `TrustAnchors` restricts which anchors `/resolve` serves.
 
 ## Packages
 
@@ -792,7 +792,9 @@ Any key in the set may verify the entity configuration, wherever it sits in the 
 
 `BuildTrustChain` applies both checks to the top of the chain it builds, and refuses an anchor absent from a populated map before it makes any request.
 
-> **Breaking change.** A chain of one entry no longer resolves at all, and a subject must not be named as its own trust anchor. Section 4 requires a trust chain to include the subordinate statement the trust anchor issued about its subject, and only the anchor's own entity configuration may be omitted from the array, so two entries is the minimum. No entity issues a subordinate statement about itself. `Client.ResolveMetadata` now refuses `subject == trustAnchor` with `invalid_request`, which is what `/resolve` already answered. Resolving a trust anchor against a **higher** anchor is unaffected, as section 4.1 allows.
+> **Breaking change.** The only chain of one entry that resolves is the trust anchor's own entity configuration, for a request that names the trust anchor as its own subject. Section 10.2 holds at `i = 0`: the one entry is self-signed, and it must name the trust anchor and verify with one of its keys. A chain of one entry naming any other entity is refused, and every other subject needs the subordinate statement its superior issued about it. Earlier releases resolved any self-signed entity configuration on its own.
+>
+> v0.11.0 refused a subject named as its own trust anchor with `invalid_request`, on `/resolve` and in `Client.ResolveMetadata`. That reading of section 4 was wrong, and a deployment acting as a trust anchor could not pass the OpenID Foundation conformance suite. Both now resolve it. `/resolve` and `Client.BuildTrustChain` fetch the trust anchor's entity configuration from its identifier and check it against `TrustAnchors` where keys are held for it. Resolving a trust anchor against a **higher** anchor works as before, as section 4.1 allows.
 
 > **Breaking change.** `Client.ResolveMetadata` takes a `trustAnchor` argument between `subject` and `trustChain`. The trust anchor is a required parameter of the resolve request in section 8.3, and the chain cannot be anchored without it. An empty or malformed value is refused with `invalid_request`.
 

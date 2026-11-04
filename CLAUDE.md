@@ -50,7 +50,7 @@ Every call site reachable from a public entry point passes the anchor the *calle
 
 Refusals here log at Info, matching every other refusal in the walk, with two exceptions, both at Error because both mean an operator must act: a configured key set holding no key that can verify a signature, and a chain ending in a configured anchor unsigned by any key held for it — either a key rotation this deployment has not picked up, or a forgery.
 
-Nothing on this path may answer a 5xx for peer-chosen input. Three places got that wrong and are fixed: a subject named as its own trust anchor, which answered 500 and now resolves, a configured key set with no usable key (now caught at entry, so the 5xx is never reachable after a walk), and an anchor whose entity configuration cannot be fetched, which returned the transport error unwrapped and so echoed the peer's HTTP status into a 500 body — a probe oracle. `TestResolveMetadata_AnUnreachableAnchorIsNotAServerFault` walks six peer statuses and asserts none reaches the description.
+Nothing on this path may answer a 5xx for peer-chosen input. Three places got that wrong and are fixed: a subject named as its own trust anchor, which answered 500 until #191 made it 400 `invalid_request`, and which resolves since #274, a configured key set with no usable key (now caught at entry, so the 5xx is never reachable after a walk), and an anchor whose entity configuration cannot be fetched, which returned the transport error unwrapped and so echoed the peer's HTTP status into a 500 body — a probe oracle. `TestResolveMetadata_AnUnreachableAnchorIsNotAServerFault` walks six peer statuses and asserts none reaches the description.
 
 ### Constraints (§6.2)
 

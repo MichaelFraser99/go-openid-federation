@@ -172,7 +172,7 @@ func assertConstraintVerdict(t *testing.T, reference string, err error, expectEr
 		}
 		return
 	}
-	if err == nil || !strings.Contains(err.Error(), expectErr) {
+	if err == nil || !strings.Contains(refusalReason(err), expectErr) {
 		t.Fatalf("[%s] expected a refusal containing %q, got %v", reference, expectErr, err)
 	}
 	if !errors.Is(err, model.ErrInvalidTrustChain) {

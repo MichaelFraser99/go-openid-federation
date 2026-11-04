@@ -234,6 +234,26 @@ func constraintHost(cfg model.Configuration, identifier model.EntityIdentifier) 
 	return model.NormaliseConstraintHost(host)
 }
 
+type suppliedEntryError struct {
+	described error
+	cause     error
+}
+
+func (e suppliedEntryError) Error() string { return e.described.Error() }
+
+func (e suppliedEntryError) Is(target error) bool { return errors.Is(e.described, target) }
+
+func (e suppliedEntryError) Unwrap() error { return e.cause }
+
+func suppliedEntryRefused(err error, entry int, kind string) error {
+	description := fmt.Sprintf("trust chain entry %d is not a valid %s", entry, kind)
+	described := model.ReclassifyWithDescription(err, description)
+	if described == nil {
+		described = model.NewInvalidTrustChainError(description)
+	}
+	return suppliedEntryError{described: described, cause: err}
+}
+
 func walkNotCompleted(err error) error {
 	return fmt.Errorf("%w%s: %w", model.ErrTemporarilyUnavailable, "trust chain walk did not complete", err)
 }
@@ -537,7 +557,7 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 		response, err := entity_configuration.Validate(ctx, cfg, *parsedSub, trustChain[len(trustChain)-1])
 		if err != nil {
 			cfg.LogInfo(ctx, "failed to validate self-signed entity configuration", slog.String("entity", string(*parsedSub)), slog.String("error", model.TruncateForResponse(err.Error())))
-			return nil, fmt.Errorf("error validating entity configuration for %s: %w", *parsedSub, err)
+			return nil, suppliedEntryRefused(err, len(trustChain)-1, "entity configuration")
 		}
 		if err := verifyTrustAnchor(ctx, cfg, trustAnchorEntityIdentifier, trustChain[len(trustChain)-1], *response); err != nil {
 			return nil, err
@@ -600,7 +620,7 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 		nextStep, err := subordinate_statement.Validate(ctx, cfg, previousStatement, trustChain[i])
 		if err != nil {
 			cfg.LogInfo(ctx, "failed to validate chain step", slog.Int("step", i), slog.String("error", model.TruncateForResponse(err.Error())))
-			return nil, fmt.Errorf("%w%s: %w", model.ErrInvalidTrustChain, "error validating step in provided trust chain", err)
+			return nil, suppliedEntryRefused(err, i, "subordinate statement")
 		}
 		processedChain = append(processedChain, *nextStep)
 	}
@@ -615,7 +635,7 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 	subjectEntityConfiguration, err := entity_configuration.Validate(ctx, cfg, immediateSuperiorStatement.Sub, trustChain[0])
 	if err != nil {
 		cfg.LogInfo(ctx, "failed to validate subject entity configuration", slog.String("error", model.TruncateForResponse(err.Error())))
-		return nil, fmt.Errorf("%w%s: %w", model.ErrInvalidTrustChain, "error parsing trust chain subject entity configuration", err)
+		return nil, suppliedEntryRefused(err, 0, "entity configuration")
 	}
 	if !slices.Contains(subjectEntityConfiguration.AuthorityHints, immediateSuperiorStatement.Iss) {
 		cfg.LogInfo(ctx, "subordinate statement issuer is not listed in the subject's authority_hints", slog.String("issuer", string(immediateSuperiorStatement.Iss)), slog.Any("authority_hints", subjectEntityConfiguration.AuthorityHints))

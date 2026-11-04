@@ -166,8 +166,8 @@ func TestResolveMetadata_TheSubjectEntryMustBeAnEntityConfiguration(t *testing.T
 	if !errors.Is(err, model.ErrInvalidTrustChain) {
 		t.Errorf("[8.9] a chain whose first entry is not an entity configuration is a chain fault, got %T: %v", err, err)
 	}
-	if !strings.Contains(err.Error(), "'iss' and 'sub' claims do not match") {
-		t.Errorf("[4] the refusal must name the mismatch that disqualifies the entry, got %q", err.Error())
+	if !strings.Contains(refusalReason(err), "'iss' and 'sub' claims do not match") {
+		t.Errorf("[4] the refusal must name the mismatch that disqualifies the entry, got %q", refusalReason(err))
 	}
 }
 

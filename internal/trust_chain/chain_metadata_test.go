@@ -362,8 +362,8 @@ func TestResolveMetadata_MetadataFaultsOnASingleEntryChainAreTypedAsInvalidMetad
 			if !errors.Is(err, model.ErrInvalidMetadata) {
 				t.Errorf("a peer's metadata fault must be typed as invalid metadata, got %T: %v", err, err)
 			}
-			if !strings.Contains(err.Error(), string(chainSubject)) {
-				t.Errorf("expected the error to name the subject, got %q", err.Error())
+			if !strings.Contains(err.Error(), string(chainSubject)) && !strings.Contains(err.Error(), "trust chain entry 0") {
+				t.Errorf("expected the error to name the subject or the entry it refused, got %q", err.Error())
 			}
 		})
 	}

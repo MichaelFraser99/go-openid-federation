@@ -865,6 +865,8 @@ A fetched subordinate statement whose metadata is unusable answers 400 `invalid_
 
 The description a caller receives carries no text this server was given by a peer: a peer's error, a URL a peer published, a value from a peer's statement, or a key a superior registered. The detail goes to the log instead, so an operator can still tell one fetch failure from another while a caller cannot read a third party's internals out of a response. What a peer chooses is bounded before it reaches a log, so a peer cannot turn one request into megabytes of records.
 
+The same holds for an entry of a chain that fails validation, whether `/resolve` built the chain or you passed it to `Client.ResolveMetadata`. The error's text names the entry and its kind, such as `trust chain entry 2 is not a valid entity configuration`, and keeps the class the validation gave it. The reason is the error's cause, so a Go caller reads it with `errors.Unwrap(err)`. Earlier releases put the reason in the error's own text, where a value from a peer's statement could reach a response.
+
 ## Extensions
 
 Two endpoints beyond the core specification are available. Both are disabled by default.
@@ -917,7 +919,6 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | Extension claims | Dropped on parse and cannot be issued | [#132](https://github.com/MichaelFraser99/go-openid-federation/issues/132) |
 | `trust_chain` and `peer_trust_chain` JOSE headers | Not read or written | [#139](https://github.com/MichaelFraser99/go-openid-federation/issues/139) |
 | Trust mark type identifiers as object member names | Decided, not planned: member names in `trust_mark_issuers` and `trust_mark_owners` are not checked against a syntax, because §7.1 makes a URL RECOMMENDED rather than required and the one MUST, collision resistance, is not checkable | [#140](https://github.com/MichaelFraser99/go-openid-federation/issues/140) |
-| Statement validation text on the resolve path | `ResolveMetadata` revalidates a chain `BuildTrustChain` already validated, and those three paths still carry the parser's text, which names peer claims. Reachable through `Client.ResolveMetadata`, and through `/resolve` only where a statement expires between the two passes | [#184](https://github.com/MichaelFraser99/go-openid-federation/issues/184) |
 | `subordinate_statement` on an unlistable entity | Decided: a deliberate deviation. Table 4 of the extended listing draft makes the attribute a MUST when requested, and an entity the subordinate store does not hold is returned without it. See [Retriever interfaces](#retriever-interfaces) | [#126](https://github.com/MichaelFraser99/go-openid-federation/issues/126) |
 | Policy merge against trust chain length | Cost grows faster than the chain. `MaxTrustChainDepth` now bounds the chain, which bounds the cost, but the merge still re-keys the whole accumulated array on every level | [#153](https://github.com/MichaelFraser99/go-openid-federation/issues/153) |
 | Chain building after a failed subordinate statement fetch | The walk finds a route first and then fetches its subordinate statements. One failed fetch fails the request, and no other route is tried | [#123](https://github.com/MichaelFraser99/go-openid-federation/issues/123) |

@@ -24,7 +24,7 @@ import (
 func fetchRequest(ctx context.Context, fetchEndpoint string, subject model.EntityIdentifier) (*http.Request, error) {
 	endpoint, err := url.Parse(fetchEndpoint)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("the fetch endpoint is not a valid url")
 	}
 	if endpoint.RawQuery != "" {
 		endpoint.RawQuery += "&"
@@ -53,7 +53,7 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 
 	request, err := fetchRequest(fetchCtx, fetchEndpoint, subject)
 	if err != nil {
-		cfg.LogInfo(ctx, "the issuer's federation fetch endpoint is not a usable url", slog.String("issuer", string(issuer.Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
+		cfg.LogInfo(ctx, "the issuer's federation fetch endpoint is not a usable url", slog.String("issuer", string(issuer.Sub)), slog.String("endpoint", model.TruncateForResponse(fetchEndpoint)), slog.String("error", model.TruncateForResponse(err.Error())))
 		return nil, nil, model.NewInvalidTrustChainError("the issuer's federation fetch endpoint is not a usable url")
 	}
 	request.Header.Set("Accept", "application/entity-statement+jwt")

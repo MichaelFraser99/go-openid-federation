@@ -16,6 +16,7 @@ import (
 	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jwt"
+	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
@@ -110,6 +111,7 @@ func TestBuildTrustChain(t *testing.T) {
 	// Generate test keys
 	leafKey, _ := rsa.GenerateKey(rand.Reader, 2048)
 	trustAnchorKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	otherKey, _ := rsa.GenerateKey(rand.Reader, 2048)
 
 	var trustAnchorID, leafID model.EntityIdentifier
 
@@ -131,8 +133,36 @@ func TestBuildTrustChain(t *testing.T) {
 		}
 	}))
 
+	var lapsedAnchorID model.EntityIdentifier
+	lapsedAnchorServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/.well-known/openid-federation" {
+			return
+		}
+		publicJWK, err := jwk.PublicJwk(trustAnchorKey.Public())
+		if err != nil {
+			t.Errorf("failed to create public JWK: %v", err)
+			return
+		}
+		(*publicJWK)["kid"] = "test-key"
+		token, err := jwt.New(trustAnchorKey, map[string]any{"kid": "test-key", "typ": "entity-statement+jwt", "alg": "RS256"}, map[string]any{
+			"iss":  string(lapsedAnchorID),
+			"sub":  string(lapsedAnchorID),
+			"iat":  time.Now().Add(-time.Hour).UTC().Unix(),
+			"exp":  time.Now().Add(-30 * time.Second).UTC().Unix(),
+			"jwks": map[string]any{"keys": []any{*publicJWK}},
+		}, jwt.Opts{Algorithm: jwa.RS256})
+		if err != nil {
+			t.Errorf("failed to create entity statement: %v", err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/entity-statement+jwt")
+		w.Write([]byte(*token)) //nolint:errcheck
+	}))
+	t.Cleanup(lapsedAnchorServer.Close)
+
 	trustAnchorID = model.EntityIdentifier(taServer.URL)
 	leafID = model.EntityIdentifier(leafServer.URL)
+	lapsedAnchorID = model.EntityIdentifier(lapsedAnchorServer.URL)
 
 	tests := map[string]struct {
 		config      model.Configuration
@@ -140,22 +170,75 @@ func TestBuildTrustChain(t *testing.T) {
 		trustAnchor model.EntityIdentifier
 		validate    func(t *testing.T, trustChain []string, parsedChain []model.EntityStatement, expiry *int64, err error)
 	}{
-		"fails when leaf and trust anchor are the same": {
-			config:      model.Configuration{Logger: slog.New(slog.NewJSONHandler(os.Stdout, nil))},
-			leafID:      leafID,
-			trustAnchor: leafID,
+		"resolves a trust anchor as its own subject": {
+			config:      model.Configuration{HttpClient: taServer.Client(), Logger: slog.New(slog.NewJSONHandler(os.Stdout, nil))},
+			leafID:      trustAnchorID,
+			trustAnchor: trustAnchorID,
+			validate: func(t *testing.T, trustChain []string, parsedChain []model.EntityStatement, expiry *int64, err error) {
+				if err != nil {
+					t.Fatalf("[10.2] a chain of the trust anchor's own entity configuration validates at i = 0, got %v", err)
+				}
+				if len(trustChain) != 1 || len(parsedChain) != 1 {
+					t.Fatalf("[8.3.2] expected the chain to hold only the trust anchor's entity configuration, got %d entries", len(trustChain))
+				}
+				if parsedChain[0].Iss != trustAnchorID || parsedChain[0].Sub != trustAnchorID {
+					t.Errorf("[10.2] expected iss and sub to be the trust anchor, got iss=%s sub=%s", parsedChain[0].Iss, parsedChain[0].Sub)
+				}
+				if expiry == nil || *expiry != parsedChain[0].Exp {
+					t.Errorf("[10.4] expected the chain to expire with the entity configuration")
+				}
+			},
+		},
+		"refuses a trust anchor as its own subject when its configuration is not signed by the pinned key": {
+			config: model.Configuration{HttpClient: taServer.Client(), TrustAnchors: map[model.EntityIdentifier]josemodel.Jwks{
+				trustAnchorID: {Keys: []map[string]any{pinnedJWK(t, otherKey.Public())}},
+			}},
+			leafID:      trustAnchorID,
+			trustAnchor: trustAnchorID,
+			validate: func(t *testing.T, trustChain []string, parsedChain []model.EntityStatement, expiry *int64, err error) {
+				if !errors.Is(err, model.ErrInvalidTrustAnchor) {
+					t.Fatalf("[10.2] ES[i] must validate with a public key of the trust anchor, so a configuration no pinned key verifies is refused as invalid_trust_anchor, got %v", err)
+				}
+				if trustChain != nil || parsedChain != nil || expiry != nil {
+					t.Errorf("expected no chain with the refusal")
+				}
+			},
+		},
+		"refuses a trust anchor as its own subject when it is not one this deployment trusts": {
+			config: model.Configuration{HttpClient: taServer.Client(), TrustAnchors: map[model.EntityIdentifier]josemodel.Jwks{
+				"https://other-ta.example.com": {Keys: []map[string]any{pinnedJWK(t, trustAnchorKey.Public())}},
+			}},
+			leafID:      trustAnchorID,
+			trustAnchor: trustAnchorID,
+			validate: func(t *testing.T, trustChain []string, parsedChain []model.EntityStatement, expiry *int64, err error) {
+				if !errors.Is(err, model.ErrInvalidTrustAnchor) {
+					t.Fatalf("[8.9] an anchor absent from a populated TrustAnchors map is refused as for any other subject, got %v", err)
+				}
+			},
+		},
+		"refuses a trust anchor as its own subject whose configuration expired within the clock skew allowance": {
+			config:      model.Configuration{HttpClient: lapsedAnchorServer.Client()},
+			leafID:      lapsedAnchorID,
+			trustAnchor: lapsedAnchorID,
 			validate: func(t *testing.T, trustChain []string, parsedChain []model.EntityStatement, expiry *int64, err error) {
 				if err == nil {
-					t.Fatal("expected error when leaf equals trust anchor, got nil")
+					t.Fatalf("[10.4] a configuration parsed within ClockSkewLeeway of its exp has already expired, so the chain it forms must be refused, got expiry %v", expiry)
 				}
-				if !errors.Is(err, model.ErrInvalidRequest) {
-					t.Fatalf("[8.9] a subject named as its own trust anchor is the caller's mistake, so it must be invalid_request rather than a server fault, got '%s'", err.Error())
+				if !errors.Is(err, model.ErrInvalidTrustChain) {
+					t.Errorf("expected the expired chain to be refused as invalid_trust_chain, got %v", err)
 				}
-				if !errors.Is(err, model.ErrInvalidRequest) {
-					t.Fatalf("expected a request naming one entity as both leaf and trust anchor to be refused as an invalid request, got %v", err)
+			},
+		},
+		"refuses a trust anchor as its own subject when its configuration cannot be retrieved": {
+			config:      model.Configuration{HttpClient: taServer.Client()},
+			leafID:      "https://unreachable.invalid",
+			trustAnchor: "https://unreachable.invalid",
+			validate: func(t *testing.T, trustChain []string, parsedChain []model.EntityStatement, expiry *int64, err error) {
+				if !errors.Is(err, model.ErrInvalidTrustAnchor) {
+					t.Fatalf("[8.9] a trust anchor whose entity configuration cannot be fetched cannot be used, got %v", err)
 				}
 				if errors.Is(err, model.ErrServerError) {
-					t.Fatalf("expected the caller's own request not to be reported as this server's fault, got %v", err)
+					t.Errorf("[8.9] a peer that cannot be reached is not this server's fault, got %v", err)
 				}
 			},
 		},
@@ -349,4 +432,14 @@ func TestResolveMetadata(t *testing.T) {
 			tt.validate(t, result, err)
 		})
 	}
+}
+
+func pinnedJWK(t *testing.T, public crypto.PublicKey) map[string]any {
+	t.Helper()
+	key, err := jwk.PublicJwk(public)
+	if err != nil {
+		t.Fatalf("failed to build the pinned key: %v", err)
+	}
+	(*key)["kid"] = "test-key"
+	return *key
 }

@@ -53,7 +53,25 @@ func TestResolveMetadata_ARefusedEntryIsDescribedWithoutTheParsersText(t *testin
 			reason:      marker,
 		},
 		{
-			name:        "a metadata fault keeps its class",
+			name:        "a metadata fault in the subordinate statement is invalid_metadata, not invalid_trust_chain",
+			entry:       1,
+			extra:       map[string]any{"metadata": map[string]any{"openid_relying_party": map[string]any{"jwks_uri": "http://" + marker + ".example"}}},
+			description: "trust chain entry 1 is not a valid subordinate statement",
+			class:       model.ErrInvalidMetadata,
+			notClass:    model.ErrInvalidTrustChain,
+			reason:      "jwks_uri",
+		},
+		{
+			name:        "a metadata fault in the trust anchor's entity configuration is invalid_metadata, not invalid_trust_chain",
+			entry:       2,
+			extra:       map[string]any{"metadata": map[string]any{"federation_entity": map[string]any{"federation_fetch_endpoint": string(chainAnchor) + "/fetch"}, "openid_relying_party": map[string]any{"jwks_uri": "http://" + marker + ".example"}}},
+			description: "trust chain entry 2 is not a valid entity configuration",
+			class:       model.ErrInvalidMetadata,
+			notClass:    model.ErrInvalidTrustChain,
+			reason:      "jwks_uri",
+		},
+		{
+			name:        "a metadata fault in the subject's entity configuration is invalid_metadata, not invalid_trust_chain",
 			entry:       0,
 			extra:       map[string]any{"metadata": map[string]any{"openid_relying_party": map[string]any{"jwks_uri": "http://" + marker + ".example"}}},
 			description: "trust chain entry 0 is not a valid entity configuration",
@@ -89,10 +107,10 @@ func TestResolveMetadata_ARefusedEntryIsDescribedWithoutTheParsersText(t *testin
 				t.Errorf("[8.9] a peer's bytes must not reach the description, got %q", err.Error())
 			}
 			if !errors.Is(err, tc.class) {
-				t.Errorf("expected the refusal to keep the class %v, got %v", tc.class, err)
+				t.Errorf("expected the refusal to keep the validator's class, got %v", err)
 			}
 			if errors.Is(err, tc.notClass) {
-				t.Errorf("[8.9] the response code is chosen from the first class that matches, so the refusal must not also be %v, got %v", tc.notClass, err)
+				t.Errorf("[8.9] the response code is chosen from the first class that matches, so the refusal must not also carry the other class, got %v", err)
 			}
 			cause := errors.Unwrap(err)
 			if cause == nil || !strings.Contains(cause.Error(), tc.reason) {

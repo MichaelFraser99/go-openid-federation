@@ -52,6 +52,8 @@ func Retrieve(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 	return signed, statement, nil
 }
 
+const entityConfigurationUnreachable = "failed to reach the entity configuration endpoint"
+
 func fetch(ctx context.Context, cfg model.Configuration, entityIdentifier model.EntityIdentifier) (*string, *model.EntityStatement, error) {
 	if cfg.HttpClient == nil {
 		return nil, nil, model.NewServerError("no http client present")
@@ -63,7 +65,8 @@ func fetch(ctx context.Context, cfg model.Configuration, entityIdentifier model.
 
 	request, err := http.NewRequestWithContext(fetchCtx, http.MethodGet, fmt.Sprintf("%s.well-known/openid-federation", strings.TrimSuffix(string(entityIdentifier), "/")+"/"), nil)
 	if err != nil {
-		return nil, nil, err
+		cfg.LogInfo(ctx, "the entity configuration url cannot be built", slog.String("subject", model.TruncateForResponse(string(entityIdentifier))), slog.String("error", model.TruncateForResponse(err.Error())))
+		return nil, nil, errors.New("the entity configuration url cannot be built")
 	}
 	request.Header.Set("Accept", "application/entity-statement+jwt")
 
@@ -72,7 +75,11 @@ func fetch(ctx context.Context, cfg model.Configuration, entityIdentifier model.
 		if ended := fetchEnded(ctx, fetchCtx, entityIdentifier); ended != nil {
 			return nil, nil, ended
 		}
-		return nil, nil, err
+		cfg.LogInfo(ctx, "failed to reach the entity configuration endpoint", slog.String("subject", model.TruncateForResponse(string(entityIdentifier))), slog.String("error", model.TruncateForResponse(err.Error())))
+		if classified := model.ReclassifyWithDescription(err, entityConfigurationUnreachable); classified != nil {
+			return nil, nil, classified
+		}
+		return nil, nil, errors.New(entityConfigurationUnreachable)
 	}
 	defer response.Body.Close() //nolint:errcheck
 

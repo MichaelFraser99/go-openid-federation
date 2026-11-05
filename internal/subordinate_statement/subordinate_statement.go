@@ -30,7 +30,11 @@ func fetchRequest(ctx context.Context, fetchEndpoint string, subject model.Entit
 		endpoint.RawQuery += "&"
 	}
 	endpoint.RawQuery += "sub=" + url.QueryEscape(string(subject))
-	return http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return nil, errors.New("the fetch endpoint cannot be requested")
+	}
+	return request, nil
 }
 
 func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityStatement, subject model.EntityIdentifier) (*string, *model.EntityStatement, error) {

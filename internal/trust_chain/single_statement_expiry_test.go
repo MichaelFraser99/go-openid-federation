@@ -53,7 +53,7 @@ func TestResolveMetadata_SingleStatementChainIsGatedOnExpiry(t *testing.T) {
 				if err == nil {
 					t.Fatalf("expected a chain expired by %s to be refused, got exp %d", -tc.expIn, result.Exp)
 				}
-				if !strings.Contains(err.Error(), tc.expectErr) {
+				if !strings.Contains(refusalReason(err), tc.expectErr) {
 					t.Fatalf("expected an error containing %q, got %v", tc.expectErr, err)
 				}
 				return

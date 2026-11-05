@@ -24,13 +24,17 @@ import (
 func fetchRequest(ctx context.Context, fetchEndpoint string, subject model.EntityIdentifier) (*http.Request, error) {
 	endpoint, err := url.Parse(fetchEndpoint)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("the fetch endpoint is not a valid url")
 	}
 	if endpoint.RawQuery != "" {
 		endpoint.RawQuery += "&"
 	}
 	endpoint.RawQuery += "sub=" + url.QueryEscape(string(subject))
-	return http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return nil, errors.New("the fetch endpoint cannot be requested")
+	}
+	return request, nil
 }
 
 func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityStatement, subject model.EntityIdentifier) (*string, *model.EntityStatement, error) {
@@ -53,7 +57,7 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 
 	request, err := fetchRequest(fetchCtx, fetchEndpoint, subject)
 	if err != nil {
-		cfg.LogInfo(ctx, "the issuer's federation fetch endpoint is not a usable url", slog.String("issuer", string(issuer.Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
+		cfg.LogInfo(ctx, "the issuer's federation fetch endpoint is not a usable url", slog.String("issuer", string(issuer.Sub)), slog.String("endpoint", model.TruncateForResponse(fetchEndpoint)), slog.String("error", model.TruncateForResponse(err.Error())))
 		return nil, nil, model.NewInvalidTrustChainError("the issuer's federation fetch endpoint is not a usable url")
 	}
 	request.Header.Set("Accept", "application/entity-statement+jwt")

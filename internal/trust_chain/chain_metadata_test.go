@@ -335,20 +335,24 @@ func TestResolveMetadata_ARelyingPartyMayCarryMoreThanOneKeyRepresentation(t *te
 
 func TestResolveMetadata_MetadataFaultsOnASingleEntryChainAreTypedAsInvalidMetadata(t *testing.T) {
 	tests := []struct {
-		name     string
-		metadata map[string]any
+		name        string
+		metadata    map[string]any
+		description string
 	}{
 		{
-			name:     "a claim of the wrong shape",
-			metadata: map[string]any{"openid_relying_party": map[string]any{"redirect_uris": "not-an-array"}},
+			name:        "a claim of the wrong shape, refused when the entry is parsed",
+			metadata:    map[string]any{"openid_relying_party": map[string]any{"redirect_uris": "not-an-array"}},
+			description: "trust chain entry 0 is not a valid entity configuration",
 		},
 		{
-			name:     "a missing required claim",
-			metadata: map[string]any{"openid_relying_party": map[string]any{"client_name": "Anchor RP"}},
+			name:        "a missing required claim, refused when the metadata is resolved",
+			metadata:    map[string]any{"openid_relying_party": map[string]any{"client_name": "Anchor RP"}},
+			description: "resolved metadata for " + string(chainSubject) + ": invalid resolved openid_relying_party metadata: missing required 'redirect_uris' claim",
 		},
 		{
-			name:     "an entity type resolving to the empty object",
-			metadata: map[string]any{"openid_relying_party": map[string]any{}},
+			name:        "an entity type resolving to the empty object, refused when the metadata is resolved",
+			metadata:    map[string]any{"openid_relying_party": map[string]any{}},
+			description: "resolved metadata for " + string(chainSubject) + ": invalid resolved openid_relying_party metadata: missing required 'redirect_uris' claim",
 		},
 	}
 
@@ -362,8 +366,8 @@ func TestResolveMetadata_MetadataFaultsOnASingleEntryChainAreTypedAsInvalidMetad
 			if !errors.Is(err, model.ErrInvalidMetadata) {
 				t.Errorf("a peer's metadata fault must be typed as invalid metadata, got %T: %v", err, err)
 			}
-			if !strings.Contains(err.Error(), string(chainSubject)) {
-				t.Errorf("expected the error to name the subject, got %q", err.Error())
+			if err.Error() != test.description {
+				t.Errorf("expected %q, got %q", test.description, err.Error())
 			}
 		})
 	}

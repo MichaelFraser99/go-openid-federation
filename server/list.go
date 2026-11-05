@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -104,7 +105,7 @@ func parseOptionalBool(value string) (*bool, error) {
 	}
 	parsed, err := strconv.ParseBool(value)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("not a boolean")
 	}
 	return &parsed, nil
 }

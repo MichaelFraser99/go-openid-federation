@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -40,4 +41,12 @@ func withAnchorKeysFrom(t *testing.T, cfg model.Configuration, chain []string) m
 func resolveTrustingSuppliedAnchor(t *testing.T, ctx context.Context, cfg model.Configuration, issuer, trustAnchor model.EntityIdentifier, chain []string, cache *resolvecache.Cache) (*model.ResolveResponse, error) {
 	t.Helper()
 	return ResolveMetadata(ctx, withAnchorKeysFrom(t, cfg, chain), issuer, trustAnchor, chain, cache)
+}
+
+func refusalReason(err error) string {
+	var refused suppliedEntryError
+	if errors.As(err, &refused) {
+		return refused.cause.Error()
+	}
+	return err.Error()
 }

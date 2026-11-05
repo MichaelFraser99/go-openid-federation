@@ -152,13 +152,14 @@ type source struct {
 
 type span struct{ from, to token.Pos }
 
+type frame struct {
+	body    *ast.BlockStmt
+	results *ast.FieldList
+}
+
 func (c *checker) sources(file *ast.File) ([]source, []finding) {
 	var found []source
 	var unbound []finding
-	type frame struct {
-		body    *ast.BlockStmt
-		results *ast.FieldList
-	}
 	var functions []frame
 	var stack []ast.Node
 	bound := map[*ast.CallExpr]bool{}
@@ -189,6 +190,9 @@ func (c *checker) sources(file *ast.File) ([]source, []finding) {
 						unbound = append(unbound, finding{position: c.fset.Position(node.Lhs[len(node.Lhs)-1].Pos()), parser: name})
 					}
 					if last, ok := node.Lhs[len(node.Lhs)-1].(*ast.Ident); ok && last.Name != "_" {
+						if object := objectOf(c.info, last); object != nil && c.namesAnOuterResult(object, functions[:len(functions)-1]) {
+							unbound = append(unbound, finding{position: c.fset.Position(last.Pos()), parser: name})
+						}
 						if object := objectOf(c.info, last); object != nil {
 							found = append(found, c.newSource(object, node, functions[len(functions)-1].body, functions[len(functions)-1].results, name, stack))
 						}
@@ -229,6 +233,22 @@ func (c *checker) sources(file *ast.File) ([]source, []finding) {
 		return true
 	})
 	return found, unbound
+}
+
+func (c *checker) namesAnOuterResult(object types.Object, outer []frame) bool {
+	for _, f := range outer {
+		if f.results == nil {
+			continue
+		}
+		for _, field := range f.results.List {
+			for _, name := range field.Names {
+				if objectOf(c.info, name) == object {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func (c *checker) recordURL(lhs []ast.Expr, rhs ast.Expr) {
@@ -312,7 +332,7 @@ func (c *checker) spans(src source) []span {
 		}
 	}
 	spans := []span{{from: end, to: until}}
-	if src.function == nil {
+	if src.object.Pkg() != nil && src.object.Parent() == src.object.Pkg().Scope() {
 		spans = append(spans, span{from: c.file.Pos(), to: src.stmt.Pos()})
 	}
 	if src.loop != nil {
@@ -368,7 +388,7 @@ func (c *checker) uses(src source, scope ast.Node) []finding {
 				findings = append(findings, finding{position: c.fset.Position(node.Pos()), parser: src.parser})
 			}
 		case *ast.Ident:
-			if writes[node] || objectOf(c.info, node) != src.object || !within(node.Pos(), spans) {
+			if writes[node] || c.info.Defs[node] != nil || objectOf(c.info, node) != src.object || !within(node.Pos(), spans) {
 				return true
 			}
 			if !allowedUse(stack[:len(stack)-1], node) {
@@ -433,6 +453,11 @@ func TestCheck_FlagsAParserErrorThatLeavesTheFunctionInAnyShape(t *testing.T) {
 		{name: "stored straight into a field", imports: `"net/url"`, body: `var r struct{ err error }; _, r.err = url.Parse(s); return nil`, findings: 1},
 		{name: "stored straight into an index", imports: `"net/url"`, body: `e := make([]error, 1); _, e[0] = url.Parse(s); return nil`, findings: 1},
 		{name: "stored through a pointer", imports: `"net/url"`, body: `p := new(error); _, *p = url.Parse(s); return nil`, findings: 1},
+		{name: "a closure writing an outer named result before a bare return", source: "package fixture\n\nimport \"net/url\"\n\nfunc f(s string) (err error) {\nfunc() { _, err = url.Parse(s) }()\nreturn\n}\n", findings: 1},
+		{name: "sync.Once writing an outer named result", source: "package fixture\n\nimport (\n\"net/url\"\n\"sync\"\n)\n\nfunc f(s string) (err error) {\nvar o sync.Once\no.Do(func() { _, err = url.Parse(s) })\nreturn\n}\n", findings: 1},
+		{name: "a deferred closure writing a named result", source: "package fixture\n\nimport \"net/url\"\n\nfunc f(s string) (err error) {\ndefer func() { _, err = url.Parse(s) }()\nreturn nil\n}\n", findings: 1},
+		{name: "a package variable set in a function and read above it", source: "package fixture\n\nimport \"net/url\"\n\nvar gErr error\n\nfunc f() error {\nreturn gErr\n}\n\nfunc init() {\n_, gErr = url.Parse(\"https://example.com\")\n}\n", findings: 1},
+		{name: "a function's own named result returned early", source: "package fixture\n\nimport \"net/url\"\n\nfunc f(s string) (err error) {\n_, err = url.Parse(s)\nif err != nil {\nreturn errFixed\n}\nreturn nil\n}\n"},
 		{name: "reassigned from something else, then returned", imports: `"net/url"`, body: `_, err := url.Parse(s); if err != nil { return errFixed }; err = other(); return err`},
 		{name: "a closure's own local error", imports: `"net/url"`, body: `g := func() error { _, err := url.Parse(s); if err != nil { return errFixed }; return nil }; err := g(); return err`},
 		{name: "returned as it is", imports: `"net/url"`, body: `u, err := url.Parse(s); if err != nil { return err }; _ = u`, findings: 1},

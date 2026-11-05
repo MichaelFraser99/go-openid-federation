@@ -1,6 +1,7 @@
 package entity_configuration
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,6 +10,40 @@ import (
 	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
+
+type failingBody struct{ err error }
+
+func (b failingBody) Read([]byte) (int, error) { return 0, b.err }
+
+func (b failingBody) Close() error { return nil }
+
+type failingBodyTransport struct{ err error }
+
+func (f failingBodyTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Status:     "200 OK",
+		Header:     http.Header{"Content-Type": []string{"application/entity-statement+jwt"}},
+		Body:       failingBody(f),
+		Request:    request,
+	}, nil
+}
+
+func TestRetrieve_ABodyThatCannotBeReadIsDescribedWithoutTheReadersText(t *testing.T) {
+	const marker = "peer-chosen-5Rt"
+	client := &http.Client{Transport: failingBodyTransport{err: errors.New("connection reset by " + marker)}}
+
+	_, _, err := Retrieve(t.Context(), model.Configuration{HttpClient: client}, "https://leaf.example.com", resolvecache.New())
+	if err == nil {
+		t.Fatal("expected the response to be refused")
+	}
+	if strings.Contains(err.Error(), marker) {
+		t.Errorf("[8.9] the read error's text must not reach the error, got %q", err.Error())
+	}
+	if err.Error() != "failed to read the entity configuration response body" {
+		t.Errorf("expected the fixed description, got %q", err.Error())
+	}
+}
 
 func TestRetrieve_ARefusedResponseIsDescribedWithoutThePeersText(t *testing.T) {
 	const marker = "peer-chosen-3Vw"

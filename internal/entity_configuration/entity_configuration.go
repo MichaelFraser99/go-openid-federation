@@ -88,18 +88,24 @@ func fetch(ctx context.Context, cfg model.Configuration, entityIdentifier model.
 	}
 
 	if response.StatusCode != http.StatusOK {
-		return nil, nil, fmt.Errorf("non-200 response from %q's entity configuration: %s", entityIdentifier, model.TruncateForResponse(response.Status))
+		cfg.LogInfo(ctx, "non-200 response from the entity configuration endpoint", slog.String("subject", model.TruncateForResponse(string(entityIdentifier))), slog.String("status", model.TruncateForResponse(response.Status)))
+		return nil, nil, errors.New("non-200 response from the entity configuration endpoint")
 	}
 	cfg.LogInfo(ctx, "entity configuration retrieved", slog.String("subject", string(entityIdentifier)))
 
 	if !model.IsEntityStatementMediaType(response.Header.Get("Content-Type")) {
-		return nil, nil, fmt.Errorf("invalid Content-Type response from %q's entity configuration: %s", entityIdentifier, model.TruncateForResponse(response.Header.Get("Content-Type")))
+		cfg.LogInfo(ctx, "invalid Content-Type from the entity configuration endpoint", slog.String("subject", model.TruncateForResponse(string(entityIdentifier))), slog.String("content_type", model.TruncateForResponse(response.Header.Get("Content-Type"))))
+		return nil, nil, errors.New("invalid Content-Type from the entity configuration endpoint")
 	}
 
 	limit := cfg.PeerResponseLimit()
 	responseBytes, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read %q's entity configuration response body: %s", entityIdentifier, err.Error())
+		if ended := fetchEnded(ctx, fetchCtx, entityIdentifier); ended != nil {
+			return nil, nil, ended
+		}
+		cfg.LogInfo(ctx, "failed to read the entity configuration response body", slog.String("subject", model.TruncateForResponse(string(entityIdentifier))), slog.String("error", model.TruncateForResponse(err.Error())))
+		return nil, nil, errors.New("failed to read the entity configuration response body")
 	}
 	if err := fetchEnded(ctx, fetchCtx, entityIdentifier); err != nil {
 		return nil, nil, err

@@ -73,6 +73,7 @@ func objectOf(info *types.Info, ident *ast.Ident) types.Object {
 
 type checker struct {
 	fset    *token.FileSet
+	file    *ast.File
 	info    *types.Info
 	imports map[string]string
 	urls    map[types.Object]bool
@@ -184,6 +185,9 @@ func (c *checker) sources(file *ast.File) ([]source, []finding) {
 				}
 				c.recordURL(node.Lhs, node.Rhs[0])
 				if name, ok := c.parser(node.Rhs[0]); ok && len(functions) > 0 {
+					if _, ok := node.Lhs[len(node.Lhs)-1].(*ast.Ident); !ok {
+						unbound = append(unbound, finding{position: c.fset.Position(node.Lhs[len(node.Lhs)-1].Pos()), parser: name})
+					}
 					if last, ok := node.Lhs[len(node.Lhs)-1].(*ast.Ident); ok && last.Name != "_" {
 						if object := objectOf(c.info, last); object != nil {
 							found = append(found, c.newSource(object, node, functions[len(functions)-1].body, functions[len(functions)-1].results, name, stack))
@@ -283,10 +287,14 @@ func (c *checker) newSource(object types.Object, node ast.Node, body *ast.BlockS
 	return src
 }
 
+func (c *checker) declaredInFunction(src source) bool {
+	return src.function != nil && src.object.Pos() >= src.function.Pos()
+}
+
 func (c *checker) spans(src source) []span {
 	end := src.stmt.End()
-	until := token.NoPos
-	if src.function != nil {
+	until := c.file.End()
+	if c.declaredInFunction(src) {
 		until = src.function.End()
 	}
 	for _, sibling := range src.siblings {
@@ -298,12 +306,15 @@ func (c *checker) spans(src source) []span {
 			continue
 		}
 		for _, lhs := range assign.Lhs {
-			if ident, ok := lhs.(*ast.Ident); ok && objectOf(c.info, ident) == src.object && assign.Pos() < until {
-				until = assign.Pos()
+			if ident, ok := lhs.(*ast.Ident); ok && objectOf(c.info, ident) == src.object && assign.End() < until {
+				until = assign.End()
 			}
 		}
 	}
 	spans := []span{{from: end, to: until}}
+	if src.function == nil {
+		spans = append(spans, span{from: c.file.Pos(), to: src.stmt.Pos()})
+	}
 	if src.loop != nil {
 		spans = append(spans, span{from: src.loop.Pos(), to: src.stmt.Pos()})
 	}
@@ -370,11 +381,11 @@ func (c *checker) uses(src source, scope ast.Node) []finding {
 }
 
 func check(fset *token.FileSet, file *ast.File) []finding {
-	c := &checker{fset: fset, info: objectsOf(fset, file), imports: importedNames(file), urls: map[types.Object]bool{}}
+	c := &checker{fset: fset, file: file, info: objectsOf(fset, file), imports: importedNames(file), urls: map[types.Object]bool{}}
 	sources, findings := c.sources(file)
 	for _, src := range sources {
 		var scope ast.Node = file
-		if src.function != nil {
+		if c.declaredInFunction(src) {
 			scope = src.function
 		}
 		findings = append(findings, c.uses(src, scope)...)
@@ -414,6 +425,16 @@ func TestCheck_FlagsAParserErrorThatLeavesTheFunctionInAnyShape(t *testing.T) {
 		{name: "a call named like Log but unrelated", imports: `"net/url"`, body: `_, err := url.Parse(s); return c.Login(err)`, findings: 1},
 		{name: "logged at error level", imports: `"net/url"`, body: `if _, err := url.Parse(s); err != nil { cfg.LogError(ctx, "bad", "error", err.Error()); return errFixed }; return nil`},
 		{name: "a call whose result is discarded", imports: `"net/url"`, body: `url.Parse(s); return nil`},
+		{name: "wrapped by reassignment", imports: `"net/url"`, body: `_, err := url.Parse(s); err = wrap(err); return err`, findings: 1},
+		{name: "written from a closure into an outer variable", imports: `"net/url"`, body: `var err error; func() { _, err = url.Parse(s) }(); return err`, findings: 1},
+		{name: "written through sync.Once", imports: `"net/url"; "sync"`, body: `var o sync.Once; var err error; o.Do(func() { _, err = url.Parse(s) }); return err`, findings: 1},
+		{name: "a package-level variable used below it", source: "package fixture\n\nimport \"net/url\"\n\nvar base, baseErr = url.Parse(\"https://example.com\")\n\nfunc f() error {\n_ = base\nreturn baseErr\n}\n", findings: 1},
+		{name: "a package-level variable used above it", source: "package fixture\n\nimport \"net/url\"\n\nfunc f() error {\nreturn baseErr\n}\n\nvar base, baseErr = url.Parse(\"https://example.com\")\n\nvar _ = base\n", findings: 1},
+		{name: "stored straight into a field", imports: `"net/url"`, body: `var r struct{ err error }; _, r.err = url.Parse(s); return nil`, findings: 1},
+		{name: "stored straight into an index", imports: `"net/url"`, body: `e := make([]error, 1); _, e[0] = url.Parse(s); return nil`, findings: 1},
+		{name: "stored through a pointer", imports: `"net/url"`, body: `p := new(error); _, *p = url.Parse(s); return nil`, findings: 1},
+		{name: "reassigned from something else, then returned", imports: `"net/url"`, body: `_, err := url.Parse(s); if err != nil { return errFixed }; err = other(); return err`},
+		{name: "a closure's own local error", imports: `"net/url"`, body: `g := func() error { _, err := url.Parse(s); if err != nil { return errFixed }; return nil }; err := g(); return err`},
 		{name: "returned as it is", imports: `"net/url"`, body: `u, err := url.Parse(s); if err != nil { return err }; _ = u`, findings: 1},
 		{name: "wrapped with %w", imports: `"fmt"; "net/url"`, body: `_, err := url.Parse(s); if err != nil { return fmt.Errorf("bad: %w", err) }`, findings: 1},
 		{name: "its text formatted in", imports: `"fmt"; "strconv"`, body: `_, err := strconv.Atoi(s); if err != nil { return fmt.Errorf("bad: %s", err.Error()) }`, findings: 1},

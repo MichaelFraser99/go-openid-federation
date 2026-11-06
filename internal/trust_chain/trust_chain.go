@@ -379,7 +379,7 @@ func chainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return signedPath, path, false, walkNotCompleted(ctxErr)
 		}
-		if errors.Is(err, model.ErrLimitReached) || errors.Is(err, model.ErrServerError) {
+		if errors.Is(err, model.ErrLimitReached) || errors.Is(err, model.ErrServerError) || errors.Is(err, model.ErrTemporarilyUnavailable) {
 			return signedPath, path, true, budgetExhausted(err)
 		}
 		cache.RecordDeadEnd(subjectKey)
@@ -489,7 +489,7 @@ func retrieveTrustAnchor(ctx context.Context, cfg model.Configuration, trustAnch
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, nil, walkNotCompleted(ctxErr)
 		}
-		if errors.Is(err, model.ErrServerError) {
+		if errors.Is(err, model.ErrServerError) || errors.Is(err, model.ErrTemporarilyUnavailable) {
 			return nil, nil, err
 		}
 		return nil, nil, model.NewInvalidTrustAnchorError("the entity configuration of the requested trust anchor could not be retrieved")

@@ -846,6 +846,13 @@ Errors are returned to callers as a JSON object with `error` and `error_descript
 >
 > If your signer or your store reports a throttle or an outage, wrap that error with `model.ErrTemporarilyUnavailable` to keep the 503.
 
+**`/resolve` builds this server's own entity configuration in process.** When the walk reaches this server's own identifier, as the trust anchor or as an intermediate, it does not request `/.well-known/openid-federation` from this server. It builds the statement and then applies the checks that it applies to a statement from a peer: `MaxPeerResponseBytes` and the same validation. A signer error during the build answers as it does on every other endpoint that signs. Any other failure answers 500 `server_error` with a fixed description, and the cause goes to the log at error level. The statement does not count against `MaxEntitiesTraversed` or `MaxRequestPeerBytes`, because no peer chose it. The match is on the exact identifier string, so a different spelling of the same identifier is fetched over HTTP, as before.
+
+> **Breaking change.** `/resolve` changes in two ways when the walk reaches this server's own identifier.
+>
+> - A fault in this server's own entity configuration answered 404 `invalid_trust_anchor`, because the walk fetched the statement over HTTP and read the failure as an anchor that could not be found. It now answers 500 `server_error`, or 503 `temporarily_unavailable` for a signer error that wraps `model.ErrTemporarilyUnavailable`. If you monitor `/resolve` and treat a 404 as the caller's fault, this fault now reaches you as a 5xx.
+> - The statement counted against `MaxEntitiesTraversed` and `MaxRequestPeerBytes`. It does not count now, so a walk that reached a bound by one entity configuration can now complete.
+
 Everything a peer does wrong on the subordinate statement fetch path therefore answers 400 `invalid_trust_chain` — unreachable, a 503 or a 429 of its own, a truncated body, the wrong content type, an oversized response, or a statement that fails validation. The class says what failed, which is that the chain could not be validated. Section 10.5 notes a retry may still help while a federation's topology is being updated, so this is not a claim that the answer is permanent.
 
 Two exceptions worth knowing, rather than inferring from the above:
@@ -938,7 +945,7 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | Issuing a superior's `metadata` claim | The claim is consumed, but a superior cannot be configured to issue it | [#155](https://github.com/MichaelFraser99/go-openid-federation/issues/155) |
 | Issuing `constraints` | Every subordinate statement read is held to its `constraints`, but `SubordinateConfiguration` has no field for them, so this library's own `/fetch` cannot issue the claim | [#268](https://github.com/MichaelFraser99/go-openid-federation/issues/268) |
 | `aud` and `trust_anchor` in an entity statement | Ignored, as section 13.4 of OpenID Federation 1.1 requires for a claim it does not define. Section 3.2 of OpenID Federation for OpenID Connect 1.1 asks a validator to refuse them outside explicit registration, which this library does not implement | [#172](https://github.com/MichaelFraser99/go-openid-federation/issues/172) |
-| A resolver that is also the trust anchor | Fetches its own entity configuration over HTTP, so an outage of its own signer reads as the caller's fault | [#195](https://github.com/MichaelFraser99/go-openid-federation/issues/195) |
+| A resolver that is an authority on the chain | Requests the subordinate statement it issues from its own `/fetch` endpoint over HTTP, so `/resolve` depends on the server reaching itself | [#277](https://github.com/MichaelFraser99/go-openid-federation/issues/277) |
 
 ## License
 

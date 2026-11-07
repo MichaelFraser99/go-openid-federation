@@ -21,14 +21,17 @@ var ErrOwnFault = errors.New("")
 
 type OwnEntityConfiguration func(ctx context.Context) (*string, *model.EntityStatement, error)
 
+type OwnSubordinateStatement func(ctx context.Context, issuer model.EntityStatement, subject model.EntityIdentifier) (*string, *model.EntityStatement, error)
+
 type Cache struct {
-	own       model.EntityIdentifier
-	buildOwn  OwnEntityConfiguration
-	entries   map[model.EntityIdentifier]entry
-	deadEnds  map[DeadEnd]struct{}
-	traversed int
-	fetched   int
-	peerBytes int64
+	own            model.EntityIdentifier
+	buildOwn       OwnEntityConfiguration
+	buildOwnIssued OwnSubordinateStatement
+	entries        map[model.EntityIdentifier]entry
+	deadEnds       map[DeadEnd]struct{}
+	traversed      int
+	fetched        int
+	peerBytes      int64
 }
 
 func New() *Cache {
@@ -38,12 +41,13 @@ func New() *Cache {
 	}
 }
 
-func (c *Cache) SetOwn(identifier model.EntityIdentifier, build OwnEntityConfiguration) {
+func (c *Cache) SetOwn(identifier model.EntityIdentifier, build OwnEntityConfiguration, issue OwnSubordinateStatement) {
 	if c == nil {
 		return
 	}
 	c.own = identifier
 	c.buildOwn = build
+	c.buildOwnIssued = issue
 }
 
 func (c *Cache) Own(identifier model.EntityIdentifier) (OwnEntityConfiguration, bool) {
@@ -51,6 +55,13 @@ func (c *Cache) Own(identifier model.EntityIdentifier) (OwnEntityConfiguration, 
 		return nil, false
 	}
 	return c.buildOwn, true
+}
+
+func (c *Cache) OwnIssued(issuer model.EntityIdentifier) (OwnSubordinateStatement, bool) {
+	if c == nil || c.buildOwnIssued == nil || issuer != c.own {
+		return nil, false
+	}
+	return c.buildOwnIssued, true
 }
 
 func (c *Cache) Load(identifier model.EntityIdentifier) (*string, *model.EntityStatement, bool) {

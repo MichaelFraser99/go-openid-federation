@@ -47,7 +47,7 @@ func (s *Server) Resolve(w http.ResponseWriter, r *http.Request) ResponseFunc {
 	}
 
 	cache := resolvecache.New()
-	cache.SetOwn(s.cfg.EntityIdentifier, s.ownEntityConfiguration)
+	cache.SetOwn(s.cfg.EntityIdentifier, s.ownEntityConfiguration, s.ownSubordinateStatement)
 
 	trustChain, parsedTrustChain, _, err := trust_chain.BuildTrustChain(ctx, s.cfg.Configuration, *parsedSub, *parsedTrustAnchor, cache)
 	if err != nil {

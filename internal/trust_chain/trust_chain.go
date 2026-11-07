@@ -379,7 +379,7 @@ func chainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return signedPath, path, false, walkNotCompleted(ctxErr)
 		}
-		if errors.Is(err, model.ErrLimitReached) || errors.Is(err, model.ErrServerError) || errors.Is(err, model.ErrTemporarilyUnavailable) {
+		if errors.Is(err, model.ErrLimitReached) || errors.Is(err, model.ErrServerError) || errors.Is(err, resolvecache.ErrOwnFault) {
 			return signedPath, path, true, budgetExhausted(err)
 		}
 		cache.RecordDeadEnd(subjectKey)

@@ -2,6 +2,7 @@ package resolvecache
 
 import (
 	"context"
+	"errors"
 
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
@@ -15,6 +16,8 @@ type DeadEnd struct {
 	Subject model.EntityIdentifier
 	Target  model.EntityIdentifier
 }
+
+var ErrOwnFault = errors.New("")
 
 type OwnEntityConfiguration func(ctx context.Context) (*string, *model.EntityStatement, error)
 

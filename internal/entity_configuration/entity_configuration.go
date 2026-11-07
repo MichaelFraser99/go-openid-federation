@@ -34,7 +34,7 @@ func Retrieve(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 	if build, own := cache.Own(entityIdentifier); own {
 		signed, statement, err := build(ctx)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("%w%w", resolvecache.ErrOwnFault, err)
 		}
 		cache.Store(entityIdentifier, signed, statement)
 		return signed, statement, nil

@@ -305,7 +305,7 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 
 	jwks, err := PublishedKeySet(ctx, cfg)
 	if err != nil {
-		return nil, err
+		return nil, publicationFailure(ctx, cfg, err)
 	}
 
 	entityConfiguration.JWKs = jwks
@@ -313,7 +313,7 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 	if cfg.TrustMarkIssuerRetriever != nil {
 		trustMarkIssuerMap, err := cfg.TrustMarkIssuerRetriever.ListTrustMarkIssuers(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to list trust mark issuers: %s", err.Error())
+			return nil, publicationFailure(ctx, cfg, fmt.Errorf("failed to list trust mark issuers: %w", err))
 		}
 		trustMarkIssuers := make(map[string][]model.EntityIdentifier, len(trustMarkIssuerMap))
 		for trustMarkType, issuers := range trustMarkIssuerMap {
@@ -399,6 +399,16 @@ func (p *publishedKeyIndex) add(kid string, key map[string]any) {
 	p.jwks.Keys = append(p.jwks.Keys, key)
 }
 
+const publicationUnavailable = "unable to produce the entity configuration at this time"
+
+func publicationFailure(ctx context.Context, cfg model.ServerConfiguration, err error) error {
+	if errors.Is(err, model.ErrTemporarilyUnavailable) {
+		cfg.LogInfo(ctx, "the store is temporarily unable to supply what the entity configuration publishes", slog.String("error", err.Error()))
+		return model.NewTemporarilyUnavailableError(publicationUnavailable)
+	}
+	return errors.New(err.Error())
+}
+
 func PublishedKeySet(ctx context.Context, cfg model.ServerConfiguration) (josemodel.Jwks, error) {
 	index, err := publishedKeySet(ctx, cfg)
 	if err != nil {
@@ -455,7 +465,7 @@ func publishedKeySet(ctx context.Context, cfg model.ServerConfiguration) (*publi
 	if cfg.IntermediateConfiguration != nil {
 		subordinateSignerConfigurations, err := cfg.GetSubordinateJWKs(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get subordinate signer configurations: %s", err.Error())
+			return nil, fmt.Errorf("failed to get subordinate signer configurations: %w", err)
 		}
 		for _, signerConfiguration := range subordinateSignerConfigurations {
 			apkJWK, err := jwk.PublicJwk(signerConfiguration.Signer.Public())

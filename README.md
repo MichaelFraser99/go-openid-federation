@@ -31,6 +31,7 @@ Each change you may have to act on is marked **Breaking change** in the section 
 
 - [Errors](#errors): `/resolve` builds this server's own statements in process, and a fault in them answers 5xx.
 - [Trust chains](#trust-chains): a walk logs once for each entity, and several Info messages are replaced by one summary line.
+- [Retriever interfaces](#retriever-interfaces): a temporary outage in `GetSubordinateSigners` or `ListTrustMarkIssuers` answers 503, and `/extended-list` no longer drops a statement silently over it.
 
 ### From v0.11.0-rc.2
 
@@ -467,6 +468,16 @@ A retriever that returns `(nil, nil)` is treated the same way, so a store that s
 > **Breaking change.** Returning a bare `error` for an unknown subject now gives the caller a 500 rather than a 404. Earlier releases turned every retriever error into 404 `not_found`, which reported a store outage to federation peers as "this subordinate does not exist". If your retriever signals an unknown subject with a bare error — `sql.ErrNoRows`, an ORM's "record not found", or your own sentinel — wrap it with `model.NewNotFoundError(...)` or return `(nil, nil)`, or `/fetch` will answer 500 for every unknown subject.
 
 The text of an unclassified retriever error is never sent to the caller, on any endpoint. It is logged, and the response carries a fixed description, because a driver error commonly contains a host name and a user name. An error carrying one of the `model.Err*` sentinels passes through unchanged, so returning `model.NewUnsupportedParameterError(...)` or `model.NewTemporarilyUnavailableError(...)` still chooses the status and description a peer sees.
+
+`GetSubordinateSigners` and `TrustMarkIssuerRetriever.ListTrustMarkIssuers` are the exception to that pass-through. They describe what this server publishes, not what a caller asked for, so there is no text in them that a caller needs. Only `model.ErrTemporarilyUnavailable` survives them:
+
+- An error that wraps `model.ErrTemporarilyUnavailable` answers 503 `temporarily_unavailable` with the endpoint's fixed description.
+- Any other error answers 500 `server_error` with the endpoint's fixed description, whatever class it wraps.
+- The text goes to the log and not to the caller.
+
+This applies on `/.well-known/openid-federation`, on `/fetch` and `/extended-list` for a subordinate that has its own `SignerConfiguration`, and on `/resolve` when the walk builds this server's own statements.
+
+> **Breaking change.** These two methods lost the class of their error. A store that wrapped `model.ErrTemporarilyUnavailable` answered 500 on `/.well-known/openid-federation` and `/fetch`. On `/extended-list?claims=subordinate_statement`, the statement of a subordinate with its own signer was left out silently, and the listing answered 200. Now each answers 503, or 500 for any other error, and `/extended-list` answers for the whole page, because the published key set belongs to every subordinate. The `/fetch` description for this case is now `unable to retrieve the subordinate configuration at this time`, and the log no longer reports a store outage as a signer whose key is not published.
 
 `ExtendedListingRetriever` is the exception, in two ways. An unknown subject there is an empty listing rather than an error, so return an empty `ImmediateSubordinateEntities`. And a nil response is **not** treated as not found: it answers `server_error`, because a listing retriever that returns nothing at all is a misconfiguration rather than a statement about any one subject.
 

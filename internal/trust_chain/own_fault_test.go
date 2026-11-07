@@ -91,7 +91,7 @@ func TestBuildTrustChain_OnlyThisServersOwnFaultEndsTheWalk(t *testing.T) {
 			if tc.ownErr != nil {
 				cache.SetOwn(tp.id["blocked"], func(context.Context) (*string, *model.EntityStatement, error) {
 					return nil, nil, tc.ownErr
-				})
+				}, nil)
 			}
 
 			_, _, _, err := BuildTrustChain(t.Context(), model.Configuration{HttpClient: &client}, tp.id[tc.subject], tp.id["ta"], cache)

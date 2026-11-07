@@ -31,6 +31,15 @@ func Retrieve(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 		return signed, statement, nil
 	}
 
+	if build, own := cache.Own(entityIdentifier); own {
+		signed, statement, err := build(ctx)
+		if err != nil {
+			return nil, nil, fmt.Errorf("%w%w", resolvecache.ErrOwnFault, err)
+		}
+		cache.Store(entityIdentifier, signed, statement)
+		return signed, statement, nil
+	}
+
 	if fetched := cache.RecordFetch(); fetched > cfg.EntitiesTraversedLimit() {
 		cfg.LogError(ctx, "reached the maximum number of entity configurations one request may fetch", slog.String("subject", string(entityIdentifier)), slog.Int("fetched", fetched), slog.Int("max_entities", cfg.EntitiesTraversedLimit()))
 		return nil, nil, model.NewLimitReachedError("the resolver reached the maximum number of entity configurations it may fetch for one request")
@@ -110,16 +119,20 @@ func fetch(ctx context.Context, cfg model.Configuration, entityIdentifier model.
 	if err := fetchEnded(ctx, fetchCtx, entityIdentifier); err != nil {
 		return nil, nil, err
 	}
-	if int64(len(responseBytes)) > limit {
+	return Accept(ctx, cfg, entityIdentifier, string(responseBytes))
+}
+
+func Accept(ctx context.Context, cfg model.Configuration, entityIdentifier model.EntityIdentifier, signed string) (*string, *model.EntityStatement, error) {
+	if limit := cfg.PeerResponseLimit(); int64(len(signed)) > limit {
 		return nil, nil, fmt.Errorf("%q's entity configuration exceeded the %d byte response limit", entityIdentifier, limit)
 	}
 
-	entityConfiguration, err := Validate(ctx, cfg, entityIdentifier, string(responseBytes))
+	entityConfiguration, err := Validate(ctx, cfg, entityIdentifier, signed)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return josemodel.Pointer(string(responseBytes)), entityConfiguration, nil
+	return &signed, entityConfiguration, nil
 }
 
 func Validate(ctx context.Context, cfg model.Configuration, entityIdentifier model.EntityIdentifier, entityConfigurationJwt string) (*model.EntityStatement, error) {

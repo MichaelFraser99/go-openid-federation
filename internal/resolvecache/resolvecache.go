@@ -1,6 +1,11 @@
 package resolvecache
 
-import "github.com/MichaelFraser99/go-openid-federation/model"
+import (
+	"context"
+	"errors"
+
+	"github.com/MichaelFraser99/go-openid-federation/model"
+)
 
 type entry struct {
 	signed    *string
@@ -12,7 +17,13 @@ type DeadEnd struct {
 	Target  model.EntityIdentifier
 }
 
+var ErrOwnFault = errors.New("")
+
+type OwnEntityConfiguration func(ctx context.Context) (*string, *model.EntityStatement, error)
+
 type Cache struct {
+	own       model.EntityIdentifier
+	buildOwn  OwnEntityConfiguration
 	entries   map[model.EntityIdentifier]entry
 	deadEnds  map[DeadEnd]struct{}
 	traversed int
@@ -25,6 +36,21 @@ func New() *Cache {
 		entries:  map[model.EntityIdentifier]entry{},
 		deadEnds: map[DeadEnd]struct{}{},
 	}
+}
+
+func (c *Cache) SetOwn(identifier model.EntityIdentifier, build OwnEntityConfiguration) {
+	if c == nil {
+		return
+	}
+	c.own = identifier
+	c.buildOwn = build
+}
+
+func (c *Cache) Own(identifier model.EntityIdentifier) (OwnEntityConfiguration, bool) {
+	if c == nil || c.buildOwn == nil || identifier != c.own {
+		return nil, false
+	}
+	return c.buildOwn, true
 }
 
 func (c *Cache) Load(identifier model.EntityIdentifier) (*string, *model.EntityStatement, bool) {

@@ -1,6 +1,7 @@
 package resolvecache
 
 import (
+	"context"
 	"testing"
 
 	"github.com/MichaelFraser99/go-openid-federation/model"
@@ -128,5 +129,59 @@ func TestCache_CountersAreNilSafeAndMonotone(t *testing.T) {
 	}
 	if absent.Traversed() != 0 || absent.Fetched() != 0 {
 		t.Error("expected zero counts without a cache")
+	}
+}
+
+func TestCache_OwnIsOfferedOnlyForTheIdentifierItWasSetFor(t *testing.T) {
+	own := model.EntityIdentifier("https://ta.example.com")
+	build := func(context.Context) (*string, *model.EntityStatement, error) { return nil, nil, nil }
+
+	tests := map[string]struct {
+		cache  func() *Cache
+		lookup model.EntityIdentifier
+		want   bool
+	}{
+		"the identifier it was set for": {
+			cache:  func() *Cache { c := New(); c.SetOwn(own, build); return c },
+			lookup: own,
+			want:   true,
+		},
+		"another identifier": {
+			cache:  func() *Cache { c := New(); c.SetOwn(own, build); return c },
+			lookup: "https://other.example.com",
+			want:   false,
+		},
+		"a spelling of the same entity that differs as a string": {
+			cache:  func() *Cache { c := New(); c.SetOwn(own, build); return c },
+			lookup: "https://TA.example.com",
+			want:   false,
+		},
+		"a cache it was never set on": {
+			cache:  New,
+			lookup: own,
+			want:   false,
+		},
+		"a cache it was never set on, asked for the empty identifier": {
+			cache:  New,
+			lookup: "",
+			want:   false,
+		},
+		"a nil cache": {
+			cache:  func() *Cache { return nil },
+			lookup: own,
+			want:   false,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, ok := tt.cache().Own(tt.lookup)
+			if ok != tt.want {
+				t.Fatalf("expected offered=%t, got %t", tt.want, ok)
+			}
+			if ok == (got == nil) {
+				t.Errorf("expected a builder exactly when one is offered, got offered=%t builder=%t", ok, got != nil)
+			}
+		})
 	}
 }

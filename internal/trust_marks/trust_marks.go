@@ -96,6 +96,8 @@ func newIssuerKeyCache(limit int) *issuerKeyCache {
 	return &issuerKeyCache{results: map[model.EntityIdentifier]issuerKeyResult{}, limit: limit}
 }
 
+const ownEntityConfigurationUnavailable = "unable to produce the entity configuration at this time"
+
 var errTooManyTrustMarkIssuers = fmt.Errorf("too many distinct trust mark issuers")
 
 func (c *issuerKeyCache) lookup(issuer model.EntityIdentifier, resolve func() (*josemodel.Jwks, error)) (*josemodel.Jwks, error) {
@@ -144,6 +146,11 @@ func FilterByTrusted(ctx context.Context, cfg model.Configuration, resolved *mod
 			cfg.LogInfo(ctx, "subject presents trust marks from more distinct issuers than the configured limit", slog.Int("limit", limit), slog.String("subject", string(resolved.Sub)))
 			resolved.TrustMarks = nil
 			return fmt.Errorf("%w%w%s", model.ErrInvalidSubject, model.ErrLimitReached, fmt.Sprintf("the subject presents trust marks from more than %d distinct issuers, which is more than this resolver will verify", limit))
+		}
+		if errors.Is(err, resolvecache.ErrOwnFault) {
+			cfg.LogError(ctx, "this resolver could not produce its own entity configuration for a trust mark issuer walk", slog.String("trust_mark_type", model.TruncateForResponse(tm.TrustMarkType)))
+			resolved.TrustMarks = nil
+			return model.ClassifySignerError(err, ownEntityConfigurationUnavailable)
 		}
 		if err != nil {
 			cfg.LogInfo(ctx, "failed to validate trust mark", slog.String("trust_mark_type", model.TruncateForResponse(tm.TrustMarkType)), slog.String("error", model.TruncateForResponse(err.Error())))

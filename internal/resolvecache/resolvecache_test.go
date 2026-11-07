@@ -204,3 +204,23 @@ func TestCache_OwnIsOfferedOnlyForTheIdentifierItWasSetFor(t *testing.T) {
 		})
 	}
 }
+
+func TestCache_DescribeIsTrueOncePerIdentifier(t *testing.T) {
+	var absent *Cache
+	for range 2 {
+		if !absent.Describe("https://a.example.com") {
+			t.Error("expected a nil cache to remember nothing, so every call describes")
+		}
+	}
+
+	c := New()
+	if !c.Describe("https://a.example.com") {
+		t.Error("expected the first call for an identifier to describe it")
+	}
+	if c.Describe("https://a.example.com") {
+		t.Error("expected a second call for the same identifier not to describe it again")
+	}
+	if !c.Describe("https://b.example.com") {
+		t.Error("expected another identifier to be described on its first call")
+	}
+}

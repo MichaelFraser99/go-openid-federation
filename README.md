@@ -27,6 +27,11 @@ Requires Go 1.27 or later.
 
 Each change you may have to act on is marked **Breaking change** in the section it concerns. The lists below link to those sections.
 
+### From v0.11.1
+
+- [Errors](#errors): `/resolve` builds this server's own statements in process, and a fault in them answers 5xx.
+- [Trust chains](#trust-chains): a walk logs once for each entity, and several Info messages are replaced by one summary line.
+
 ### From v0.11.0-rc.2
 
 - [Installation](#installation): this release requires `go-jose` v0.11.0 and Go 1.27.
@@ -315,7 +320,7 @@ Use `Configure` to mount the endpoints. It wraps every route it registers, so a 
 | Field | Purpose |
 | --- | --- |
 | `HttpClient` | Client used for outbound federation requests. Required for trust-chain resolution and other remote federation lookups; callers should provide an SSRF-safe client that enforces their network policy for untrusted entity identifiers. There is no default: `Configure` does not supply one, and a request that needs to fetch from a peer without one answers 500 `server_error` |
-| `Logger` | Optional `*slog.Logger`. Logging is skipped when nil. Each value the library logs is truncated to `model.MaxLoggedValueBytes` (1 KiB), because many of them are chosen by a caller or a peer |
+| `Logger` | Optional `*slog.Logger`. Logging is skipped when nil. Each value the library logs is truncated to `model.MaxLoggedValueBytes` (1 KiB), because many of them are chosen by a caller or a peer. A trust chain walk writes a bounded number of lines for each entity it fetches (see [Trust chains](#trust-chains)) |
 | `EntityTypes` | Extension entity types, merged over the built-in definitions |
 | `DiscardUnrecognisedEntityTypes` | Removes entity types absent from the registry. Defaults to preserving them |
 | `SignerConfiguration` | The entity's signing key, key ID and algorithm. If the signer returns an error, the endpoint answers 500 `server_error`, or 503 if the error wraps `model.ErrTemporarilyUnavailable`. See [Errors](#errors). `Algorithm` must name, exactly and in its registered case, an algorithm this library signs with: ES256/384/512, RS256/384/512, PS256/384/512, Ed25519, or ML-DSA-44/65/87. `EdDSA` is refused with a pointer to `Ed25519`, because go-jose accepts it only for verification. The HS family is never used, because a published symmetric key is not secret. Any of these answers `server_error` from the endpoint that would have signed, with the reason in the log |
@@ -716,6 +721,10 @@ An operator this library does not define is ignored, as section 6.1.3.2 requires
 `/resolve` builds a chain from the subject up to the requested trust anchor by walking `authority_hints` depth first, backtracking on dead ends and skipping entities already checked. The walk finds a route through entity configurations first, and only then fetches the subordinate statements along it. If one of those fetches fails, the request fails, and no other route is tried ([#123](https://github.com/MichaelFraser99/go-openid-federation/issues/123)). The walk is bounded (see [Limits](#limits)) and is refused with a 404 `invalid_trust_anchor` naming the bound when one is reached. Each step is verified: signatures against the issuer's published keys, `iss` and `sub` against the expected entities, and the subject's signing key against the JWKS in the subordinate statement above it.
 
 > **Breaking change.** A subordinate statement is requested at the `federation_fetch_endpoint` exactly as the superior publishes it, with only `sub` added to its query. Earlier releases removed a trailing `/`, so a superior that advertises `https://ta.example.com/fetch/` but serves only `/fetch` used to work. It now answers 404, and the resolve fails with 400 `invalid_trust_chain`. Make the advertised endpoint match the route.
+
+A walk writes at most four lines for each entity configuration it fetches, two about the fetch and two about the entity, and one `trust chain walk finished` line when it ends. Each entity is described once for each request, so the trust mark issuer walks in the same request do not describe it again. The walk can step into one entity many times, at different depths and from different hints, and it skips entities that it already knows lead nowhere. Each of these costs nothing to produce, so the walk does not log them one by one. The summary line counts them: `steps`, `entities_described`, `skipped_known_no_route`, `skipped_dead_end` and `depth_refusals`. A peer chooses the graph, so this keeps the log volume of one request under the same bound as its fetches, `MaxEntitiesTraversed`.
+
+> **Breaking change.** The walk wrote several lines for each step and for each hint that it tried. A dense graph from one peer made one request write hundreds of thousands of lines at Info. These messages are no longer written: `walking trust chain`, `checking authority hint`, `evaluating chain options`, `found target entity in authority hints`, `skipping entity already proven not to reach the trust anchor`, `skipping entity this walk has already found no route from`, `reached the maximum trust chain depth` and `serving entity configuration from resolve cache`. `checking authority hints` no longer carries `authority_hints_checked`, and it and `dead end in path traversal` are written once for each entity. If you count or alert on any of these, use the fields of `trust chain walk finished`.
 
 A resolved response expires at the earliest expiry in the chain rather than the subject's own. Where a trust mark expires sooner, the response expiry is reduced to match.
 

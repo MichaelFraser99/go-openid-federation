@@ -27,7 +27,6 @@ import (
 
 func Retrieve(ctx context.Context, cfg model.Configuration, entityIdentifier model.EntityIdentifier, cache *resolvecache.Cache) (*string, *model.EntityStatement, error) {
 	if signed, statement, ok := cache.Load(entityIdentifier); ok {
-		cfg.LogInfo(ctx, "serving entity configuration from resolve cache", slog.String("subject", string(entityIdentifier)))
 		return signed, statement, nil
 	}
 

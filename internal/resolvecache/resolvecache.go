@@ -25,6 +25,7 @@ type Cache struct {
 	own       model.EntityIdentifier
 	buildOwn  OwnEntityConfiguration
 	entries   map[model.EntityIdentifier]entry
+	described map[model.EntityIdentifier]struct{}
 	deadEnds  map[DeadEnd]struct{}
 	traversed int
 	fetched   int
@@ -33,8 +34,9 @@ type Cache struct {
 
 func New() *Cache {
 	return &Cache{
-		entries:  map[model.EntityIdentifier]entry{},
-		deadEnds: map[DeadEnd]struct{}{},
+		entries:   map[model.EntityIdentifier]entry{},
+		described: map[model.EntityIdentifier]struct{}{},
+		deadEnds:  map[DeadEnd]struct{}{},
 	}
 }
 
@@ -137,4 +139,15 @@ func (c *Cache) RecordPeerBytes(n int64) int64 {
 	}
 	c.peerBytes += n
 	return c.peerBytes
+}
+
+func (c *Cache) Describe(identifier model.EntityIdentifier) bool {
+	if c == nil {
+		return true
+	}
+	if _, described := c.described[identifier]; described {
+		return false
+	}
+	c.described[identifier] = struct{}{}
+	return true
 }

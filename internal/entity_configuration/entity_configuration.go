@@ -468,9 +468,18 @@ func publishedKeySet(ctx context.Context, cfg model.ServerConfiguration) (*publi
 			return nil, fmt.Errorf("failed to get subordinate signer configurations: %w", err)
 		}
 		for _, signerConfiguration := range subordinateSignerConfigurations {
+			if signerConfiguration.Signer == nil {
+				cfg.LogError(ctx, "not publishing a subordinate signer key because its signer configuration holds no signer", slog.String("kid", model.TruncateForResponse(signerConfiguration.KeyID)))
+				continue
+			}
+			if signerConfiguration.KeyID == "" {
+				cfg.LogError(ctx, "not publishing a subordinate signer key because its key ID is empty, and every key in a published key set needs one", slog.String("alg", model.TruncateForResponse(signerConfiguration.Algorithm)))
+				continue
+			}
 			apkJWK, err := jwk.PublicJwk(signerConfiguration.Signer.Public())
 			if err != nil {
-				return nil, fmt.Errorf("failed to convert override signer public key to a jwk: %s", err.Error())
+				cfg.LogError(ctx, "not publishing a subordinate signer key because its public key cannot be written as a jwk", slog.String("kid", model.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
+				continue
 			}
 			(*apkJWK)["kid"] = signerConfiguration.KeyID
 			(*apkJWK)["alg"] = signerConfiguration.Algorithm
@@ -499,6 +508,9 @@ func publishedKeySet(ctx context.Context, cfg model.ServerConfiguration) (*publi
 }
 
 func VerifySignerPublished(published josemodel.Jwks, signer model.SignerConfiguration) error {
+	if signer.Signer == nil {
+		return fmt.Errorf("the signer configuration holds no signer")
+	}
 	signerJWK, err := jwk.PublicJwk(signer.Signer.Public())
 	if err != nil {
 		return fmt.Errorf("failed to convert the signer's public key to a jwk: %s", err.Error())

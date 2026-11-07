@@ -229,6 +229,12 @@ const signingFailureError = "unable to produce the subordinate statement at this
 
 // todo: check this conforms to the errors listed in openid federation (spoiler alert - it doesn't)
 // New takes a given subject Entity Identifier, set of authority hint Entity Identifiers, populated Entity Statement, and key material (with associated key ID and algorithm) and produces a signed Entity Configuration
+var ErrUnusableRecord = errors.New("")
+
+func unusableRecord(err error) error {
+	return fmt.Errorf("%w%w", ErrUnusableRecord, err)
+}
+
 func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordinateRetriever func() (*model.SubordinateConfiguration, *model.SignerConfiguration, error), configuration model.ServerConfiguration) (*string, error) {
 	if configuration.IntermediateConfiguration == nil {
 		return nil, fmt.Errorf("no intermediate configuration provided")
@@ -247,7 +253,7 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 	}
 
 	if len(subjectSubordinateConfiguration.JWKs.Keys) == 0 {
-		return nil, fmt.Errorf("no jwk values provided for subject subordinate entity identifier")
+		return nil, unusableRecord(errors.New("no jwk values provided for subject subordinate entity identifier"))
 	}
 
 	seen := map[string]struct{}{}
@@ -255,14 +261,14 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 	for _, k := range subjectSubordinateConfiguration.JWKs.Keys {
 		kid, ok := k["kid"]
 		if !ok {
-			return nil, fmt.Errorf("one or more of the provided subordinate configuration JWKs is missing the mandatory field 'kid'")
+			return nil, unusableRecord(errors.New("one or more of the provided subordinate configuration JWKs is missing the mandatory field 'kid'"))
 		}
 		sKid, ok := kid.(string)
 		if !ok {
-			return nil, fmt.Errorf("one or more of the provided subordinate configuration JWKs has a malformed 'kid' value")
+			return nil, unusableRecord(errors.New("one or more of the provided subordinate configuration JWKs has a malformed 'kid' value"))
 		}
 		if _, duplicate := seen[sKid]; duplicate {
-			return nil, fmt.Errorf("all provided subordinate configuration JWKs must have unique 'kid' values - %q appears more than once", sKid)
+			return nil, unusableRecord(fmt.Errorf("all provided subordinate configuration JWKs must have unique 'kid' values - %q appears more than once", sKid))
 		}
 		seen[sKid] = struct{}{}
 
@@ -304,7 +310,7 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 	}
 
 	if unrecognised := subjectSubordinateConfiguration.Policies.UnrecognisedOperators(); len(unrecognised) > 0 {
-		return nil, fmt.Errorf("the metadata policy configured for %s holds operators this library does not understand, so it cannot publish them: %s", model.TruncateForResponse(string(subjectIdentifier)), model.TruncateForResponse(strings.Join(unrecognised, ", ")))
+		return nil, unusableRecord(fmt.Errorf("the metadata policy configured for %s holds operators this library does not understand, so it cannot publish them: %s", model.TruncateForResponse(string(subjectIdentifier)), model.TruncateForResponse(strings.Join(unrecognised, ", "))))
 	}
 	if policy := subjectSubordinateConfiguration.Policies; policy.HasParameterPolicies() {
 		subordinateStatement.MetadataPolicy = &policy
@@ -326,11 +332,11 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 	}
 
 	if err = model.VerifyPublishableStatementKeys(subordinateStatementMap); err != nil {
-		return nil, fmt.Errorf("refusing to publish this subordinate statement because %s", err.Error())
+		return nil, unusableRecord(fmt.Errorf("refusing to publish this subordinate statement because %s", err.Error()))
 	}
 
 	if err = model.VerifyIssuedStatement(subordinateStatementBytes, configuration.EntityTypes); err != nil {
-		return nil, fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %s", err.Error())
+		return nil, unusableRecord(fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %s", err.Error()))
 	}
 
 	if err := model.VerifyIssuanceAlgorithm(signerConfiguration.Algorithm); err != nil {

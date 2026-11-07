@@ -175,6 +175,10 @@ type signerNotPublished struct{ error }
 
 func (e signerNotPublished) Unwrap() error { return e.error }
 
+type publishedSetUnavailable struct{ error }
+
+func (e publishedSetUnavailable) Unwrap() error { return e.error }
+
 type publishedKeys struct {
 	once sync.Once
 	cfg  model.ServerConfiguration
@@ -193,7 +197,7 @@ func (p *publishedKeys) verify(ctx context.Context, signer model.SignerConfigura
 		p.keys, p.err = entity_configuration.PublishedKeySet(ctx, p.cfg)
 	})
 	if p.err != nil {
-		return fmt.Errorf("the published key set cannot be built: %s", p.err.Error())
+		return publishedSetUnavailable{p.err}
 	}
 	return entity_configuration.VerifySignerPublished(p.keys, signer)
 }
@@ -243,6 +247,11 @@ func (s *Server) loadSubordinate(ctx context.Context, identifier model.EntityIde
 		}
 		if subordinate.SignerConfiguration != nil {
 			if err := published.verify(ctx, *subordinate.SignerConfiguration); err != nil {
+				if errors.As(err, new(publishedSetUnavailable)) {
+					classified := model.ClassifySignerError(err, subordinateRetrievalFailureError)
+					s.logFailure(ctx, "the published key set cannot be built, so a subordinate signer cannot be checked against it", classified, slog.String("sub", string(identifier)), slog.String("error", err.Error()))
+					return nil, nil, loggedFailure{classified}
+				}
 				s.cfg.LogError(ctx, "refusing to sign with a subordinate signer whose key is not the one this authority publishes under its key ID, because no resolver could verify the statement", slog.String("sub", string(identifier)), slog.String("kid", subordinate.SignerConfiguration.KeyID), slog.String("error", err.Error()))
 				return nil, nil, loggedFailure{signerNotPublished{model.NewServerError(subordinateSignerUnpublishedError)}}
 			}

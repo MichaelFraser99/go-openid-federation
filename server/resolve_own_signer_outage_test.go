@@ -140,6 +140,13 @@ func TestServer_Resolve_ATrustAnchorBuildsItsOwnEntityConfigurationRatherThanFet
 			code:         model.ServerError,
 		},
 		{
+			name:         "the anchor as its own subject while its store is temporarily unable to list its subordinate signers",
+			reference:    "8.9 temporarily_unavailable",
+			retrieverErr: fmt.Errorf("%w%s", model.ErrTemporarilyUnavailable, signerMarker),
+			status:       http.StatusServiceUnavailable,
+			code:         model.TemporarilyUnavailable,
+		},
+		{
 			name:          "a leaf below the anchor while the anchor's signer refuses",
 			reference:     "8.9 server_error",
 			subjectIsLeaf: true,

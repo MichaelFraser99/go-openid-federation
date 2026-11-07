@@ -21,6 +21,7 @@ func TestFilterByTrusted_ThisServersOwnFaultInAnIssuerWalkAnswersAsItsOwnFault(t
 		name      string
 		reference string
 		ownErr    error
+		issued    bool
 		want      error
 	}{
 		{
@@ -35,6 +36,26 @@ func TestFilterByTrusted_ThisServersOwnFaultInAnIssuerWalkAnswersAsItsOwnFault(t
 			ownErr:    model.NewTemporarilyUnavailableError("unable to produce the entity configuration at this time"),
 			want:      model.ErrTemporarilyUnavailable,
 		},
+		{
+			name:      "this server unable to issue its own subordinate statement",
+			reference: "8.9 server_error",
+			ownErr:    model.NewServerError("unable to produce the subordinate statement at this time"),
+			issued:    true,
+			want:      model.ErrServerError,
+		},
+		{
+			name:      "this server temporarily unable to issue its own subordinate statement",
+			reference: "8.9 temporarily_unavailable",
+			ownErr:    model.NewTemporarilyUnavailableError("unable to produce the subordinate statement at this time"),
+			issued:    true,
+			want:      model.ErrTemporarilyUnavailable,
+		},
+		{
+			name:      "this server not issuing a subordinate statement for an issuer that names it as superior",
+			reference: "7.3",
+			ownErr:    model.NewInvalidTrustChainError("this server does not issue a subordinate statement for the subject"),
+			issued:    true,
+		},
 	}
 
 	for _, tc := range tests {
@@ -43,10 +64,19 @@ func TestFilterByTrusted_ThisServersOwnFaultInAnIssuerWalkAnswersAsItsOwnFault(t
 
 			builds := 0
 			cache := resolvecache.New()
-			cache.SetOwn(fed.id["trust_anchor"], func(context.Context) (*string, *model.EntityStatement, error) {
-				builds++
-				return nil, nil, tc.ownErr
-			})
+			anchor := model.EntityIdentifier("https://another-anchor.example.com")
+			if tc.issued {
+				anchor = fed.id["trust_anchor"]
+				cache.SetOwn(anchor, nil, func(context.Context, model.EntityStatement, model.EntityIdentifier) (*string, *model.EntityStatement, error) {
+					builds++
+					return nil, nil, tc.ownErr
+				})
+			} else {
+				cache.SetOwn(fed.id["trust_anchor"], func(context.Context) (*string, *model.EntityStatement, error) {
+					builds++
+					return nil, nil, tc.ownErr
+				}, nil)
+			}
 
 			resolved := &model.ResolveResponse{
 				Sub: subject,
@@ -57,12 +87,21 @@ func TestFilterByTrusted_ThisServersOwnFaultInAnIssuerWalkAnswersAsItsOwnFault(t
 				},
 			}
 			trustAnchorConfiguration := model.EntityStatement{
-				Sub:              model.EntityIdentifier("https://another-anchor.example.com"),
+				Sub:              anchor,
 				TrustMarkIssuers: map[string][]model.EntityIdentifier{accreditedTM: {fed.id["first"], fed.id["second"]}},
 			}
 
 			err := FilterByTrusted(t.Context(), model.Configuration{HttpClient: fed.client()}, resolved, trustAnchorConfiguration, cache)
 
+			if tc.want == nil {
+				if err != nil {
+					t.Fatalf("[%s] a peer that names this server as superior without being its subordinate is the peer's fault, so only its mark is dropped, got %v", tc.reference, err)
+				}
+				if len(resolved.TrustMarks) != 0 {
+					t.Errorf("[%s] expected both marks dropped, got %d", tc.reference, len(resolved.TrustMarks))
+				}
+				return
+			}
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("[%s] a mark that cannot be verified because of this server's own fault must not vanish behind a 200, expected %v, got %v", tc.reference, tc.want, err)
 			}

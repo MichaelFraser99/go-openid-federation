@@ -135,52 +135,71 @@ func TestCache_CountersAreNilSafeAndMonotone(t *testing.T) {
 func TestCache_OwnIsOfferedOnlyForTheIdentifierItWasSetFor(t *testing.T) {
 	own := model.EntityIdentifier("https://ta.example.com")
 	build := func(context.Context) (*string, *model.EntityStatement, error) { return nil, nil, nil }
+	issue := func(context.Context, model.EntityStatement, model.EntityIdentifier) (*string, *model.EntityStatement, error) {
+		return nil, nil, nil
+	}
+	both := func() *Cache { c := New(); c.SetOwn(own, build, issue); return c }
 
 	tests := map[string]struct {
-		cache  func() *Cache
-		lookup model.EntityIdentifier
-		want   bool
+		cache      func() *Cache
+		lookup     model.EntityIdentifier
+		wantOwn    bool
+		wantIssued bool
 	}{
 		"the identifier it was set for": {
-			cache:  func() *Cache { c := New(); c.SetOwn(own, build); return c },
-			lookup: own,
-			want:   true,
+			cache:      both,
+			lookup:     own,
+			wantOwn:    true,
+			wantIssued: true,
 		},
 		"another identifier": {
-			cache:  func() *Cache { c := New(); c.SetOwn(own, build); return c },
+			cache:  both,
 			lookup: "https://other.example.com",
-			want:   false,
 		},
 		"a spelling of the same entity that differs as a string": {
-			cache:  func() *Cache { c := New(); c.SetOwn(own, build); return c },
+			cache:  both,
 			lookup: "https://TA.example.com",
-			want:   false,
+		},
+		"the identifier it was set for, with no subordinate statement builder": {
+			cache:   func() *Cache { c := New(); c.SetOwn(own, build, nil); return c },
+			lookup:  own,
+			wantOwn: true,
+		},
+		"the identifier it was set for, with no entity configuration builder": {
+			cache:      func() *Cache { c := New(); c.SetOwn(own, nil, issue); return c },
+			lookup:     own,
+			wantIssued: true,
 		},
 		"a cache it was never set on": {
 			cache:  New,
 			lookup: own,
-			want:   false,
 		},
 		"a cache it was never set on, asked for the empty identifier": {
 			cache:  New,
 			lookup: "",
-			want:   false,
 		},
 		"a nil cache": {
 			cache:  func() *Cache { return nil },
 			lookup: own,
-			want:   false,
 		},
 	}
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, ok := tt.cache().Own(tt.lookup)
-			if ok != tt.want {
-				t.Fatalf("expected offered=%t, got %t", tt.want, ok)
+			cache := tt.cache()
+			got, ok := cache.Own(tt.lookup)
+			if ok != tt.wantOwn {
+				t.Fatalf("expected the entity configuration builder offered=%t, got %t", tt.wantOwn, ok)
 			}
 			if ok == (got == nil) {
 				t.Errorf("expected a builder exactly when one is offered, got offered=%t builder=%t", ok, got != nil)
+			}
+			issued, ok := cache.OwnIssued(tt.lookup)
+			if ok != tt.wantIssued {
+				t.Fatalf("expected the subordinate statement builder offered=%t, got %t", tt.wantIssued, ok)
+			}
+			if ok == (issued == nil) {
+				t.Errorf("expected a builder exactly when one is offered, got offered=%t builder=%t", ok, issued != nil)
 			}
 		})
 	}

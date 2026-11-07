@@ -47,6 +47,23 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 	}
 
 	for i := 0; i < len(route)-1; i++ {
+		if issue, own := cache.OwnIssued(route[i+1].Sub); own {
+			signedResponse, subordinateStatement, err := issue(ctx, route[i+1], route[i].Sub)
+			if err != nil {
+				cfg.LogInfo(ctx, "this server did not issue its own subordinate statement", slog.String("subject", string(route[i].Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return nil, nil, nil, walkNotCompleted(ctxErr)
+				}
+				if errors.Is(err, model.ErrServerError) || errors.Is(err, model.ErrTemporarilyUnavailable) {
+					return nil, nil, nil, fmt.Errorf("%w%w", resolvecache.ErrOwnFault, err)
+				}
+				return nil, nil, nil, subordinateStatementFailure(err)
+			}
+			trustChain = append(trustChain, *signedResponse)
+			parsedTrustChain = append(parsedTrustChain, *subordinateStatement)
+			continue
+		}
+
 		if held := cache.PeerBytes(); held > cfg.RequestPeerBytesLimit() {
 			cfg.LogError(ctx, "reached the maximum bytes of peer statements one request may hold", slog.String("subject", string(route[i].Sub)), slog.Int64("held", held), slog.Int64("max_bytes", cfg.RequestPeerBytesLimit()))
 			return nil, nil, nil, model.NewLimitReachedError("the resolver reached the maximum bytes of peer statements it may hold for one request")

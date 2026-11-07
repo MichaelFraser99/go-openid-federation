@@ -101,12 +101,17 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 	if err := fetchEnded(ctx, fetchCtx, cfg, issuer); err != nil {
 		return nil, nil, err
 	}
-	if int64(len(responseBytes)) > limit {
+
+	return Accept(ctx, cfg, issuer, subject, string(responseBytes))
+}
+
+func Accept(ctx context.Context, cfg model.Configuration, issuer model.EntityStatement, subject model.EntityIdentifier, signed string) (*string, *model.EntityStatement, error) {
+	if limit := cfg.PeerResponseLimit(); int64(len(signed)) > limit {
 		cfg.LogInfo(ctx, "the issuer's federation fetch response exceeded the response limit", slog.String("issuer", string(issuer.Sub)), slog.Int64("limit", limit))
 		return nil, nil, model.NewInvalidTrustChainError(fmt.Sprintf("the issuer's federation fetch response exceeded the %d byte response limit", limit))
 	}
 
-	subordinateStatement, err := Validate(ctx, cfg, issuer, string(responseBytes))
+	subordinateStatement, err := Validate(ctx, cfg, issuer, signed)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -115,9 +120,9 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 		return nil, nil, model.NewInvalidTrustChainError("'sub' claim does not match the requested subject entity identifier")
 	}
 
-	model.LogPrivateKeyMembersInRawSet(ctx, &cfg, subordinateStatement.Iss, subordinateStatement.Sub, rawJWKSClaim(string(responseBytes)))
+	model.LogPrivateKeyMembersInRawSet(ctx, &cfg, subordinateStatement.Iss, subordinateStatement.Sub, rawJWKSClaim(signed))
 
-	return josemodel.Pointer(string(responseBytes)), subordinateStatement, nil
+	return &signed, subordinateStatement, nil
 }
 
 func Validate(ctx context.Context, cfg model.Configuration, issuer model.EntityStatement, subordinateStatementJwt string) (*model.EntityStatement, error) {

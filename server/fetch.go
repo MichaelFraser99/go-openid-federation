@@ -30,9 +30,8 @@ func (s *Server) Fetch(w http.ResponseWriter, r *http.Request) ResponseFunc {
 }
 
 func (s *Server) issueSubordinateStatement(ctx context.Context, sub string) (*string, error) {
-	parsedSub, err := s.resolveEntityIdentifier(ctx, model.EntityIdentifierParamSub, sub)
+	parsedSub, err := s.resolveEntityIdentifier(ctx, model.EntityIdentifierParamSub, sub, subordinateStatementUnavailableError)
 	if err != nil {
-		s.cfg.LogInfo(ctx, "invalid 'sub' parameter", slog.String("error", err.Error()))
 		return nil, err
 	}
 

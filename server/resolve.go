@@ -34,15 +34,13 @@ func (s *Server) Resolve(w http.ResponseWriter, r *http.Request) ResponseFunc {
 		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("missing required parameter 'trust_anchor'"))
 	}
 
-	parsedSub, err := s.resolveEntityIdentifier(ctx, model.EntityIdentifierParamSub, sub)
+	parsedSub, err := s.resolveEntityIdentifier(ctx, model.EntityIdentifierParamSub, sub, resolveUnavailableError)
 	if err != nil {
-		s.cfg.LogInfo(ctx, "invalid 'sub' parameter", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, err)
 	}
 
-	parsedTrustAnchor, err := s.resolveEntityIdentifier(ctx, model.EntityIdentifierParamTrustAnchor, trustAnchor)
+	parsedTrustAnchor, err := s.resolveEntityIdentifier(ctx, model.EntityIdentifierParamTrustAnchor, trustAnchor, resolveUnavailableError)
 	if err != nil {
-		s.cfg.LogInfo(ctx, "invalid 'trust_anchor' parameter", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, err)
 	}
 

@@ -70,12 +70,18 @@ func (s *Server) AuthorityHints() []model.EntityIdentifier {
 	return hints
 }
 
-func (s *Server) resolveEntityIdentifier(ctx context.Context, param model.EntityIdentifierParam, raw string) (*model.EntityIdentifier, error) {
+func (s *Server) resolveEntityIdentifier(ctx context.Context, param model.EntityIdentifierParam, raw string, fallback string) (*model.EntityIdentifier, error) {
 	resolver := s.cfg.EntityIdentifierResolver
 	if resolver == nil {
 		resolver = model.StandardEntityIdentifierResolver{}
 	}
-	return resolver.ResolveEntityIdentifier(ctx, param, raw)
+	identifier, err := resolver.ResolveEntityIdentifier(ctx, param, raw)
+	if err != nil {
+		classified := s.retrieverError(err, fallback)
+		s.logFailure(ctx, "the entity identifier resolver refused a parameter", classified, slog.String("parameter", string(param)), slog.String("error", err.Error()))
+		return nil, classified
+	}
+	return identifier, nil
 }
 
 func (s *Server) Configure(h *http.ServeMux) {

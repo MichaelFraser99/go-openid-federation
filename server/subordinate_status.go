@@ -37,9 +37,8 @@ func (s *Server) SubordinateStatus(w http.ResponseWriter, r *http.Request) Respo
 	var parsedSubject *model.EntityIdentifier
 
 	if sub != "" {
-		parsedSubject, err = s.resolveEntityIdentifier(ctx, model.EntityIdentifierParamSub, sub)
+		parsedSubject, err = s.resolveEntityIdentifier(ctx, model.EntityIdentifierParamSub, sub, subordinateStatusUnavailableError)
 		if err != nil {
-			s.cfg.LogInfo(ctx, "error parsing 'sub' parameter as an entity identifier", slog.String("error", err.Error()))
 			return s.RespondWithError(ctx, w, err)
 		}
 	} else {

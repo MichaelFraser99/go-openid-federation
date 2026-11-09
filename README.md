@@ -352,6 +352,8 @@ The signer's public key is added to the published JWKS, keyed by `kid`, if not a
 
 When `/.well-known/openid-federation`, `/fetch`, `/trust-mark` or a subordinate lookup fails with 500 `server_error`, the cause is logged at error level, once. The response carries a fixed description, so the log is the only record of the cause. Any other class, including `temporarily_unavailable` and every 4xx, is logged at Info.
 
+`/resolve` answers 500 `server_error` with the fixed description `unable to resolve entities at this time`, whatever the cause. A missing `HttpClient`, unusable `SigningAlgorithms` and trust anchor keys that cannot verify a signature are examples. The cause is logged at error level. A cause found inside the trust chain walk is also logged there, with more detail, so one failure can give two error lines.
+
 When the library resolves a trust chain, it follows federation endpoints derived from untrusted entity identifiers and metadata. `model.ValidateEntityIdentifier` validates identifier syntax only. It does not resolve hosts or restrict which addresses a hostname may target. Deployments that expose `/resolve` or use the client-side resolution helpers should provide an `HttpClient` whose transport rejects disallowed destinations, including private, loopback, link-local and other reserved address ranges, and whose redirect handling preserves the same policy.
 
 The library refuses a redirect to a URL that does not use `https` on every fetch from a peer, whatever `HttpClient` you supply. The refused request is never sent. After that check, the library applies your client's own `CheckRedirect`, or Go's default limit of ten redirects when you set none. Your client is not changed.

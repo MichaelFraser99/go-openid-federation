@@ -20,9 +20,8 @@ func (s *Server) TrustMarkList(w http.ResponseWriter, r *http.Request) ResponseF
 	var err error
 
 	if sub != "" {
-		parsedSub, err = s.resolveEntityIdentifier(ctx, model.EntityIdentifierParamSub, sub)
+		parsedSub, err = s.resolveEntityIdentifier(ctx, model.EntityIdentifierParamSub, sub, trustMarkListingUnavailableError)
 		if err != nil {
-			s.cfg.LogInfo(ctx, "invalid 'sub' parameter", slog.String("error", err.Error()))
 			return s.RespondWithError(ctx, w, err)
 		}
 	}

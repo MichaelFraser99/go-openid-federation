@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -296,7 +297,7 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 	head, _, err := jwt.Validate(ctx, trustMark, func() ([]crypto.PublicKey, error) {
 		pubKey, err := jwk.PublicFromJwk(selectedKey)
 		if err != nil {
-			cfg.LogInfo(ctx, "failed to parse JWK", slog.String("error", err.Error()), slog.Any("jwk", selectedKey))
+			cfg.LogInfo(ctx, "the key published for the trust mark issuer cannot be read", slog.String("kid", kid), slog.String("issuer", string(*parsedIssuer)), slog.Any("members", slices.Sorted(maps.Keys(selectedKey))), slog.String("error", err.Error()))
 			return nil, fmt.Errorf("failed to parse JWK as a valid public key: %w", err)
 		}
 		return []crypto.PublicKey{pubKey}, nil

@@ -176,7 +176,7 @@ if err != nil {
 }
 ```
 
-`HttpClient` is required, because both calls fetch from peers. It must enforce your network policy, as [ServerConfiguration](#serverconfiguration) describes. Set `TrustAnchors` to verify each anchor against keys you hold. See [Anchoring a chain a caller supplies](#anchoring-a-chain-a-caller-supplies).
+Both calls refuse a malformed subject or trust anchor with `model.ErrInvalidRequest`. `HttpClient` is required, because both calls fetch from peers. It must enforce your network policy, as [ServerConfiguration](#serverconfiguration) describes. Set `TrustAnchors` to verify each anchor against keys you hold. See [Anchoring a chain a caller supplies](#anchoring-a-chain-a-caller-supplies).
 
 ## Endpoints
 

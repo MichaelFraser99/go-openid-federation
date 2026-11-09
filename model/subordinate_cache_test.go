@@ -95,6 +95,28 @@ func TestServerConfiguration_GetSubordinate(t *testing.T) {
 			t.Errorf("expected the cached entry to be reused, got %d retriever calls", retriever.calls)
 		}
 	})
+
+	for _, cacheTime := range []time.Duration{0, -time.Hour} {
+		t.Run(fmt.Sprintf("a cache time of %s stores nothing", cacheTime), func(t *testing.T) {
+			retriever := &cacheRetriever{subordinate: &SubordinateConfiguration{JWKs: josemodel.Jwks{Keys: []map[string]any{{"kid": "a"}}}}}
+			intermediate := &IntermediateConfiguration{SubordinateCacheTime: cacheTime}
+			cfg := ServerConfiguration{IntermediateConfiguration: intermediate, MetadataRetriever: retriever}
+
+			for i := range 100 {
+				subordinate, err := cfg.GetSubordinate(context.Background(), EntityIdentifier(fmt.Sprintf("https://leaf%d.example.com", i)))
+				if err != nil || subordinate == nil || len(subordinate.JWKs.Keys) != 1 {
+					t.Fatalf("expected the retriever's record, got %v, %v", subordinate, err)
+				}
+			}
+
+			if retriever.calls != 100 {
+				t.Errorf("expected the retriever asked for every lookup, got %d calls", retriever.calls)
+			}
+			if held := len(intermediate.subordinates); held != 0 {
+				t.Errorf("a cache time of %s is documented as caching nothing, so no lookup may be kept, got %d entries", cacheTime, held)
+			}
+		})
+	}
 }
 
 func TestIntermediateConfiguration_GetSubordinatesReturnsACopy(t *testing.T) {

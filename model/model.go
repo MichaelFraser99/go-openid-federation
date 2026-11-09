@@ -352,6 +352,9 @@ func (cfg *ServerConfiguration) GetSubordinate(ctx context.Context, identifier E
 
 	stored := *entity
 	stored.CachedAt = time.Now().UTC().Unix()
+	if i.SubordinateCacheTime <= 0 {
+		return &stored, nil
+	}
 
 	i.mu.Lock()
 	if i.subordinates == nil {

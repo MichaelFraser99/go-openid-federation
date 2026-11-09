@@ -181,21 +181,25 @@ func (m *MetadataPolicy) Verify(registry EntityTypeRegistry, discardUnrecognised
 }
 
 func (m *Metadata) verifyIssuerMatchesIdentifier(subject EntityIdentifier) error {
-	for _, entityType := range []string{"openid_provider", "oauth_authorization_server"} {
-		body, present := m.byEntityType()[entityType]
+	for _, rule := range []struct{ entityType, member string }{
+		{"openid_provider", "issuer"},
+		{"oauth_authorization_server", "issuer"},
+		{"openid_credential_issuer", "credential_issuer"},
+	} {
+		body, present := m.byEntityType()[rule.entityType]
 		if !present {
 			continue
 		}
-		raw, carried := body["issuer"]
+		raw, carried := body[rule.member]
 		if !carried || raw == nil {
 			continue
 		}
-		issuer, isString := raw.(string)
+		identifier, isString := raw.(string)
 		if !isString {
-			return fmt.Errorf("invalid resolved %s metadata: 'issuer' must be a string", entityType)
+			return fmt.Errorf("invalid resolved %s metadata: '%s' must be a string", rule.entityType, rule.member)
 		}
-		if issuer != string(subject) {
-			return fmt.Errorf("invalid resolved %s metadata: 'issuer' must be the entity identifier", entityType)
+		if identifier != string(subject) {
+			return fmt.Errorf("invalid resolved %s metadata: '%s' must be the entity identifier", rule.entityType, rule.member)
 		}
 	}
 	return nil

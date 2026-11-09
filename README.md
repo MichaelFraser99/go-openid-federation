@@ -33,6 +33,7 @@ Each change you may have to act on is marked **Breaking change** in the section 
 - [Trust chains](#trust-chains): a walk logs once for each entity, and several Info messages are replaced by one summary line.
 - [Retriever interfaces](#retriever-interfaces): a temporary outage in `GetSubordinateSigners` or `ListTrustMarkIssuers` answers 503, and `/extended-list` no longer drops a statement silently over it.
 - [Query parameters](#query-parameters): one subordinate's unusable record or signer no longer takes down `/extended-list` or `/.well-known/openid-federation`.
+- [Entity statements and metadata](#entity-statements-and-metadata): resolved `openid_credential_issuer` metadata must name the subject as its `credential_issuer`.
 
 ### From v0.11.0-rc.2
 
@@ -578,6 +579,8 @@ The claim shape rules run again on the resolved metadata, not only on each state
 > **Breaking change.** `Metadata.VerifyResolved` now applies the claim shape rules as well as the required-claim rules, so a resolution a metadata policy made non-conformant is refused with `invalid_metadata`. A federation whose policies set an https-only parameter to an http URL, set a signing algorithm to `none`, or add `jwks` to `federation_entity` resolved before and does not now. The shape rules impose no presence requirement, so a policy that legitimately removes an optional parameter is unaffected.
 
 > **Breaking change.** `Metadata.VerifyResolved` takes the subject's Entity Identifier as a second argument, and refuses resolved `openid_provider` or `oauth_authorization_server` metadata whose `issuer` is not that identifier. OpenID Federation for OpenID Connect 1.1 sections 5.1.2 and 5.1.3 make the match a MUST. Before this, an entity could publish OpenID Connect or OAuth metadata for an issuer it does not control, backed by its own trust chain, and a superior could point a subject's `issuer` elsewhere with a policy. The comparison is exact, as the clause states, so `https://op.example.com` and `https://op.example.com/openid` do not match.
+
+> **Breaking change.** `Metadata.VerifyResolved` also refuses resolved `openid_credential_issuer` metadata whose `credential_issuer` is not the subject's Entity Identifier. OpenID Federation for Wallet Architectures 1.0, draft 05, section 6.2.1, says it "MUST be equal to the `iss`/`sub` pair value in the Credential Issuer's Entity Configuration". Before this, an entity could publish Credential Issuer metadata naming another issuer, and a wallet that takes the Credential Issuer Identifier from resolved metadata would address that issuer under trust established for the publisher. The comparison is exact, as for `issuer`. The source is a draft, so this rule follows it if it changes.
 
 Whether the required claims of a type are present is checked at the end of resolution, not on each statement. A subject may publish part of a type's metadata and leave its superior to supply the rest, through either a `metadata` claim or a metadata policy, so no single statement has to be complete on its own. The resolved metadata does, and `VerifyResolvedMetadata` is where that is judged. An empty object is accepted on a statement, and in the resolved metadata only for a type that has no required claims; for the rest it means none of them arrived.
 

@@ -124,6 +124,44 @@ func TestVerifyResolved_RequiresTheIssuerToBeTheEntityIdentifier(t *testing.T) {
 				"token_endpoint":                        "https://op.example.com/token",
 			}},
 		},
+		"an openid_credential_issuer credential_issuer naming another entity": {
+			reference: "Wallet draft 05 6.2.1",
+			metadata: &Metadata{OpenIDCredentialIssuerMetadata: &OpenIDCredentialIssuerMetadata{
+				"credential_issuer":                   "https://attacker.example.com",
+				"credential_endpoint":                 "https://op.example.com/credential",
+				"credential_configurations_supported": map[string]any{},
+			}},
+			refused: true,
+			says:    "'credential_issuer' must be the entity identifier",
+		},
+		"an openid_credential_issuer credential_issuer with a trailing slash": {
+			reference: "Wallet draft 05 6.2.1",
+			metadata: &Metadata{OpenIDCredentialIssuerMetadata: &OpenIDCredentialIssuerMetadata{
+				"credential_issuer":                   "https://op.example.com/",
+				"credential_endpoint":                 "https://op.example.com/credential",
+				"credential_configurations_supported": map[string]any{},
+			}},
+			refused: true,
+			says:    "'credential_issuer' must be the entity identifier",
+		},
+		"an openid_credential_issuer credential_issuer that is not a string": {
+			reference: "Wallet draft 05 6.2.1",
+			metadata: &Metadata{OpenIDCredentialIssuerMetadata: &OpenIDCredentialIssuerMetadata{
+				"credential_issuer":                   []any{"https://op.example.com"},
+				"credential_endpoint":                 "https://op.example.com/credential",
+				"credential_configurations_supported": map[string]any{},
+			}},
+			refused: true,
+			says:    "'credential_issuer' must be a string",
+		},
+		"an openid_credential_issuer credential_issuer equal to the identifier": {
+			reference: "Wallet draft 05 6.2.1",
+			metadata: &Metadata{OpenIDCredentialIssuerMetadata: &OpenIDCredentialIssuerMetadata{
+				"credential_issuer":                   "https://op.example.com",
+				"credential_endpoint":                 "https://op.example.com/credential",
+				"credential_configurations_supported": map[string]any{},
+			}},
+		},
 		"an entity type with no issuer rule": {
 			reference: "Connect 1.1 5.1.2",
 			metadata: &Metadata{OpenIDRelyingPartyMetadata: &OpenIDRelyingPartyMetadata{

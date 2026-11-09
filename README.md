@@ -454,7 +454,7 @@ type SubordinateStatusRetriever interface {
 }
 ```
 
-Subordinates retrieved through a `Retriever` are cached for `IntermediateConfiguration.SubordinateCacheTime`. `FlushCache` invalidates the cache.
+Subordinates retrieved through a `Retriever` are cached for `IntermediateConfiguration.SubordinateCacheTime`. At zero or below, nothing is kept, and every lookup asks the `Retriever`. An expired entry is not removed, only replaced at the next lookup for the same subject, so the cache holds every subject your `Retriever` has confirmed until you call `FlushCache`. Confirm only the subjects you registered, matched exactly. A `Retriever` that confirms any subject, or matches spellings loosely, lets a caller add an entry for each new `sub` it sends to `/fetch`.
 
 With no `Retriever`, the subordinates you add with `AddSubordinate` are the store itself, not a cache. They are served until you call `FlushCache`, which removes them all, and `SubordinateCacheTime` does not apply. There is no way to remove one subordinate on its own.
 

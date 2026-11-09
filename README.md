@@ -33,6 +33,7 @@ Each change you may have to act on is marked **Breaking change** in the section 
 - [Trust chains](#trust-chains): a walk logs once for each entity, and several Info messages are replaced by one summary line.
 - [Retriever interfaces](#retriever-interfaces): a temporary outage in `GetSubordinateSigners` or `ListTrustMarkIssuers` answers 503, and `/extended-list` no longer drops a statement silently over it.
 - [Query parameters](#query-parameters): one subordinate's unusable record or signer no longer takes down `/extended-list` or `/.well-known/openid-federation`.
+- [ServerConfiguration](#serverconfiguration): a redirect from a peer to a URL that does not use `https` is refused, whatever client you supply.
 - [Entity statements and metadata](#entity-statements-and-metadata): resolved `openid_credential_issuer` metadata must name the subject as its `credential_issuer`.
 
 ### From v0.11.0-rc.2
@@ -351,6 +352,10 @@ The signer's public key is added to the published JWKS, keyed by `kid`, if not a
 When `/.well-known/openid-federation`, `/fetch`, `/trust-mark` or a subordinate lookup fails with 500 `server_error`, the cause is logged at error level, once. The response carries a fixed description, so the log is the only record of the cause. Any other class, including `temporarily_unavailable` and every 4xx, is logged at Info.
 
 When the library resolves a trust chain, it follows federation endpoints derived from untrusted entity identifiers and metadata. `model.ValidateEntityIdentifier` validates identifier syntax only. It does not resolve hosts or restrict which addresses a hostname may target. Deployments that expose `/resolve` or use the client-side resolution helpers should provide an `HttpClient` whose transport rejects disallowed destinations, including private, loopback, link-local and other reserved address ranges, and whose redirect handling preserves the same policy.
+
+The library refuses a redirect to a URL that does not use `https` on every fetch from a peer, whatever `HttpClient` you supply. The refused request is never sent. After that check, the library applies your client's own `CheckRedirect`, or Go's default limit of ten redirects when you set none. Your client is not changed.
+
+> **Breaking change.** A peer whose entity configuration or fetch endpoint redirects to plain `http` is now refused, as a peer that cannot be reached. Section 1.2 requires an `https` Entity Identifier, and section 5.1.1 requires an `https` fetch endpoint. Earlier releases followed the redirect when the client allowed it, so the request and the statement crossed the network in plaintext.
 
 ### IntermediateConfiguration
 

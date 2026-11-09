@@ -21,6 +21,7 @@ import (
 	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
+	"github.com/MichaelFraser99/go-openid-federation/internal/peerclient"
 	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
@@ -78,7 +79,7 @@ func fetch(ctx context.Context, cfg model.Configuration, entityIdentifier model.
 	}
 	request.Header.Set("Accept", "application/entity-statement+jwt")
 
-	response, err := cfg.HttpClient.Do(request)
+	response, err := peerclient.HTTPSOnly(cfg.HttpClient).Do(request)
 	if err != nil {
 		if ended := fetchEnded(ctx, fetchCtx, entityIdentifier); ended != nil {
 			return nil, nil, ended

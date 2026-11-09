@@ -313,7 +313,7 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 
 	if typ, ok := head["typ"].(string); !ok {
 		return nil, fmt.Errorf("missing or invalid required field 'typ'")
-	} else if typ != "trust-mark+jwt" { //todo: support additional, approved, types
+	} else if !entity_statement.NamesJWTType(typ, "trust-mark+jwt") { //todo: support additional, approved, types
 		cfg.LogInfo(ctx, "invalid trust mark type", slog.String("type", typ))
 		return nil, fmt.Errorf("invalid trust mark type")
 	}

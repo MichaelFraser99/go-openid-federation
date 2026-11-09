@@ -623,7 +623,7 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 		if err := verifyTrustAnchor(ctx, cfg, trustAnchorEntityIdentifier, *signedEntityConfiguration, *entityConfiguration); err != nil {
 			return nil, err
 		}
-		trustChain = append(trustChain, *signedEntityConfiguration)
+		trustChain = append(slices.Clone(trustChain), *signedEntityConfiguration)
 		processedChain = append(processedChain, *entityConfiguration)
 	}
 

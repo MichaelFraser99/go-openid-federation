@@ -1517,27 +1517,30 @@ func marshalPolicyOperatorSetToMap(in map[string]PolicyOperators) map[string]any
 func marshalMetadataToMap(in map[string]any) map[string]any {
 	metadataMap := map[string]any{}
 	for k, v := range in {
-		if _, ok := v.([]any); !ok && v == nil {
-			continue // non-slice nil values can be completely omitted
-		} else if nested, ok := v.(map[string]any); ok {
-			metadataMap[k] = marshalMetadataToMap(nested)
-		} else if reflect.TypeOf(v).Kind() == reflect.Slice {
-			if reflect.ValueOf(v).Len() == 0 {
-				metadataMap[k] = []any{}
-			} else {
-				// Convert any slice to []any
-				slice := reflect.ValueOf(v)
-				anySlice := make([]any, slice.Len())
-				for i := 0; i < slice.Len(); i++ {
-					anySlice[i] = slice.Index(i).Interface()
-				}
-				metadataMap[k] = anySlice
-			}
-		} else {
-			metadataMap[k] = v
+		if v != nil {
+			metadataMap[k] = marshalMetadataValue(v)
 		}
 	}
 	return metadataMap
+}
+
+func marshalMetadataValue(v any) any {
+	if nested, ok := v.(map[string]any); ok {
+		nestedMap := make(map[string]any, len(nested))
+		for k, value := range nested {
+			nestedMap[k] = marshalMetadataValue(value)
+		}
+		return nestedMap
+	}
+	if v == nil || reflect.TypeOf(v).Kind() != reflect.Slice {
+		return v
+	}
+	slice := reflect.ValueOf(v)
+	anySlice := make([]any, slice.Len())
+	for i := range slice.Len() {
+		anySlice[i] = slice.Index(i).Interface()
+	}
+	return anySlice
 }
 
 type ResolveResponse struct {

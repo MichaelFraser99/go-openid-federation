@@ -89,14 +89,18 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 			//todo: this is going to need some form of caching mechanism to not be extremely expensive to run - we might want to drop this parameter from the draft
 			token, err := subordinate_statement.New(ctx, *parsedIdentifier, s.loadSubordinate(ctx, *parsedIdentifier, published), s.cfg)
 			if err != nil {
-				if !errors.Is(err, model.ErrNotFound) && !errors.Is(err, model.ErrInvalidSubject) && !errors.As(err, new(signerNotPublished)) {
+				if !errors.Is(err, model.ErrNotFound) && !errors.Is(err, model.ErrInvalidSubject) && !errors.As(err, new(signerNotPublished)) && !errors.Is(err, subordinate_statement.ErrUnusableRecord) {
 					s.logFailure(ctx, "error creating subordinate statement", err, slog.String("error", err.Error()))
 					if errors.Is(err, model.ErrTemporarilyUnavailable) {
 						return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(extendedListingUnavailableError))
 					}
 					return s.RespondWithError(ctx, w, model.NewServerError(extendedListingUnavailableError))
 				}
-				s.cfg.LogInfo(ctx, "omitting the subordinate statement for an entity it could not be issued for", slog.String("sub", identifier), slog.String("error", err.Error()))
+				if errors.Is(err, subordinate_statement.ErrUnusableRecord) {
+					s.cfg.LogError(ctx, "omitting the subordinate statement for an entity whose record cannot be published", slog.String("sub", identifier), slog.String("error", err.Error()))
+				} else {
+					s.cfg.LogInfo(ctx, "omitting the subordinate statement for an entity it could not be issued for", slog.String("sub", identifier), slog.String("error", err.Error()))
+				}
 			} else {
 				response.ImmediateSubordinateEntities[i]["subordinate_statement"] = *token
 			}

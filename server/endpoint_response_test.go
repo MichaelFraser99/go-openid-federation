@@ -670,11 +670,22 @@ func TestServer_ExtendedList_DoesNotWriteIntoTheRetrieversEntities(t *testing.T)
 }
 
 func TestServer_ExtendedList_AnUnclassifiedSigningFailureKeepsItsTextOffTheWire(t *testing.T) {
+	const signerText = "KMS-REFUSAL-MARKER"
+	leafSigner, err := jws.GetSigner(jwa.ES256, nil)
+	if err != nil {
+		t.Fatalf("failed to build the leaf signer: %v", err)
+	}
+	leafKey, err := jwk.PublicJwk(leafSigner.Public())
+	if err != nil {
+		t.Fatalf("failed to read the leaf key: %v", err)
+	}
+	(*leafKey)["kid"] = "leaf"
 	intermediate := &model.IntermediateConfiguration{SubordinateCacheTime: 5 * time.Minute}
-	intermediate.AddSubordinate("https://leaf.example.com", &model.SubordinateConfiguration{})
+	intermediate.AddSubordinate("https://leaf.example.com", &model.SubordinateConfiguration{JWKs: josemodel.Jwks{Keys: []map[string]any{*leafKey}}})
 
 	ts := contractServer(t, func(cfg *model.ServerConfiguration) {
 		cfg.IntermediateConfiguration = intermediate
+		cfg.SignerConfiguration.Signer = refusingSigner{public: cfg.SignerConfiguration.Signer.Public(), err: errors.New(signerText)}
 		cfg.Extensions = model.Extensions{
 			ExtendedListing: model.ExtendedListingConfiguration{Enabled: true, SizeLimit: 10, MetadataRetriever: listingWithOneEntity{}},
 		}

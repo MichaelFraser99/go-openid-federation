@@ -24,7 +24,7 @@ func withinOneSecond(t *testing.T, run func(now int64) bool) {
 			return
 		}
 	}
-	t.Skip("could not complete the check inside a single wall-clock second")
+	t.Fatal("could not complete the check inside a single wall-clock second in six attempts, so the boundary was never tested")
 }
 
 func markWithClaims(t *testing.T, f *rvFed, issuer string, claims map[string]any) string {

@@ -22,13 +22,13 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 	ctx := r.Context()
 
 	if !s.cfg.Extensions.ExtendedListing.Enabled {
-		return s.RespondWithError(ctx, w, model.NewServerError("extended subordinate listing not enabled"))
+		return s.respondWithMisconfiguration(ctx, w, "extended subordinate listing not enabled", extendedListingUnavailableError)
 	}
 	if s.cfg.Extensions.ExtendedListing.MetadataRetriever == nil {
-		return s.RespondWithError(ctx, w, model.NewServerError("extended subordinate listing metadata retriever not configured"))
+		return s.respondWithMisconfiguration(ctx, w, "extended subordinate listing metadata retriever not configured", extendedListingUnavailableError)
 	}
 	if s.cfg.Extensions.ExtendedListing.SizeLimit <= 0 {
-		return s.RespondWithError(ctx, w, model.NewServerError("extended subordinate listing size limit not configured"))
+		return s.respondWithMisconfiguration(ctx, w, "extended subordinate listing size limit not configured", extendedListingUnavailableError)
 	}
 
 	if err := r.ParseForm(); err != nil {

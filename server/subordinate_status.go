@@ -19,10 +19,10 @@ func (s *Server) SubordinateStatus(w http.ResponseWriter, r *http.Request) Respo
 	s.cfg.LogInfo(ctx, "received subordinate status request")
 
 	if !s.cfg.Extensions.SubordinateStatus.Enabled {
-		return s.RespondWithError(ctx, w, model.NewServerError("subordinate status not enabled"))
+		return s.respondWithMisconfiguration(ctx, w, "subordinate status not enabled", subordinateStatusUnavailableError)
 	}
 	if s.cfg.Extensions.SubordinateStatus.MetadataRetriever == nil {
-		return s.RespondWithError(ctx, w, model.NewServerError("subordinate status metadata retriever not configured"))
+		return s.respondWithMisconfiguration(ctx, w, "subordinate status metadata retriever not configured", subordinateStatusUnavailableError)
 	}
 
 	err := r.ParseForm()

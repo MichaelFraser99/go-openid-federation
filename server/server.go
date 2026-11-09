@@ -278,6 +278,11 @@ func (s *Server) respondWith(w http.ResponseWriter, status int, contentType stri
 	}
 }
 
+func (s *Server) respondWithMisconfiguration(ctx context.Context, w http.ResponseWriter, cause string, description string) ResponseFunc {
+	s.cfg.LogError(ctx, cause)
+	return s.RespondWithError(ctx, w, model.NewServerError(description))
+}
+
 func (s *Server) RespondWithError(ctx context.Context, w http.ResponseWriter, err error) ResponseFunc {
 	s.cfg.LogInfo(ctx, "handling error response", slog.String("error", err.Error()))
 	code, response := s.parseError(err)

@@ -185,7 +185,7 @@ func TestServer_ExtendedList_RejectsNonPositiveConfiguredSizeLimit(t *testing.T)
 			s := startExtendedListServerWithSizeLimit(t, retriever, sizeLimit)
 
 			resp, err := s.Client().Get(s.URL + "/extended-list?limit=5")
-			validateErrorResponse(t, resp, err, http.StatusInternalServerError, "server_error", "extended subordinate listing size limit not configured")
+			validateErrorResponse(t, resp, err, http.StatusInternalServerError, "server_error", extendedListingUnavailableError)
 
 			if retriever.received != nil {
 				t.Error("expected misconfigured server to reject request before reaching the retriever")

@@ -885,7 +885,7 @@ Errors are returned to callers as a JSON object with `error` and `error_descript
 > **Breaking change.** In v0.11.0-rc.2, `/resolve`, `/subordinate-status` and `/trust-mark-status` answered every signer error with 503, and `/list` answered every `GetSubordinates` error with 503.
 >
 > - **A signer error** now answers 500 `server_error` on every endpoint that signs, unless it wraps `model.ErrTemporarilyUnavailable`, which answers 503. Any other class a signer error wraps, such as `model.ErrNotFound`, is ignored. It no longer chooses the response on `/fetch` and `/.well-known/openid-federation`, and no longer removes the entity from an `/extended-list` page.
-> - **A `GetSubordinates` error on `/list`** now keeps whatever class the store wraps, except `model.ErrPageNotFound`, as every other retriever error does: `model.ErrNotFound` answers 404, `model.ErrInvalidRequest` answers 400, `model.ErrTemporarilyUnavailable` answers 503, and so on. An error that wraps no `model.Err*` sentinel answers 500 `server_error`.
+> - **A `GetSubordinates` error on `/list`** now keeps whatever class the store wraps, as every other retriever error does, except `model.ErrPageNotFound`: `model.ErrNotFound` answers 404, `model.ErrInvalidRequest` answers 400, `model.ErrTemporarilyUnavailable` answers 503, and so on. An error that wraps no `model.Err*` sentinel answers 500 `server_error`.
 >
 > If your signer or your store reports a throttle or an outage, wrap that error with `model.ErrTemporarilyUnavailable` to keep the 503.
 

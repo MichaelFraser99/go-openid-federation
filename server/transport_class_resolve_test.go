@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -27,6 +28,8 @@ func (s sentinelTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	return s.next.RoundTrip(r)
 }
 
+var errUnclassifiedTransport = errors.New("")
+
 func TestServer_Resolve_HonoursAConsumerTransportsClassInTheResponse(t *testing.T) {
 	const marker = "transport-marker"
 
@@ -43,6 +46,8 @@ func TestServer_Resolve_HonoursAConsumerTransportsClassInTheResponse(t *testing.
 		{name: "a transport that refuses as an invalid chain", reference: "8.9", sentinel: model.ErrInvalidTrustChain, wantStatus: http.StatusBadRequest, wantCode: model.InvalidTrustChain},
 		{name: "a transport that refuses as this server's own fault", reference: "8.9", sentinel: model.ErrServerError, wantStatus: http.StatusInternalServerError, wantCode: model.ServerError},
 		{name: "a transport that refuses as temporarily unavailable", reference: "8.9", sentinel: model.ErrTemporarilyUnavailable, wantStatus: http.StatusServiceUnavailable, wantCode: model.TemporarilyUnavailable},
+		{name: "a transport that refuses as a page not found, which only the extended listing defines", reference: "8.9", sentinel: model.ErrPageNotFound, wantStatus: http.StatusBadRequest, wantCode: model.InvalidTrustChain},
+		{name: "a transport that refuses with no class", reference: "8.9", sentinel: errUnclassifiedTransport, wantStatus: http.StatusBadRequest, wantCode: model.InvalidTrustChain},
 	}
 
 	for _, tc := range tests {

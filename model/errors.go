@@ -115,7 +115,7 @@ var classifiedErrorBuilders = []struct {
 
 func ReclassifyWithDescription(err error, description string) error {
 	for _, candidate := range classifiedErrorBuilders {
-		if !errors.Is(err, candidate.sentinel) {
+		if candidate.sentinel == ErrPageNotFound || !errors.Is(err, candidate.sentinel) {
 			continue
 		}
 		if errors.Is(err, ErrLimitReached) {

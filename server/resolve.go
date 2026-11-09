@@ -51,19 +51,16 @@ func (s *Server) Resolve(w http.ResponseWriter, r *http.Request) ResponseFunc {
 
 	trustChain, parsedTrustChain, _, err := trust_chain.BuildTrustChain(ctx, s.cfg.Configuration, *parsedSub, *parsedTrustAnchor, cache)
 	if err != nil {
-		s.cfg.LogInfo(ctx, "error building trust chain", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, err)
+		return s.respondWithResolveFailure(ctx, w, "error building trust chain", err)
 	}
 
 	resolved, err := trust_chain.ResolveMetadata(ctx, s.cfg.Configuration, s.cfg.EntityIdentifier, *parsedTrustAnchor, trustChain, cache)
 	if err != nil {
-		s.cfg.LogInfo(ctx, "error resolving trust chain", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, err)
+		return s.respondWithResolveFailure(ctx, w, "error resolving trust chain", err)
 	}
 
 	if err = trust_marks.FilterByTrusted(ctx, s.cfg.Configuration, resolved, parsedTrustChain[len(parsedTrustChain)-1], cache); err != nil {
-		s.cfg.LogInfo(ctx, "error filtering trust marks", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, err)
+		return s.respondWithResolveFailure(ctx, w, "error filtering trust marks", err)
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		s.cfg.LogInfo(ctx, "the resolve request did not complete before its deadline", slog.String("error", ctxErr.Error()))
@@ -101,4 +98,12 @@ func (s *Server) Resolve(w http.ResponseWriter, r *http.Request) ResponseFunc {
 	}
 
 	return s.RespondWithResolveResponse(w, []byte(*token))
+}
+
+func (s *Server) respondWithResolveFailure(ctx context.Context, w http.ResponseWriter, msg string, err error) ResponseFunc {
+	s.logFailure(ctx, msg, err, slog.String("error", err.Error()))
+	if _, code := errorStatusAndCode(err); code == model.ServerError {
+		return s.RespondWithError(ctx, w, model.NewServerError(resolveUnavailableError))
+	}
+	return s.RespondWithError(ctx, w, err)
 }

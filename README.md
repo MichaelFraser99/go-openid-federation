@@ -864,11 +864,13 @@ if errors.Is(err, model.ErrInvalidTrustAnchor) {
 | `ErrInvalidTrustAnchor` | `invalid_trust_anchor` | 404 |
 | `ErrInvalidTrustChain` | `invalid_trust_chain` | 400 |
 | `ErrInvalidMetadata` | `invalid_metadata` | 400 |
-| `ErrNotFound` | `not_found` | 404 |
 | `ErrPageNotFound` | `page_not_found` | 404 |
+| `ErrNotFound` | `not_found` | 404 |
 | `ErrTemporarilyUnavailable` | `temporarily_unavailable` | 503 |
 | `ErrUnsupportedParameter` | `unsupported_parameter` | 400 |
 | `ErrServerError` | `server_error` | 500 |
+
+An error that carries more than one sentinel answers with the first one in this table that it carries. An error that carries none answers 500 `server_error`.
 
 `ErrLimitReached` carries no code of its own: it accompanies the class the bound belongs to, so a walk refused by a configured bound answers 404 `invalid_trust_anchor` and a subject presenting more trust mark issuers than the bound answers 404 `invalid_subject`. A consumer tells a bound from the condition it shares a code with using `errors.Is`.
 
@@ -910,7 +912,7 @@ Everything a peer does wrong on the subordinate statement fetch path therefore a
 Two exceptions worth knowing, rather than inferring from the above:
 
 - **The entity configuration path classifies by hop, not by fault.** An entity configuration this server cannot fetch answers 404 — `not_found` for the subject, `invalid_trust_anchor` for an entity further up — because at that point the walk has not found the entity rather than failed to validate a statement. So one unreachable peer answers 404 at its entity configuration and 400 at its fetch endpoint.
-- **A transport error that already carries a class keeps it, all the way to the response.** A consumer whose `HttpClient` refuses a destination by policy can wrap any of the twelve federation sentinels, and that class is what the caller receives — `model.ReclassifyWithDescription` keeps it while replacing the description with this library's own, because the transport's text names the endpoint the peer published. The lookup runs in a fixed order, so an error carrying more than one sentinel always resolves to the same class.
+- **A transport error that already carries a class keeps it, all the way to the response.** A consumer whose `HttpClient` refuses a destination by policy can wrap any of the twelve federation sentinels, and that class is what the caller receives — `model.ReclassifyWithDescription` keeps it while replacing the description with this library's own, because the transport's text names the endpoint the peer published. The lookup uses the same order as the table above, so an error carrying more than one sentinel resolves to the class it would answer with directly. An error that also wraps `model.ErrLimitReached` keeps it, so `errors.Is` still tells a bound from an unreachable peer.
 
 So the answer for a peer that can't be reached, or answers badly, depends on where that peer sits in the chain. This is deliberate: the class says which step failed, and the description says why.
 

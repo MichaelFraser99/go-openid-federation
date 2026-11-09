@@ -106,18 +106,22 @@ var classifiedErrorBuilders = []struct {
 	{ErrInvalidTrustAnchor, NewInvalidTrustAnchorError},
 	{ErrInvalidTrustChain, NewInvalidTrustChainError},
 	{ErrInvalidMetadata, NewInvalidMetadataError},
-	{ErrNotFound, NewNotFoundError},
 	{ErrPageNotFound, NewPageNotFoundError},
-	{ErrServerError, NewServerError},
+	{ErrNotFound, NewNotFoundError},
 	{ErrTemporarilyUnavailable, NewTemporarilyUnavailableError},
 	{ErrUnsupportedParameter, NewUnsupportedParameterError},
+	{ErrServerError, NewServerError},
 }
 
 func ReclassifyWithDescription(err error, description string) error {
 	for _, candidate := range classifiedErrorBuilders {
-		if errors.Is(err, candidate.sentinel) {
-			return candidate.build(description)
+		if !errors.Is(err, candidate.sentinel) {
+			continue
 		}
+		if errors.Is(err, ErrLimitReached) {
+			return fmt.Errorf("%w%w", ErrLimitReached, candidate.build(description))
+		}
+		return candidate.build(description)
 	}
 	return nil
 }

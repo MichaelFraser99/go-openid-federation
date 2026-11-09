@@ -21,10 +21,6 @@ const delegationJWTType = "trust-mark-delegation+jwt"
 
 const maxDelegationNumericDate = float64(1 << 62)
 
-func namesDelegationType(typ string) bool {
-	return strings.EqualFold(typ, delegationJWTType) || strings.EqualFold(typ, "application/"+delegationJWTType)
-}
-
 func selectOwnerKeys(ctx context.Context, cfg model.Configuration, owner model.TrustMarkOwner, kid string) []map[string]any {
 	selected := make([]map[string]any, 0, len(owner.JWKs.Keys))
 	for _, key := range owner.JWKs.Keys {
@@ -118,7 +114,7 @@ func verifyDelegation(ctx context.Context, cfg model.Configuration, mark model.T
 	}
 
 	typ, ok := head["typ"].(string)
-	if !ok || !namesDelegationType(typ) {
+	if !ok || !entity_statement.NamesJWTType(typ, delegationJWTType) {
 		cfg.LogInfo(ctx, "the delegation is not explicitly typed as a trust mark delegation", slog.String("typ", describeHeaderMember(head["typ"])))
 		return fmt.Errorf("the trust mark's delegation must carry a 'typ' header of %q", delegationJWTType)
 	}

@@ -22,6 +22,32 @@ func truncateHeaderValue(value string) string {
 	return model.TruncateAtCharacter(value, maxQuotedHeaderBytes)
 }
 
+func NamesJWTType(typ, jwtType string) bool {
+	if !strings.Contains(typ, "/") {
+		typ = "application/" + typ
+	}
+	return equalFoldASCII(typ, "application/"+jwtType)
+}
+
+func equalFoldASCII(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range len(a) {
+		if lowerASCII(a[i]) != lowerASCII(b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func lowerASCII(c byte) byte {
+	if 'A' <= c && c <= 'Z' {
+		return c + 'a' - 'A'
+	}
+	return c
+}
+
 func ValidateStatementHeader(headMap map[string]any) error {
 	typ, ok := headMap["typ"]
 	if !ok {
@@ -31,7 +57,7 @@ func ValidateStatementHeader(headMap map[string]any) error {
 	if !ok {
 		return fmt.Errorf("malformed header claim 'typ'")
 	}
-	if !strings.EqualFold(sTyp, "entity-statement+jwt") && !strings.EqualFold(sTyp, "application/entity-statement+jwt") {
+	if !NamesJWTType(sTyp, "entity-statement+jwt") {
 		return fmt.Errorf("entity statements must set the 'typ' header to 'entity-statement+jwt', got %q", truncateHeaderValue(sTyp))
 	}
 

@@ -35,6 +35,7 @@ Each change you may have to act on is marked **Breaking change** in the section 
 - [Query parameters](#query-parameters): one subordinate's unusable record or signer no longer takes down `/extended-list` or `/.well-known/openid-federation`.
 - [ServerConfiguration](#serverconfiguration): a redirect from a peer to a URL that does not use `https` is refused, whatever client you supply.
 - [Entity statements and metadata](#entity-statements-and-metadata): resolved `openid_credential_issuer` metadata must name the subject as its `credential_issuer`.
+- [Entity statements and metadata](#entity-statements-and-metadata): a `nil` member below a metadata parameter is written as `null`, not left out.
 
 ### From v0.11.0-rc.2
 
@@ -575,6 +576,10 @@ Each is a `map[string]any` with its own validation, split across two points in t
 When metadata is unmarshalled, every statement is checked for claim shape: URL claims are HTTPS with no fragment component, string array claims are arrays of strings, object claims are objects, and signing algorithm claims exclude `none` where an algorithm is required. `issuer` and `credential_issuer` also refuse a query. An empty object is accepted, so an entity may declare a type without asserting anything about it.
 
 A consumer calling a built-in type's `VerifyMetadata` directly therefore gets claim shape only, not a full validation of that type.
+
+Section 5 prohibits `null` as the value of a metadata parameter, and does not restrict values below a parameter. `Metadata.UnmarshalJSON` refuses a parameter whose value is `null`, and `Metadata.MarshalJSON` leaves out a parameter whose value is `nil`. Below a parameter, `MarshalJSON` writes each value as it was parsed. A `null` member of a nested object or array is kept, so a resolve response carries the value that the subject published.
+
+> **Breaking change.** `Metadata.MarshalJSON` left out a `nil` member of a nested `map[string]any` at any depth. It now writes the member as `null`. If the metadata in your own entity configuration holds such a member, your published statement now carries it. To leave it out, remove the member from the map.
 
 A type that carries keys may carry more than one of `jwks`, `jwks_uri` and `signed_jwks_uri`, and no built-in type refuses the combination. Section 5.2.1.1 RECOMMENDS one, expects that some entities will use several, and asks only that their keys SHOULD be the same. The library cannot check that without fetching each set. OpenID Connect Dynamic Client Registration 1.0 and RFC 7591 do say that `jwks` and `jwks_uri` MUST NOT both be present, but that rule is for a registration request and response, not for federation metadata. Earlier releases refused the pair for `openid_relying_party` only.
 

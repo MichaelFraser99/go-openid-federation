@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -23,6 +24,9 @@ func (s *Server) SubordinateStatus(w http.ResponseWriter, r *http.Request) Respo
 	}
 	if s.cfg.Extensions.SubordinateStatus.MetadataRetriever == nil {
 		return s.respondWithMisconfiguration(ctx, w, "subordinate status metadata retriever not configured", subordinateStatusUnavailableError)
+	}
+	if lifetime := s.cfg.Extensions.SubordinateStatus.ResponseLifetime; lifetime != nil && *lifetime < time.Second {
+		return s.respondWithMisconfiguration(ctx, w, fmt.Sprintf("subordinate status response lifetime must be at least one second, got %s", *lifetime), subordinateStatusUnavailableError)
 	}
 
 	err := r.ParseForm()
@@ -75,9 +79,10 @@ func (s *Server) SubordinateStatus(w http.ResponseWriter, r *http.Request) Respo
 	}
 	statusMap["sub"] = *parsedSubject
 	statusMap["iss"] = s.cfg.EntityIdentifier
-	statusMap["iat"] = time.Now().UTC().Unix()
+	issuedAt := time.Now().UTC()
+	statusMap["iat"] = issuedAt.Unix()
 	if s.cfg.Extensions.SubordinateStatus.ResponseLifetime != nil {
-		statusMap["exp"] = time.Now().Add(*s.cfg.Extensions.SubordinateStatus.ResponseLifetime).UTC().Unix()
+		statusMap["exp"] = issuedAt.Add(*s.cfg.Extensions.SubordinateStatus.ResponseLifetime).Unix()
 	}
 
 	if err := model.VerifyIssuanceAlgorithm(s.cfg.SignerConfiguration.Algorithm); err != nil {

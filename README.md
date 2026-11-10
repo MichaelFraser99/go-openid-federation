@@ -37,6 +37,7 @@ Each change you may have to act on is marked **Breaking change** in the section 
 - [Entity statements and metadata](#entity-statements-and-metadata): resolved `openid_credential_issuer` metadata must name the subject as its `credential_issuer`.
 - [Entity statements and metadata](#entity-statements-and-metadata): a `nil` member below a metadata parameter is written as `null`, not left out.
 - [An intermediate or trust anchor](#an-intermediate-or-trust-anchor): a leaf no longer publishes a `federation_fetch_endpoint` or `federation_list_endpoint` typed into its metadata.
+- [Extensions](#extensions): a `SubordinateStatus.ResponseLifetime` under one second answers 500 instead of signing an expired response.
 
 ### From v0.11.0-rc.2
 
@@ -942,6 +943,10 @@ Two endpoints beyond the core specification are available. Both are disabled by 
 **Extended listing** returns subordinate entities with selected claims inline, paginated, rather than as a flat list of identifiers. Enable it with `Extensions.ExtendedListing`, supplying a `SizeLimit` and an `ExtendedListingRetriever`. Requesting the `subordinate_statement` claim signs a statement for every entity in the page.
 
 **Subordinate status** returns a signed record of registration events for a subordinate. Enable it with `Extensions.SubordinateStatus`, supplying a `SubordinateStatusRetriever` and optionally a `ResponseLifetime`.
+
+`ResponseLifetime` sets the response's `exp` to its `iat` plus the lifetime. Leave it nil for a response with no `exp`, which section 2.3.2 of the Subordinate Events draft makes optional. A value under one second, including zero, can only sign a response that has already expired. Such a value answers 500 `server_error` with the endpoint's fixed description, and the value is logged at error level. Unlike the other lifetimes, zero does not select a default here, because nil already means "no `exp`".
+
+> **Breaking change.** Earlier releases signed the response with any `ResponseLifetime`, so a zero or negative value produced an `exp` at or before `iat`. Set a lifetime of at least one second, or leave it nil.
 
 ## Testing
 

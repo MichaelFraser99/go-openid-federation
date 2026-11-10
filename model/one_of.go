@@ -57,7 +57,15 @@ func (o OneOf) Resolve(metadataParameterValue any) (any, error) {
 		return metadataParameterValue, nil
 	}
 
-	return nil, fmt.Errorf("metadata parameter value %v is not one of the allowed values", metadataParameterValue)
+	return nil, fmt.Errorf("metadata parameter value %s is not one of the allowed values", describeParameterValue(metadataParameterValue))
+}
+
+func describeParameterValue(value any) string {
+	switch reflect.ValueOf(value).Kind() {
+	case reflect.Map, reflect.Slice, reflect.Array, reflect.Struct, reflect.Pointer, reflect.Interface:
+		return fmt.Sprintf("of type %T", value)
+	}
+	return fmt.Sprintf("%v", value)
 }
 
 // Merge computes the intersection of two operator values.

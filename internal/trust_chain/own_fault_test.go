@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
 	"github.com/MichaelFraser99/go-openid-federation/model"
@@ -25,60 +26,47 @@ func (b blockingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	return b.next.RoundTrip(r)
 }
 
-func TestBuildTrustChain_OnlyThisServersOwnFaultEndsTheWalk(t *testing.T) {
-	hints := map[string][]string{
+func TestBuildTrustChain_AFaultOnOneBranchEndsTheWalkOnlyWhenNoOtherRouteReachesTheAnchor(t *testing.T) {
+	besideAGoodRoute := map[string][]string{
 		"leaf":    {"blocked", "good"},
 		"blocked": {"ta"},
 		"good":    {"ta"},
 		"ta":      {},
 	}
+	onlyRoute := map[string][]string{
+		"leaf":    {"blocked"},
+		"blocked": {"ta"},
+		"ta":      {},
+	}
+	ownTemporary := model.NewTemporarilyUnavailableError("unable to produce the entity configuration at this time")
+	ownServer := model.NewServerError("unable to produce the entity configuration at this time")
+	peerThrottled := fmt.Errorf("%wpeer throttled", model.ErrTemporarilyUnavailable)
+	peerRefusedByPolicy := fmt.Errorf("%wrefused by the consumer's transport policy", model.ErrServerError)
 
 	tests := []struct {
 		name      string
 		reference string
+		hints     map[string][]string
 		subject   string
 		peerErr   error
 		ownErr    error
 		want      error
 	}{
-		{
-			name:      "a peer whose transport reports it temporarily unavailable, beside a good route",
-			reference: "10.1",
-			subject:   "leaf",
-			peerErr:   fmt.Errorf("%wpeer throttled", model.ErrTemporarilyUnavailable),
-		},
-		{
-			name:      "a peer whose transport fails without a class, beside a good route",
-			reference: "10.1",
-			subject:   "leaf",
-			peerErr:   errors.New("peer unreachable"),
-		},
-		{
-			name:      "this server temporarily unable to produce its own entity configuration, beside a good route",
-			reference: "8.9 temporarily_unavailable",
-			subject:   "leaf",
-			ownErr:    model.NewTemporarilyUnavailableError("unable to produce the entity configuration at this time"),
-			want:      model.ErrTemporarilyUnavailable,
-		},
-		{
-			name:      "this server unable to produce its own entity configuration, beside a good route",
-			reference: "8.9 server_error",
-			subject:   "leaf",
-			ownErr:    model.NewServerError("unable to produce the entity configuration at this time"),
-			want:      model.ErrServerError,
-		},
-		{
-			name:      "a peer trust anchor as its own subject whose transport reports it temporarily unavailable",
-			reference: "8.9 temporarily_unavailable",
-			subject:   "ta",
-			peerErr:   fmt.Errorf("%wpeer throttled", model.ErrTemporarilyUnavailable),
-			want:      model.ErrTemporarilyUnavailable,
-		},
+		{name: "a peer whose transport reports it temporarily unavailable, beside a good route", reference: "10.1", hints: besideAGoodRoute, subject: "leaf", peerErr: peerThrottled},
+		{name: "a peer whose transport fails without a class, beside a good route", reference: "10.1", hints: besideAGoodRoute, subject: "leaf", peerErr: errors.New("peer unreachable")},
+		{name: "a peer the consumer's transport refuses as a server error, beside a good route", reference: "10.1", hints: besideAGoodRoute, subject: "leaf", peerErr: peerRefusedByPolicy},
+		{name: "this server temporarily unable to produce its own entity configuration, beside a good route", reference: "10.1", hints: besideAGoodRoute, subject: "leaf", ownErr: ownTemporary},
+		{name: "this server unable to produce its own entity configuration, beside a good route", reference: "10.1", hints: besideAGoodRoute, subject: "leaf", ownErr: ownServer},
+		{name: "a peer the consumer's transport refuses as a server error, on the only route", reference: "8.9 server_error", hints: onlyRoute, subject: "leaf", peerErr: peerRefusedByPolicy, want: model.ErrServerError},
+		{name: "this server temporarily unable to produce its own entity configuration, on the only route", reference: "8.9 temporarily_unavailable", hints: onlyRoute, subject: "leaf", ownErr: ownTemporary, want: model.ErrTemporarilyUnavailable},
+		{name: "this server unable to produce its own entity configuration, on the only route", reference: "8.9 server_error", hints: onlyRoute, subject: "leaf", ownErr: ownServer, want: model.ErrServerError},
+		{name: "a peer whose transport reports it temporarily unavailable, on the only route", reference: "8.9 invalid_trust_anchor", hints: onlyRoute, subject: "leaf", peerErr: peerThrottled, want: model.ErrInvalidTrustAnchor},
+		{name: "a peer trust anchor as its own subject whose transport reports it temporarily unavailable", reference: "8.9 temporarily_unavailable", hints: besideAGoodRoute, subject: "ta", peerErr: peerThrottled, want: model.ErrTemporarilyUnavailable},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			tp := newTopo(t, hints)
+			tp := newTopo(t, tc.hints)
 			blocked := "blocked"
 			if tc.subject == "ta" {
 				blocked = "ta"
@@ -94,17 +82,170 @@ func TestBuildTrustChain_OnlyThisServersOwnFaultEndsTheWalk(t *testing.T) {
 				}, nil)
 			}
 
-			_, _, _, err := BuildTrustChain(t.Context(), model.Configuration{HttpClient: &client}, tp.id[tc.subject], tp.id["ta"], cache)
+			chain, _, _, err := BuildTrustChain(t.Context(), model.Configuration{HttpClient: &client}, tp.id[tc.subject], tp.id["ta"], cache)
 
 			if tc.want == nil {
 				if err != nil {
-					t.Fatalf("[%s] one failing peer must not end a walk that has another route, got %v", tc.reference, err)
+					t.Fatalf("[%s] a fault on one branch must not end a walk that has another route, got %v", tc.reference, err)
+				}
+				if len(chain) != 4 {
+					t.Fatalf("expected the chain through the good route, got %d entries", len(chain))
 				}
 				return
 			}
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("[%s] expected %v, got %v", tc.reference, tc.want, err)
 			}
+			if tc.want != model.ErrInvalidTrustAnchor && errors.Is(err, model.ErrInvalidTrustAnchor) {
+				t.Errorf("[%s] a fault that may clear on retry must not be reported as an anchor no route reaches, got %v", tc.reference, err)
+			}
 		})
+	}
+}
+
+type hangingTransport struct {
+	next    http.RoundTripper
+	blocked string
+	cancel  context.CancelFunc
+}
+
+func (h hangingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if !strings.HasPrefix(r.URL.Path, "/"+h.blocked+"/") {
+		return h.next.RoundTrip(r)
+	}
+	if h.cancel != nil {
+		h.cancel()
+	}
+	<-r.Context().Done()
+	return nil, r.Context().Err()
+}
+
+func TestBuildTrustChain_ARememberedFaultGivesWayToTheWalksOwnEnding(t *testing.T) {
+	hints := map[string][]string{
+		"leaf":    {"blocked", "good"},
+		"blocked": {"ta"},
+		"good":    {"ta"},
+		"ta":      {},
+	}
+	ownServer := model.NewServerError("unable to produce the entity configuration at this time")
+
+	t.Run("the first of two faults is the answer when no route is found", func(t *testing.T) {
+		tp := newTopo(t, hints)
+		client := *tp.server.Client()
+		client.Transport = blockingTransport{next: tp.server.Client().Transport, blocked: "good", err: fmt.Errorf("%wrefused by the consumer's transport policy", model.ErrServerError)}
+		cache := resolvecache.New()
+		cache.SetOwn(tp.id["blocked"], func(context.Context) (*string, *model.EntityStatement, error) {
+			return nil, nil, model.NewTemporarilyUnavailableError("unable to produce the entity configuration at this time")
+		}, nil)
+
+		_, _, _, err := BuildTrustChain(t.Context(), model.Configuration{HttpClient: &client}, tp.id["leaf"], tp.id["ta"], cache)
+		if !errors.Is(err, model.ErrTemporarilyUnavailable) || errors.Is(err, model.ErrServerError) {
+			t.Errorf("[8.9 temporarily_unavailable] expected the fault the walk met first, got %v", err)
+		}
+	})
+
+	t.Run("a configured bound reached after a fault is the answer", func(t *testing.T) {
+		tp := newTopo(t, hints)
+		client := *tp.server.Client()
+		cache := resolvecache.New()
+		cache.SetOwn(tp.id["blocked"], func(context.Context) (*string, *model.EntityStatement, error) {
+			return nil, nil, ownServer
+		}, nil)
+
+		_, _, _, err := BuildTrustChain(t.Context(), model.Configuration{HttpClient: &client, MaxEntitiesTraversed: 1}, tp.id["leaf"], tp.id["ta"], cache)
+		if !errors.Is(err, model.ErrLimitReached) {
+			t.Errorf("[18.1] expected the bound the walk reached, got %v", err)
+		}
+	})
+
+	t.Run("a deadline reached after a fault is the answer", func(t *testing.T) {
+		tp := newTopo(t, hints)
+		client := *tp.server.Client()
+		client.Transport = hangingTransport{next: tp.server.Client().Transport, blocked: "good"}
+		cache := resolvecache.New()
+		cache.SetOwn(tp.id["blocked"], func(context.Context) (*string, *model.EntityStatement, error) {
+			return nil, nil, ownServer
+		}, nil)
+
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		_, _, _, err := BuildTrustChain(ctx, model.Configuration{HttpClient: &client}, tp.id["leaf"], tp.id["ta"], cache)
+		if !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, model.ErrServerError) {
+			t.Errorf("[8.9 temporarily_unavailable] expected the walk's deadline, got %v", err)
+		}
+	})
+
+	t.Run("a cancelled request after a fault is the answer", func(t *testing.T) {
+		tp := newTopo(t, hints)
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		client := *tp.server.Client()
+		client.Transport = hangingTransport{next: tp.server.Client().Transport, blocked: "good", cancel: cancel}
+		cache := resolvecache.New()
+		cache.SetOwn(tp.id["blocked"], func(context.Context) (*string, *model.EntityStatement, error) {
+			return nil, nil, ownServer
+		}, nil)
+
+		_, _, _, err := BuildTrustChain(ctx, model.Configuration{HttpClient: &client}, tp.id["leaf"], tp.id["ta"], cache)
+		if !errors.Is(err, context.Canceled) || errors.Is(err, model.ErrServerError) {
+			t.Errorf("expected the cancellation, got %v", err)
+		}
+	})
+}
+
+func TestBuildTrustChain_AFaultIsNeverCachedAsADeadEnd(t *testing.T) {
+	topologies := map[string]map[string][]string{
+		"the faulty entity reached at two depths": {
+			"leaf":    {"blocked", "mid"},
+			"mid":     {"blocked"},
+			"blocked": {"ta"},
+			"ta":      {},
+		},
+		"the faulty entity reached twice at one depth": {
+			"leaf":    {"left", "right"},
+			"left":    {"blocked"},
+			"right":   {"blocked"},
+			"blocked": {"ta"},
+			"ta":      {},
+		},
+	}
+
+	for name, hints := range topologies {
+		t.Run(name, func(t *testing.T) {
+			tp := newTopo(t, hints)
+			client := *tp.server.Client()
+			cache := resolvecache.New()
+			cache.SetOwn(tp.id["blocked"], func(context.Context) (*string, *model.EntityStatement, error) {
+				return nil, nil, model.NewServerError("unable to produce the entity configuration at this time")
+			}, nil)
+
+			_, _, _, err := BuildTrustChain(t.Context(), model.Configuration{HttpClient: &client}, tp.id["leaf"], tp.id["ta"], cache)
+			if !errors.Is(err, model.ErrServerError) {
+				t.Fatalf("[8.9 server_error] expected this server's fault on every route, got %v", err)
+			}
+			for node := range hints {
+				if node != "ta" && cache.IsDeadEnd(deadEndKey(tp.id[node], tp.id["ta"])) {
+					t.Errorf("a route through %s failed for a fault that may clear, so it must not be cached as a route that does not exist", node)
+				}
+			}
+		})
+	}
+}
+
+func TestChainUpOne_ReturnsTheRememberedFault(t *testing.T) {
+	tp := newTopo(t, map[string][]string{
+		"leaf":    {"blocked"},
+		"blocked": {"ta"},
+		"ta":      {},
+	})
+	client := *tp.server.Client()
+	cache := resolvecache.New()
+	cache.SetOwn(tp.id["blocked"], func(context.Context) (*string, *model.EntityStatement, error) {
+		return nil, nil, model.NewServerError("unable to produce the entity configuration at this time")
+	}, nil)
+
+	_, _, _, err := ChainUpOne(t.Context(), model.Configuration{HttpClient: &client}, tp.id["leaf"], tp.id["ta"], nil, nil, nil, cache)
+	if !errors.Is(err, model.ErrServerError) {
+		t.Errorf("[8.9 server_error] expected this server's fault on the only route, got %v", err)
 	}
 }

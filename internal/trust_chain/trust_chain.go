@@ -33,6 +33,7 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 
 	walk := newWalkMemo()
 	signedRoute, route, _, err := chainUpOne(ctx, cfg, targetLeafEntityIdentifier, targetTrustAnchorEntityIdentifier, []model.EntityIdentifier{}, []model.EntityStatement{}, []string{}, cache, walk)
+	err = walk.outcome(err)
 	walk.summarise(ctx, cfg, targetLeafEntityIdentifier, err)
 	if err != nil {
 		return nil, nil, nil, err
@@ -301,6 +302,7 @@ type walkKey struct {
 
 type walkMemo struct {
 	entries       map[walkKey]bool
+	fault         error
 	described     int
 	steps         int
 	knownNoRoute  int
@@ -316,6 +318,19 @@ func (m *walkMemo) count(counter *int) {
 	if m != nil {
 		*counter++
 	}
+}
+
+func (m *walkMemo) remember(fault error) {
+	if m != nil && m.fault == nil {
+		m.fault = fault
+	}
+}
+
+func (m *walkMemo) outcome(err error) error {
+	if err == nil || m == nil || m.fault == nil || errors.Is(err, errBudgetExhausted) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return err
+	}
+	return m.fault
 }
 
 func (m *walkMemo) summarise(ctx context.Context, cfg model.Configuration, subject model.EntityIdentifier, err error) {
@@ -370,7 +385,9 @@ func verifySuppliedChainLength(ctx context.Context, cfg model.Configuration, tru
 }
 
 func ChainUpOne(ctx context.Context, cfg model.Configuration, subject, target model.EntityIdentifier, checked []model.EntityIdentifier, path []model.EntityStatement, signedPath []string, cache *resolvecache.Cache) ([]string, []model.EntityStatement, bool, error) {
-	return chainUpOne(ctx, cfg, subject, target, checked, path, signedPath, cache, newWalkMemo())
+	walk := newWalkMemo()
+	signedRoute, route, tainted, err := chainUpOne(ctx, cfg, subject, target, checked, path, signedPath, cache, walk)
+	return signedRoute, route, tainted, walk.outcome(err)
 }
 
 func chainUpOne(ctx context.Context, cfg model.Configuration, subject, target model.EntityIdentifier, checked []model.EntityIdentifier, path []model.EntityStatement, signedPath []string, cache *resolvecache.Cache, walk *walkMemo) ([]string, []model.EntityStatement, bool, error) {
@@ -412,8 +429,13 @@ func chainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return signedPath, path, false, walkNotCompleted(ctxErr)
 		}
-		if errors.Is(err, model.ErrLimitReached) || errors.Is(err, model.ErrServerError) || errors.Is(err, resolvecache.ErrOwnFault) {
+		if errors.Is(err, model.ErrLimitReached) {
 			return signedPath, path, true, budgetExhausted(err)
+		}
+		if errors.Is(err, model.ErrServerError) || errors.Is(err, resolvecache.ErrOwnFault) {
+			walk.remember(err)
+			walk.record(subjectWalkKey, true)
+			return signedPath, path, true, model.NewInvalidTrustAnchorError("unable to build trust chain from specified 'sub' to specified 'trust_anchor'")
 		}
 		cache.RecordDeadEnd(subjectKey)
 		walk.record(subjectWalkKey, false)

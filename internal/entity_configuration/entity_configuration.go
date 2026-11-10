@@ -289,6 +289,13 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 		if cfg.Extensions.SubordinateStatus.Enabled {
 			federationMetadata["federation_subordinate_events_endpoint"] = trimmed + "/subordinate-status"
 		}
+	} else {
+		for _, claim := range []string{"federation_fetch_endpoint", "federation_list_endpoint"} {
+			if _, configured := federationMetadata[claim]; configured {
+				cfg.LogError(ctx, "left a configured endpoint out of the entity configuration, because an entity with no IntermediateConfiguration is a leaf and a leaf must not publish it", slog.String("claim", claim))
+				delete(federationMetadata, claim)
+			}
+		}
 	}
 
 	if cfg.TrustMarkRetriever != nil {

@@ -36,6 +36,7 @@ Each change you may have to act on is marked **Breaking change** in the section 
 - [ServerConfiguration](#serverconfiguration): a redirect from a peer to a URL that does not use `https` is refused, whatever client you supply.
 - [Entity statements and metadata](#entity-statements-and-metadata): resolved `openid_credential_issuer` metadata must name the subject as its `credential_issuer`.
 - [Entity statements and metadata](#entity-statements-and-metadata): a `nil` member below a metadata parameter is written as `null`, not left out.
+- [An intermediate or trust anchor](#an-intermediate-or-trust-anchor): a leaf no longer publishes a `federation_fetch_endpoint` or `federation_list_endpoint` typed into its metadata.
 
 ### From v0.11.0-rc.2
 
@@ -153,6 +154,10 @@ cfg := model.ServerConfiguration{
 ```
 
 When an authority's entity configuration is generated, the federation endpoint claims are derived from the entity identifier: `federation_fetch_endpoint`, `federation_list_endpoint`, `federation_resolve_endpoint`, and the extension and trust mark endpoints where those are enabled. They do not need to be declared in `EntityConfiguration`.
+
+An entity with no `IntermediateConfiguration` is a leaf. This server mounts no `/fetch` or `/list` for it, and section 5.1.1 says that a leaf MUST NOT publish `federation_fetch_endpoint` or `federation_list_endpoint`. If you type either claim into the `FederationMetadata` of such an entity, the library leaves it out of the entity configuration and logs the claim at error level. Other endpoint claims, such as `federation_resolve_endpoint`, are published as you configure them.
+
+> **Breaking change.** Earlier releases published a `federation_fetch_endpoint` or `federation_list_endpoint` typed into a leaf's metadata. A resolver that followed it got a 404 and refused the chain as `invalid_trust_chain`. If another service serves fetch and list for this entity, publish the entity configuration from that service. Or set `IntermediateConfiguration`, so that this server serves them and publishes its own endpoints.
 
 ### A relying party resolving another entity
 

@@ -1,6 +1,7 @@
 package model
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -524,6 +525,7 @@ type PolicyOperators struct {
 }
 
 func (p *PolicyOperators) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
 	if len(data) == 0 || string(data) == "null" {
 		return nil
 	}
@@ -559,8 +561,10 @@ func jsonKind(data []byte) string {
 		return "a string"
 	case 't', 'f':
 		return "a boolean"
+	case '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+		return "a number"
 	}
-	return "a number"
+	return "a value that is not valid JSON"
 }
 
 func parsePolicyOperator(key string, operatorJSON any) (MetadataPolicyOperator, error) {

@@ -35,3 +35,37 @@ func TestPolicyOperators_AParameterPolicyThatIsNotAnObjectIsDescribedByKind(t *t
 		})
 	}
 }
+
+func TestPolicyOperators_UnmarshalJSONCalledDirectlyNamesTheKindItWasGiven(t *testing.T) {
+	tests := map[string]struct {
+		input string
+		kind  string
+	}{
+		"an array after whitespace": {input: "  [1]", kind: "an array"},
+		"a negative number":         {input: "-1", kind: "a number"},
+		"text that is not JSON":     {input: "xyz", kind: "a value that is not valid JSON"},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			var operators PolicyOperators
+			err := operators.UnmarshalJSON([]byte(tc.input))
+			if err == nil || !strings.Contains(err.Error(), "must be a JSON object, not "+tc.kind) {
+				t.Errorf("expected the error to name %s, got %v", tc.kind, err)
+			}
+		})
+	}
+
+	for name, input := range map[string]string{
+		"an object after whitespace": "  {}",
+		"null after whitespace":      " null ",
+		"only whitespace":            "   ",
+	} {
+		t.Run(name, func(t *testing.T) {
+			var operators PolicyOperators
+			if err := operators.UnmarshalJSON([]byte(input)); err != nil {
+				t.Errorf("expected %q to be read as it is when it arrives through encoding/json, got %v", input, err)
+			}
+		})
+	}
+}

@@ -1016,12 +1016,21 @@ var builtInEntityTypeFields = map[string]string{
 }
 
 func verifyExtensionsHoldNoBuiltInType[V any](kind string, extensions map[string]V) error {
+	var misplaced []string
 	for entityType := range extensions {
-		if field, builtIn := builtInEntityTypeFields[entityType]; builtIn {
-			return fmt.Errorf("%s.Extensions holds %q, which is a built-in entity type, so set %s.%s instead", kind, entityType, kind, field)
+		if _, builtIn := builtInEntityTypeFields[entityType]; builtIn {
+			misplaced = append(misplaced, entityType)
 		}
 	}
-	return nil
+	if len(misplaced) == 0 {
+		return nil
+	}
+	slices.Sort(misplaced)
+	moves := make([]string, len(misplaced))
+	for i, entityType := range misplaced {
+		moves[i] = fmt.Sprintf("%q to %s.%s", entityType, kind, builtInEntityTypeFields[entityType])
+	}
+	return fmt.Errorf("%s.Extensions holds built-in entity types, which it must not, so move %s", kind, strings.Join(moves, ", "))
 }
 
 func (m *Metadata) UnmarshalJSON(data []byte) error {

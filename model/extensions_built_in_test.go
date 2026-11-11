@@ -2,7 +2,9 @@ package model
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -35,6 +37,30 @@ func TestMarshalJSON_ABuiltInEntityTypeInExtensionsIsRefused(t *testing.T) {
 					}
 				}
 			})
+		}
+	}
+}
+
+func TestMarshalJSON_SeveralBuiltInEntityTypesInExtensionsAreAllNamedInOneOrder(t *testing.T) {
+	extensions := map[string]map[string]any{"x_custom_type": {}}
+	var moves []string
+	for _, entityType := range builtInEntityTypes {
+		extensions[entityType] = map[string]any{}
+	}
+	sorted := slices.Clone(builtInEntityTypes)
+	slices.Sort(sorted)
+	for _, entityType := range sorted {
+		moves = append(moves, fmt.Sprintf("%q to Metadata.%s", entityType, builtInEntityTypeFields[entityType]))
+	}
+	want := "Metadata.Extensions holds built-in entity types, which it must not, so move " + strings.Join(moves, ", ")
+
+	for range 20 {
+		_, err := json.Marshal(Metadata{Extensions: extensions})
+		if err == nil || !strings.HasSuffix(err.Error(), want) {
+			t.Fatalf("expected every built-in type named once, in sorted order, on every run:\nwant %s\ngot  %v", want, err)
+		}
+		if strings.Contains(err.Error(), "x_custom_type") {
+			t.Fatalf("expected a custom type left out of the refusal, got %v", err)
 		}
 	}
 }

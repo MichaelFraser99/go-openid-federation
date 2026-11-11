@@ -85,12 +85,11 @@ func TestServer_AnUnclassifiedResolverErrorAnswersTheEndpointsFixedDescription(t
 			description: "the alias is not one this deployment knows",
 		},
 		{
-			name:        "an error the resolver classified as temporarily unavailable",
-			reference:   "8.9 temporarily_unavailable",
-			err:         model.NewTemporarilyUnavailableError("the alias directory is being rebuilt"),
-			status:      http.StatusServiceUnavailable,
-			code:        model.TemporarilyUnavailable,
-			description: "the alias directory is being rebuilt",
+			name:      "an error the resolver classified as temporarily unavailable",
+			reference: "8.9 temporarily_unavailable",
+			err:       model.NewTemporarilyUnavailableError("the alias directory is being rebuilt"),
+			status:    http.StatusServiceUnavailable,
+			code:      model.TemporarilyUnavailable,
 		},
 	}
 

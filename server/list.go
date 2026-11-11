@@ -31,8 +31,9 @@ func (s *Server) List(w http.ResponseWriter, r *http.Request) ResponseFunc {
 	if listingRetriever, ok := s.cfg.MetadataRetriever.(model.SubordinateListingRetriever); ok {
 		identifiers, err := listingRetriever.ListSubordinates(ctx, filter)
 		if err != nil {
-			s.cfg.LogInfo(ctx, "error listing subordinates", slog.String("error", err.Error()))
-			return s.RespondWithError(ctx, w, s.retrieverError(err, subordinateListingUnavailableError))
+			classified := s.retrieverError(err, subordinateListingUnavailableError)
+			s.logFailure(ctx, "error listing subordinates", classified, slog.String("error", err.Error()))
+			return s.RespondWithError(ctx, w, classified)
 		}
 		return s.respondWithEntities(ctx, w, identifiers)
 	}
@@ -44,8 +45,9 @@ func (s *Server) List(w http.ResponseWriter, r *http.Request) ResponseFunc {
 
 	subordinates, err := s.cfg.GetSubordinates(ctx)
 	if err != nil {
-		s.cfg.LogError(ctx, "error retrieving subordinates", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, s.retrieverError(err, listingUnavailableError))
+		classified := s.retrieverError(err, listingUnavailableError)
+		s.logFailure(ctx, "error retrieving subordinates", classified, slog.String("error", err.Error()))
+		return s.RespondWithError(ctx, w, classified)
 	}
 
 	identifiers := make([]model.EntityIdentifier, 0, len(subordinates))

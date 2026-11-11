@@ -32,8 +32,9 @@ func (s *Server) TrustMarkList(w http.ResponseWriter, r *http.Request) ResponseF
 
 	status, err := trust_marks.List(ctx, s.cfg, trustMarkType, parsedSub)
 	if err != nil {
-		s.cfg.LogInfo(ctx, "error listing trust marks", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, s.retrieverError(err, trustMarkListingUnavailableError))
+		classified := s.retrieverError(err, trustMarkListingUnavailableError)
+		s.logFailure(ctx, "error listing trust marks", classified, slog.String("error", err.Error()))
+		return s.RespondWithError(ctx, w, classified)
 	}
 
 	if status == nil {

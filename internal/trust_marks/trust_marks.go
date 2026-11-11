@@ -29,7 +29,6 @@ func Status(ctx context.Context, cfg model.ServerConfiguration, trustMark string
 
 	status, err := cfg.TrustMarkRetriever.GetTrustMarkStatus(ctx, trustMark)
 	if err != nil {
-		cfg.LogInfo(ctx, "error determining trust mark status", slog.String("error", err.Error()))
 		return nil, err
 	}
 	if status == nil || strings.TrimSpace(*status) == "" {
@@ -48,7 +47,6 @@ func List(ctx context.Context, cfg model.ServerConfiguration, trustMarkIdentifie
 
 	trustMarkedEntities, err := cfg.TrustMarkRetriever.ListTrustMarks(ctx, trustMarkIdentifier, subjectEntityIdentifier)
 	if err != nil {
-		cfg.LogInfo(ctx, "error listing trust marks", slog.String("error", err.Error()))
 		return nil, err
 	}
 
@@ -62,7 +60,6 @@ func Issue(ctx context.Context, cfg model.ServerConfiguration, trustMarkIdentifi
 
 	trustMark, err := cfg.TrustMarkRetriever.IssueTrustMark(ctx, trustMarkIdentifier, subjectEntityIdentifier)
 	if err != nil {
-		cfg.LogInfo(ctx, "error issuing trust mark", slog.String("error", err.Error()))
 		return nil, err
 	}
 	if trustMark == nil || strings.TrimSpace(*trustMark) == "" {

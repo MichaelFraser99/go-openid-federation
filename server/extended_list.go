@@ -44,11 +44,12 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 
 	subordinates, err := s.cfg.Extensions.ExtendedListing.MetadataRetriever.GetExtendedSubordinates(ctx, filter)
 	if err != nil {
+		classified := err
 		if !errors.Is(err, model.ErrPageNotFound) {
-			err = s.retrieverError(err, extendedListingUnavailableError)
+			classified = s.retrieverError(err, extendedListingUnavailableError)
 		}
-		s.cfg.LogError(ctx, "error getting subordinates", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, err)
+		s.logFailure(ctx, "error getting subordinates", classified, slog.String("error", err.Error()))
+		return s.RespondWithError(ctx, w, classified)
 	}
 
 	if subordinates == nil {

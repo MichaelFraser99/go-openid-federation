@@ -52,8 +52,9 @@ func (s *Server) SubordinateStatus(w http.ResponseWriter, r *http.Request) Respo
 
 	status, err := s.cfg.Extensions.SubordinateStatus.MetadataRetriever.GetSubordinateStatus(ctx, *parsedSubject)
 	if err != nil {
-		s.cfg.LogInfo(ctx, "error retrieving subordinate status", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, s.retrieverError(err, subordinateStatusUnavailableError))
+		classified := s.retrieverError(err, subordinateStatusUnavailableError)
+		s.logFailure(ctx, "error retrieving subordinate status", classified, slog.String("error", err.Error()))
+		return s.RespondWithError(ctx, w, classified)
 	}
 
 	if status == nil {

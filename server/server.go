@@ -150,6 +150,15 @@ var classifiedErrors = []error{
 }
 
 func (s *Server) retrieverError(err error, fallback string) error {
+	if errors.As(err, new(loggedFailure)) {
+		return err
+	}
+	if _, code := errorStatusAndCode(err); code == model.ServerError || code == model.TemporarilyUnavailable {
+		if described := model.ReclassifyWithDescription(err, fallback); described != nil {
+			return described
+		}
+		return model.NewServerError(fallback)
+	}
 	for _, classified := range classifiedErrors {
 		if errors.Is(err, classified) {
 			return err

@@ -70,6 +70,13 @@ type unconvertibleKeySigner struct{ crypto.Signer }
 
 func (unconvertibleKeySigner) Public() crypto.PublicKey { return struct{}{} }
 
+type otherKeySigner struct {
+	josemodel.Signer
+	public crypto.PublicKey
+}
+
+func (o otherKeySigner) Public() crypto.PublicKey { return o.public }
+
 func TestServer_OneSubordinatesRecordDoesNotTakeDownWhatServesTheOthers(t *testing.T) {
 	newKey := func(t *testing.T, kid string) (josemodel.Signer, map[string]any) {
 		t.Helper()
@@ -193,6 +200,41 @@ func TestServer_OneSubordinatesRecordDoesNotTakeDownWhatServesTheOthers(t *testi
 				return &model.SubordinateConfiguration{
 					JWKs:                josemodel.Jwks{Keys: []map[string]any{key}},
 					SignerConfiguration: &model.SignerConfiguration{Algorithm: "ES256", KeyID: "bad-signer"},
+				}
+			},
+		},
+		{
+			name: "a record with its own signer under an algorithm this library does not issue with",
+			record: func(t *testing.T) *model.SubordinateConfiguration {
+				signer, key := newKey(t, "bad")
+				return &model.SubordinateConfiguration{
+					JWKs:                josemodel.Jwks{Keys: []map[string]any{key}},
+					SignerConfiguration: &model.SignerConfiguration{Algorithm: "HS256", KeyID: "bad-signer", Signer: signer},
+				}
+			},
+		},
+		{
+			name: "a record with its own RSA signer declared as ES256",
+			record: func(t *testing.T) *model.SubordinateConfiguration {
+				_, key := newKey(t, "bad")
+				signer, err := jws.GetSigner(jwa.RS256, nil)
+				if err != nil {
+					t.Fatalf("failed to build an RSA signer: %v", err)
+				}
+				return &model.SubordinateConfiguration{
+					JWKs:                josemodel.Jwks{Keys: []map[string]any{key}},
+					SignerConfiguration: &model.SignerConfiguration{Algorithm: "ES256", KeyID: "bad-signer", Signer: signer},
+				}
+			},
+		},
+		{
+			name: "a record with its own signer whose signature does not verify under the key it publishes",
+			record: func(t *testing.T) *model.SubordinateConfiguration {
+				signer, key := newKey(t, "bad")
+				other, _ := newKey(t, "other")
+				return &model.SubordinateConfiguration{
+					JWKs:                josemodel.Jwks{Keys: []map[string]any{key}},
+					SignerConfiguration: &model.SignerConfiguration{Algorithm: "ES256", KeyID: "bad-signer", Signer: otherKeySigner{Signer: signer, public: other.Public()}},
 				}
 			},
 		},

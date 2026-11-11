@@ -163,6 +163,20 @@ func TestServer_OneSubordinatesRecordDoesNotTakeDownWhatServesTheOthers(t *testi
 			},
 		},
 		{
+			name: "a record whose policy sets a built-in entity type through Extensions",
+			record: func(t *testing.T) *model.SubordinateConfiguration {
+				_, key := newKey(t, "bad")
+				var pinned model.PolicyOperators
+				if err := json.Unmarshal([]byte(`{"value":"Pinned"}`), &pinned); err != nil {
+					t.Fatalf("failed to build the policy: %v", err)
+				}
+				return &model.SubordinateConfiguration{
+					JWKs:     josemodel.Jwks{Keys: []map[string]any{key}},
+					Policies: model.MetadataPolicy{Extensions: map[string]map[string]model.PolicyOperators{"federation_entity": {"organization_name": pinned}}},
+				}
+			},
+		},
+		{
 			name: "a record with its own signer under an empty key id",
 			record: func(t *testing.T) *model.SubordinateConfiguration {
 				signer, key := newKey(t, "bad")

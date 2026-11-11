@@ -248,7 +248,29 @@ func validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 
 const signingFailureError = "unable to produce the entity configuration at this time"
 
-// New takes a given configuration struct and produces a signed Entity Configuration
+func logSignerFailure(ctx context.Context, cfg model.Configuration, classified error, msg string, args ...any) {
+	if errors.Is(classified, model.ErrTemporarilyUnavailable) {
+		cfg.LogInfo(ctx, msg, args...)
+		return
+	}
+	cfg.LogError(ctx, msg, args...)
+}
+
+var leafForbiddenEndpoints = []string{"federation_fetch_endpoint", "federation_list_endpoint"}
+
+func UnpublishedLeafEndpoints(cfg model.ServerConfiguration) []string {
+	if cfg.IntermediateConfiguration != nil || cfg.EntityConfiguration.Metadata == nil || cfg.EntityConfiguration.Metadata.FederationMetadata == nil {
+		return nil
+	}
+	var configured []string
+	for _, claim := range leafForbiddenEndpoints {
+		if _, present := (*cfg.EntityConfiguration.Metadata.FederationMetadata)[claim]; present {
+			configured = append(configured, claim)
+		}
+	}
+	return configured
+}
+
 func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 	entityConfiguration := cfg.EntityConfiguration
 	entityConfiguration.Sub = cfg.EntityIdentifier
@@ -290,11 +312,8 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 			federationMetadata["federation_subordinate_events_endpoint"] = trimmed + "/subordinate-status"
 		}
 	} else {
-		for _, claim := range []string{"federation_fetch_endpoint", "federation_list_endpoint"} {
-			if _, configured := federationMetadata[claim]; configured {
-				cfg.LogError(ctx, "left a configured endpoint out of the entity configuration, because an entity with no IntermediateConfiguration is a leaf and a leaf must not publish it", slog.String("claim", claim))
-				delete(federationMetadata, claim)
-			}
+		for _, claim := range leafForbiddenEndpoints {
+			delete(federationMetadata, claim)
 		}
 	}
 
@@ -379,8 +398,9 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 		if errors.Is(err, joseerror.ErrUnsupportedAlgorithm) || errors.Is(err, joseerror.ErrInvalidPrivateKey) {
 			return nil, fmt.Errorf("refusing to publish an entity configuration this implementation would reject: %s", err.Error())
 		}
-		cfg.LogError(ctx, "the signer could not sign the entity configuration", slog.String("error", model.TruncateForResponse(err.Error())))
-		return nil, model.ClassifySignerError(err, signingFailureError)
+		classified := model.ClassifySignerError(err, signingFailureError)
+		logSignerFailure(ctx, cfg.Configuration, classified, "the signer could not sign the entity configuration", slog.String("error", model.TruncateForResponse(err.Error())))
+		return nil, classified
 	}
 
 	if err = entity_statement.VerifyIssuedSignature(ctx, *token, cfg.SignerConfiguration.KeyID, cfg.SignerConfiguration.Algorithm, cfg.SignerConfiguration.Signer); err != nil {

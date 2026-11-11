@@ -14,6 +14,7 @@ import (
 
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_configuration"
+	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -28,6 +29,9 @@ func NewServer(configuration model.ServerConfiguration) *Server {
 	hints := make([]model.EntityIdentifier, len(configuration.AuthorityHints))
 	copy(hints, configuration.AuthorityHints)
 	configuration.AuthorityHints = nil
+	for _, claim := range entity_configuration.UnpublishedLeafEndpoints(configuration) {
+		configuration.LogError(context.Background(), "a configured endpoint will be left out of the entity configuration, because an entity with no IntermediateConfiguration is a leaf and a leaf must not publish it", slog.String("claim", claim))
+	}
 	return &Server{cfg: configuration, authorityHints: hints}
 }
 
@@ -80,6 +84,10 @@ func (s *Server) resolveEntityIdentifier(ctx context.Context, param model.Entity
 		classified := s.retrieverError(err, fallback)
 		s.logFailure(ctx, "the entity identifier resolver refused a parameter", classified, slog.String("parameter", string(param)), slog.String("error", err.Error()))
 		return nil, classified
+	}
+	if identifier == nil {
+		s.cfg.LogError(ctx, "the entity identifier resolver returned no identifier and no error", slog.String("parameter", string(param)))
+		return nil, model.NewServerError(fallback)
 	}
 	return identifier, nil
 }
@@ -153,6 +161,12 @@ func (s *Server) retrieverError(err error, fallback string) error {
 	if errors.As(err, new(loggedFailure)) {
 		return err
 	}
+	if errors.Is(err, model.ErrPageNotFound) {
+		err = model.ReclassifyWithDescription(err, err.Error())
+		if err == nil {
+			return model.NewServerError(fallback)
+		}
+	}
 	if _, code := errorStatusAndCode(err); code == model.ServerError || code == model.TemporarilyUnavailable {
 		if described := model.ReclassifyWithDescription(err, fallback); described != nil {
 			return described
@@ -171,8 +185,10 @@ type loggedFailure struct{ error }
 
 func (e loggedFailure) Unwrap() error { return e.error }
 
+func (e loggedFailure) Is(target error) bool { return target == resolvecache.ErrLogged }
+
 func (s *Server) logFailure(ctx context.Context, msg string, response error, args ...any) {
-	if errors.As(response, new(loggedFailure)) {
+	if errors.Is(response, resolvecache.ErrLogged) {
 		return
 	}
 	if _, code := errorStatusAndCode(response); code == model.ServerError {

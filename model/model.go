@@ -352,7 +352,7 @@ func (cfg *ServerConfiguration) GetSubordinate(ctx context.Context, identifier E
 
 	stored := *entity
 	stored.CachedAt = time.Now().UTC().Unix()
-	if i.SubordinateCacheTime <= 0 {
+	if i.SubordinateCacheTime < time.Second {
 		return &stored, nil
 	}
 
@@ -1573,6 +1573,9 @@ func marshalMetadataValue(v any) any {
 		return nestedMap
 	}
 	if v == nil || reflect.TypeOf(v).Kind() != reflect.Slice {
+		return v
+	}
+	if _, marshals := v.(json.Marshaler); marshals || reflect.TypeOf(v).Elem().Kind() == reflect.Uint8 {
 		return v
 	}
 	slice := reflect.ValueOf(v)

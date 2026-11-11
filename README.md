@@ -40,6 +40,8 @@ Each change you may have to act on is marked **Breaking change** in the section 
 - [Extensions](#extensions): a `SubordinateStatus.ResponseLifetime` under one second answers 500 instead of signing an expired response.
 - [Errors](#errors): a transport error that wraps `model.ErrServerError` for one peer no longer ends a trust chain walk that has another route.
 - [Retriever interfaces](#retriever-interfaces): a retriever error that wraps `model.ErrServerError` or `model.ErrTemporarilyUnavailable` answers with the endpoint's fixed description, not its own text.
+- [Errors](#errors): a failure to fetch the subject's own entity configuration answers with the class your `HttpClient`'s transport error carries, not 404 `not_found`.
+- [Retriever interfaces](#retriever-interfaces): a `SubordinateCacheTime` under one second caches nothing.
 - [Entity statements and metadata](#entity-statements-and-metadata): an `Extensions` entry under a built-in entity type is refused when written.
 
 ### From v0.11.0-rc.2
@@ -159,7 +161,7 @@ cfg := model.ServerConfiguration{
 
 When an authority's entity configuration is generated, the federation endpoint claims are derived from the entity identifier: `federation_fetch_endpoint`, `federation_list_endpoint`, `federation_resolve_endpoint`, and the extension and trust mark endpoints where those are enabled. They do not need to be declared in `EntityConfiguration`.
 
-An entity with no `IntermediateConfiguration` is a leaf. This server mounts no `/fetch` or `/list` for it, and section 5.1.1 says that a leaf MUST NOT publish `federation_fetch_endpoint` or `federation_list_endpoint`. If you type either claim into the `FederationMetadata` of such an entity, the library leaves it out of the entity configuration and logs the claim at error level. Other endpoint claims, such as `federation_resolve_endpoint`, are published as you configure them.
+An entity with no `IntermediateConfiguration` is a leaf. This server mounts no `/fetch` or `/list` for it, and section 5.1.1 says that a leaf MUST NOT publish `federation_fetch_endpoint` or `federation_list_endpoint`. If you type either claim into the `FederationMetadata` of such an entity, the library leaves it out of the entity configuration. `NewServer` logs each such claim at error level once, when the server is built, not on every request. Other endpoint claims, such as `federation_resolve_endpoint`, are published as you configure them.
 
 > **Breaking change.** Earlier releases published a `federation_fetch_endpoint` or `federation_list_endpoint` typed into a leaf's metadata. A resolver that followed it got a 404 and refused the chain as `invalid_trust_chain`. If another service serves fetch and list for this entity, publish the entity configuration from that service. Or set `IntermediateConfiguration`, so that this server serves them and publishes its own endpoints.
 
@@ -352,7 +354,7 @@ Use `Configure` to mount the endpoints. It wraps every route it registers, so a 
 | `TrustMarkRetriever` | Enables the trust mark endpoints |
 | `TrustAnchors` | Keys held for each trust anchor this deployment trusts. Optional, but setting it restricts which anchors `/resolve` serves. See [Anchoring a chain a caller supplies](#anchoring-a-chain-a-caller-supplies) |
 | `HostToASCII` | Optional `func(host string) (string, error)` that converts an internationalised host to its ASCII form, so `naming_constraints` can match it. Unset, such a host is refused under any naming constraint. See [Constraints](#constraints) |
-| `EntityIdentifierResolver` | Optional `model.EntityIdentifierResolver` that turns the `sub` and `trust_anchor` query parameters into entity identifiers. Unset, it is `model.StandardEntityIdentifierResolver`, which applies `model.ValidateEntityIdentifier` and answers `invalid_request` for a malformed value. A resolver of your own replaces that validation on those parameters, for example to map an alias to an identifier, so it must return only identifiers it has validated itself. Its errors follow the rule for [retriever errors](#retriever-interfaces): an error that carries a 4xx sentinel other than `model.ErrPageNotFound` passes through unchanged, an error that carries `model.ErrServerError` or `model.ErrTemporarilyUnavailable` keeps its status with the endpoint's fixed description, and any other error is logged at error level and answers 500 `server_error` with the endpoint's fixed description |
+| `EntityIdentifierResolver` | Optional `model.EntityIdentifierResolver` that turns the `sub` and `trust_anchor` query parameters into entity identifiers. Unset, it is `model.StandardEntityIdentifierResolver`, which applies `model.ValidateEntityIdentifier` and answers `invalid_request` for a malformed value. A resolver of your own replaces that validation on those parameters, for example to map an alias to an identifier, so it must return only identifiers it has validated itself. Its errors follow the rule for [retriever errors](#retriever-interfaces): an error that carries a 4xx sentinel other than `model.ErrPageNotFound` passes through unchanged, an error that carries `model.ErrServerError` or `model.ErrTemporarilyUnavailable` keeps its status with the endpoint's fixed description, and any other error is logged at error level and answers 500 `server_error` with the endpoint's fixed description. A resolver that returns neither an identifier nor an error is treated the same way |
 | `SigningAlgorithms` | Optional `[]jwa.Algorithm`: the signing algorithms this deployment accepts on every statement, trust mark and delegation it verifies. Unset, it is `model.DefaultSigningAlgorithms()`: ES256/384/512, RS256/384/512, PS256/384/512, Ed25519, `EdDSA` for verification only, and ML-DSA-44/65/87 (RFC 9964), whose keys are published as `AKP`. A chain may mix them, as section 3 allows, and one key set may hold classical and ML-DSA keys side by side. Section 3 leaves the choice to the federation, and RFC 8725 section 3.1 requires a library to let you make it. Set it to narrow the list to your federation's. A statement signed with an algorithm outside it is refused as the peer's fault. `none` and the HS family are never accepted, whatever you set, because a federation key is published and a published symmetric key is not secret. An empty list, an HS algorithm, or one this library cannot verify with answers `server_error` before any request |
 
 The signer's public key is added to the published JWKS, keyed by `kid`, if not already present.
@@ -376,7 +378,7 @@ The library refuses a redirect to a URL that does not use `https` on every fetch
 | Field | Default | Purpose |
 | --- | --- | --- |
 | `SubordinateStatementLifetime` | `model.DefaultSubordinateStatementLifetime`, one hour, when zero | How long an issued subordinate statement remains valid. A negative value, or a positive value under one second, is refused |
-| `SubordinateCacheTime` | Zero, which caches nothing | How long a subordinate loaded through a `Retriever` is served before the `Retriever` is asked again. It does not apply when there is no `Retriever`. See [Retriever interfaces](#retriever-interfaces) |
+| `SubordinateCacheTime` | Zero, which caches nothing | How long a subordinate loaded through a `Retriever` is served before the `Retriever` is asked again. Under one second, nothing is cached. It does not apply when there is no `Retriever`. See [Retriever interfaces](#retriever-interfaces) |
 
 ### Limits
 
@@ -474,7 +476,7 @@ type SubordinateStatusRetriever interface {
 }
 ```
 
-Subordinates retrieved through a `Retriever` are cached for `IntermediateConfiguration.SubordinateCacheTime`. At zero or below, nothing is kept, and every lookup asks the `Retriever`. An expired entry is not removed, only replaced at the next lookup for the same subject, so the cache holds every subject your `Retriever` has confirmed until you call `FlushCache`. Confirm only the subjects you registered, matched exactly. A `Retriever` that confirms any subject, or matches spellings loosely, lets a caller add an entry for each new `sub` it sends to `/fetch`.
+Subordinates retrieved through a `Retriever` are cached for `IntermediateConfiguration.SubordinateCacheTime`. Under one second, nothing is kept, and every lookup asks the `Retriever`, because the time an entry was stored is recorded in whole seconds: a shorter cache time would keep entries that are never served. An expired entry is not removed, only replaced at the next lookup for the same subject, so the cache holds every subject your `Retriever` has confirmed until you call `FlushCache`. Confirm only the subjects you registered, matched exactly. A `Retriever` that confirms any subject, or matches spellings loosely, lets a caller add an entry for each new `sub` it sends to `/fetch`.
 
 With no `Retriever`, the subordinates you add with `AddSubordinate` are the store itself, not a cache. They are served until you call `FlushCache`, which removes them all, and `SubordinateCacheTime` does not apply. There is no way to remove one subordinate on its own.
 
@@ -492,7 +494,7 @@ A retriever that returns `(nil, nil)` is treated the same way, so a store that s
 
 The text of an unclassified retriever error is never sent to the caller, on any endpoint. It is logged, and the response carries a fixed description, because a driver error commonly contains a host name and a user name. An error carrying a 4xx sentinel, such as `model.NewUnsupportedParameterError(...)` or `model.NewNotFoundError(...)`, passes through unchanged, so it chooses both the status and the description a peer sees. An error carrying `model.ErrServerError` or `model.ErrTemporarilyUnavailable` keeps its status, 500 or 503, but the response carries the endpoint's fixed description, and your text goes to the log: those classes describe this server's own condition, and a store's text for it often names a host or a user. A 500 is logged at error level and a 503 at Info.
 
-> **Breaking change.** A retriever error that wrapped `model.ErrServerError` or `model.ErrTemporarilyUnavailable` reached the caller with its own description, so a store that wrapped a driver error sent it to every caller. The status is unchanged. If you relied on your 503 text reaching peers, it now reaches your log instead. `model.ErrPageNotFound` is the exception: only `ExtendedListingRetriever` can return it, as [Query parameters](#query-parameters) describes, and from any other retriever it is an unclassified fault.
+> **Breaking change.** A retriever error that wrapped `model.ErrServerError` or `model.ErrTemporarilyUnavailable` reached the caller with its own description, so a store that wrapped a driver error sent it to every caller. The status is unchanged. If you relied on your 503 text reaching peers, it now reaches your log instead. `model.ErrPageNotFound` is the exception: only `ExtendedListingRetriever` can return it, as [Query parameters](#query-parameters) describes. From any other retriever it is an unclassified fault, and an error that carries it beside another class answers as that other class.
 
 `GetSubordinateSigners` and `TrustMarkIssuerRetriever.ListTrustMarkIssuers` are the exception to that pass-through. They describe what this server publishes, not what a caller asked for, so there is no text in them that a caller needs. Only `model.ErrTemporarilyUnavailable` survives them:
 
@@ -596,7 +598,7 @@ When metadata is unmarshalled, every statement is checked for claim shape: URL c
 
 A consumer calling a built-in type's `VerifyMetadata` directly therefore gets claim shape only, not a full validation of that type.
 
-Section 5 prohibits `null` as the value of a metadata parameter, and does not restrict values below a parameter. `Metadata.UnmarshalJSON` refuses a parameter whose value is `null`, and `Metadata.MarshalJSON` leaves out a parameter whose value is `nil`. Below a parameter, `MarshalJSON` writes each value as it was parsed. A `null` member of a nested object or array is kept, so a resolve response carries the value that the subject published.
+Section 5 prohibits `null` as the value of a metadata parameter, and does not restrict values below a parameter. `Metadata.UnmarshalJSON` refuses a parameter whose value is `null`, and `Metadata.MarshalJSON` leaves out a parameter whose value is `nil`. Below a parameter, `MarshalJSON` writes each value as it was parsed. A Go value that implements `json.Marshaler`, such as `json.RawMessage`, and a byte slice are written as `encoding/json` writes them. A `null` member of a nested object or array is kept, so a resolve response carries the value that the subject published.
 
 > **Breaking change.** `Metadata.MarshalJSON` left out a `nil` member of a nested `map[string]any` at any depth. It now writes the member as `null`. If the metadata in your own entity configuration holds such a member, your published statement now carries it. To leave it out, remove the member from the map.
 
@@ -933,11 +935,13 @@ Two exceptions worth knowing, rather than inferring from the above:
 
   > **Breaking change.** Earlier releases ended the walk on such an error, so one peer that your transport refused could fail a `/resolve` that had another route.
 
+  For the subject's own entity configuration, the class your transport error carries is the answer, because the subject has no other route. A throttled transport answers 503 and a policy refusal answers its class, with this library's own description. Earlier releases answered 404 `not_found` for any failure to fetch it. The trust anchor's entity configuration already kept its class for the same reason.
+
 So the answer for a peer that can't be reached, or answers badly, depends on where that peer sits in the chain. This is deliberate: the class says which step failed, and the description says why.
 
 | Where the failing peer sits | Status | Code |
 | --- | --- | --- |
-| The subject's own entity configuration | 404 | `not_found` |
+| The subject's own entity configuration | 404, or the class your `HttpClient`'s transport error carries | `not_found`, or that class |
 | An entity configuration further up, including the trust anchor's | 404 | `invalid_trust_anchor` |
 | A fetch endpoint, for a subordinate statement | 400 | `invalid_trust_chain` |
 

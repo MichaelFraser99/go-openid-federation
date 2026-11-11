@@ -131,3 +131,33 @@ func TestServerConfiguration_GetSubordinateJWKs_InMemorySignersAreOrderedBySubje
 		})
 	}
 }
+
+func TestServerConfiguration_GetSubordinate_ACacheTimeUnderOneSecondKeepsNothing(t *testing.T) {
+	const identifier = EntityIdentifier("https://leaf.example.com")
+
+	for _, tc := range []struct {
+		cacheTime time.Duration
+		kept      bool
+	}{
+		{cacheTime: 0},
+		{cacheTime: 500 * time.Millisecond},
+		{cacheTime: time.Second - time.Nanosecond},
+		{cacheTime: time.Second, kept: true},
+	} {
+		t.Run(tc.cacheTime.String(), func(t *testing.T) {
+			retriever := &cacheRetriever{subordinate: &SubordinateConfiguration{}}
+			intermediate := &IntermediateConfiguration{SubordinateCacheTime: tc.cacheTime}
+			cfg := ServerConfiguration{IntermediateConfiguration: intermediate, MetadataRetriever: retriever}
+
+			if _, err := cfg.GetSubordinate(context.Background(), identifier); err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+			intermediate.mu.RLock()
+			_, kept := intermediate.subordinates[identifier]
+			intermediate.mu.RUnlock()
+			if kept != tc.kept {
+				t.Errorf("CachedAt is recorded in whole seconds, so an entry is kept only for a cache time of at least one second: expected kept to be %t, got %t", tc.kept, kept)
+			}
+		})
+	}
+}

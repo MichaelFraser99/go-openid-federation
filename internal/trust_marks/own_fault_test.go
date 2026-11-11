@@ -1,8 +1,11 @@
 package trust_marks
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -23,11 +26,19 @@ func TestFilterByTrusted_ThisServersOwnFaultInAnIssuerWalkAnswersAsItsOwnFault(t
 		ownErr    error
 		issued    bool
 		want      error
+		errorLine bool
 	}{
 		{
 			name:      "this server unable to produce its own entity configuration",
 			reference: "8.9 server_error",
 			ownErr:    model.NewServerError("unable to produce the entity configuration at this time"),
+			want:      model.ErrServerError,
+			errorLine: true,
+		},
+		{
+			name:      "this server unable to produce its own entity configuration, already logged where it failed",
+			reference: "8.9 server_error",
+			ownErr:    fmt.Errorf("%w%w", resolvecache.ErrLogged, model.NewServerError("unable to produce the entity configuration at this time")),
 			want:      model.ErrServerError,
 		},
 		{
@@ -42,6 +53,7 @@ func TestFilterByTrusted_ThisServersOwnFaultInAnIssuerWalkAnswersAsItsOwnFault(t
 			ownErr:    model.NewServerError("unable to produce the subordinate statement at this time"),
 			issued:    true,
 			want:      model.ErrServerError,
+			errorLine: true,
 		},
 		{
 			name:      "this server temporarily unable to issue its own subordinate statement",
@@ -91,7 +103,8 @@ func TestFilterByTrusted_ThisServersOwnFaultInAnIssuerWalkAnswersAsItsOwnFault(t
 				TrustMarkIssuers: map[string][]model.EntityIdentifier{accreditedTM: {fed.id["first"], fed.id["second"]}},
 			}
 
-			err := FilterByTrusted(t.Context(), model.Configuration{HttpClient: fed.client()}, resolved, trustAnchorConfiguration, cache)
+			var logs bytes.Buffer
+			err := FilterByTrusted(t.Context(), model.Configuration{HttpClient: fed.client(), Logger: slog.New(slog.NewJSONHandler(&logs, nil))}, resolved, trustAnchorConfiguration, cache)
 
 			if tc.want == nil {
 				if err != nil {
@@ -112,6 +125,23 @@ func TestFilterByTrusted_ThisServersOwnFaultInAnIssuerWalkAnswersAsItsOwnFault(t
 			}
 			if resolved.TrustMarks != nil {
 				t.Errorf("[%s] expected no trust marks left on a response that will not be sent, got %d", tc.reference, len(resolved.TrustMarks))
+			}
+			statement, description := "entity configuration", ownEntityConfigurationUnavailable
+			if tc.issued {
+				statement, description = "subordinate statement", ownSubordinateStatementUnavailable
+			}
+			if err.Error() != description {
+				t.Errorf("[%s] expected the description to name the statement that failed, %q, got %q", tc.reference, description, err.Error())
+			}
+			if !errors.Is(tc.ownErr, resolvecache.ErrLogged) && !strings.Contains(logs.String(), "could not produce its own "+statement+" for a trust mark issuer walk") {
+				t.Errorf("[%s] expected the log to name the %s that failed, got %s", tc.reference, statement, logs.String())
+			}
+			errorLines := strings.Count(logs.String(), `"level":"ERROR"`)
+			if want := map[bool]int{true: 1, false: 0}[tc.errorLine]; errorLines != want {
+				t.Errorf("[%s] expected %d error lines: a 503 is logged at Info, and a fault already logged where it failed is not logged again, got %d: %s", tc.reference, want, errorLines, logs.String())
+			}
+			if !errors.Is(err, resolvecache.ErrLogged) {
+				t.Errorf("[%s] expected the error marked as logged, so the handler does not log it again, got %v", tc.reference, err)
 			}
 			if builds != 1 {
 				t.Errorf("[#195] expected the request to end at the first own fault, got %d attempts to build the entity configuration", builds)

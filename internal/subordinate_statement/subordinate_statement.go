@@ -362,7 +362,7 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		}
 		configuration.LogError(ctx, "the signer could not sign the subordinate statement", slog.String("sub", model.TruncateForResponse(string(subjectIdentifier))), slog.String("error", model.TruncateForResponse(err.Error())))
 		classified := model.ClassifySignerError(err, signingFailureError)
-		if errors.Is(classified, model.ErrTemporarilyUnavailable) {
+		if errors.Is(classified, model.ErrTemporarilyUnavailable) || ctx.Err() != nil {
 			return nil, classified
 		}
 		return nil, signerFault(classified)

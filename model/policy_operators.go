@@ -1,6 +1,7 @@
 package model
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -524,6 +525,7 @@ type PolicyOperators struct {
 }
 
 func (p *PolicyOperators) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
 	if len(data) == 0 || string(data) == "null" {
 		return nil
 	}
@@ -545,10 +547,24 @@ func (p *PolicyOperators) UnmarshalJSON(data []byte) error {
 			p.Metadata = append(p.Metadata, pMetadata)
 		}
 	} else {
-		return fmt.Errorf("unable to parse %q as a valid Metadata Policy", string(data))
+		return fmt.Errorf("a metadata policy must be a JSON object, not %s", jsonKind(data))
 	}
 	slices.Sort(p.Unrecognised)
 	return nil
+}
+
+func jsonKind(data []byte) string {
+	switch data[0] {
+	case '[':
+		return "an array"
+	case '"':
+		return "a string"
+	case 't', 'f':
+		return "a boolean"
+	case '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+		return "a number"
+	}
+	return "a value that is not valid JSON"
 }
 
 func parsePolicyOperator(key string, operatorJSON any) (MetadataPolicyOperator, error) {

@@ -12,6 +12,11 @@ type entry struct {
 	statement *model.EntityStatement
 }
 
+type Link struct {
+	Issuer  model.EntityIdentifier
+	Subject model.EntityIdentifier
+}
+
 type DeadEnd struct {
 	Subject model.EntityIdentifier
 	Target  model.EntityIdentifier
@@ -35,6 +40,7 @@ type Cache struct {
 	entries        map[model.EntityIdentifier]entry
 	described      map[model.EntityIdentifier]struct{}
 	deadEnds       map[DeadEnd]struct{}
+	deadLinks      map[Link]struct{}
 	traversed      int
 	fetched        int
 	peerBytes      int64
@@ -105,6 +111,24 @@ func (c *Cache) IsDeadEnd(key DeadEnd) bool {
 	}
 	_, known := c.deadEnds[key]
 	return known
+}
+
+func (c *Cache) IsDeadLink(link Link) bool {
+	if c == nil {
+		return false
+	}
+	_, known := c.deadLinks[link]
+	return known
+}
+
+func (c *Cache) RecordDeadLink(link Link) {
+	if c == nil {
+		return
+	}
+	if c.deadLinks == nil {
+		c.deadLinks = map[Link]struct{}{}
+	}
+	c.deadLinks[link] = struct{}{}
 }
 
 func (c *Cache) RecordDeadEnd(key DeadEnd) {

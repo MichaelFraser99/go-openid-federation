@@ -42,6 +42,7 @@ Each change you may have to act on is marked **Breaking change** in the section 
 - [Retriever interfaces](#retriever-interfaces): a retriever error that wraps `model.ErrServerError` or `model.ErrTemporarilyUnavailable` answers with the endpoint's fixed description, not its own text.
 - [Errors](#errors): a failure to fetch the subject's own entity configuration answers with the class your `HttpClient`'s transport error carries, not 404 `not_found`.
 - [Retriever interfaces](#retriever-interfaces): a `SubordinateCacheTime` under one second caches nothing.
+- [Trust chains](#trust-chains): a subordinate statement that cannot be fetched no longer ends a resolve that another route can complete.
 - [Entity statements and metadata](#entity-statements-and-metadata): an `Extensions` entry under a built-in entity type is refused when written.
 
 ### From v0.11.0-rc.2
@@ -767,7 +768,9 @@ An operator this library does not define is ignored, as section 6.1.3.2 requires
 
 ## Trust chains
 
-`/resolve` builds a chain from the subject up to the requested trust anchor by walking `authority_hints` depth first, backtracking on dead ends and skipping entities already checked. The walk finds a route through entity configurations first, and only then fetches the subordinate statements along it. If one of those fetches fails, the request fails, and no other route is tried ([#123](https://github.com/MichaelFraser99/go-openid-federation/issues/123)). The walk is bounded (see [Limits](#limits)) and is refused with a 404 `invalid_trust_anchor` naming the bound when one is reached. Each step is verified: signatures against the issuer's published keys, `iss` and `sub` against the expected entities, and the subject's signing key against the JWKS in the subordinate statement above it.
+`/resolve` builds a chain from the subject up to the requested trust anchor by walking `authority_hints` depth first, backtracking on dead ends and skipping entities already checked. The walk finds a route through entity configurations first, and only then fetches the subordinate statements along it. If one of those fetches fails, the walk records that link, from that superior to that subject, as unusable for the request and searches again without it, so a superior that has not registered the subject, or has moved it, does not end a resolve that another hint can complete. When no route is left, the answer is the first failure, as it was before. A configured bound, the deadline or a cancellation still ends the request at once, and so does an error your `HttpClient`'s transport marks with `model.ErrLimitReached`.
+
+> **Breaking change.** Earlier releases failed the request on the first subordinate statement that could not be fetched, and tried no other route ([#123](https://github.com/MichaelFraser99/go-openid-federation/issues/123)). A resolve that another hint can complete now answers 200. The walk is bounded (see [Limits](#limits)) and is refused with a 404 `invalid_trust_anchor` naming the bound when one is reached. Each step is verified: signatures against the issuer's published keys, `iss` and `sub` against the expected entities, and the subject's signing key against the JWKS in the subordinate statement above it.
 
 > **Breaking change.** A subordinate statement is requested at the `federation_fetch_endpoint` exactly as the superior publishes it, with only `sub` added to its query. Earlier releases removed a trailing `/`, so a superior that advertises `https://ta.example.com/fetch/` but serves only `/fetch` used to work. It now answers 404, and the resolve fails with 400 `invalid_trust_chain`. Make the advertised endpoint match the route.
 

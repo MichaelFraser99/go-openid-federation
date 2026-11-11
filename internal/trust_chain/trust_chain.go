@@ -31,62 +31,47 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 		return anchorAsItsOwnSubject(ctx, cfg, targetTrustAnchorEntityIdentifier, cache)
 	}
 
-	walk := newWalkMemo()
-	signedRoute, route, _, err := chainUpOne(ctx, cfg, targetLeafEntityIdentifier, targetTrustAnchorEntityIdentifier, []model.EntityIdentifier{}, []model.EntityStatement{}, []string{}, cache, walk)
-	err = walk.outcome(err)
-	walk.summarise(ctx, cfg, targetLeafEntityIdentifier, err)
-	if err != nil {
-		return nil, nil, nil, err
+	if cache == nil {
+		cache = resolvecache.New()
 	}
-
-	trustChain = []string{signedRoute[0]}
-	parsedTrustChain = []model.EntityStatement{route[0]}
-
-	exp := model.CalculateChainExpiration(route)
-	if err = model.VerifyChainExpiry(exp); err != nil {
-		return nil, nil, nil, err
-	}
-
-	for i := 0; i < len(route)-1; i++ {
-		if issue, own := cache.OwnIssued(route[i+1].Sub); own {
-			signedResponse, subordinateStatement, err := issue(ctx, route[i+1], route[i].Sub)
-			if err != nil {
-				cfg.LogInfo(ctx, "this server did not issue its own subordinate statement", slog.String("subject", string(route[i].Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
-				if ctxErr := ctx.Err(); ctxErr != nil {
-					return nil, nil, nil, walkNotCompleted(ctxErr)
-				}
-				if errors.Is(err, model.ErrServerError) || errors.Is(err, model.ErrTemporarilyUnavailable) {
-					return nil, nil, nil, fmt.Errorf("%w%w%w", resolvecache.ErrOwnFault, resolvecache.ErrOwnIssuedFault, err)
-				}
-				return nil, nil, nil, subordinateStatementFailure(err)
-			}
-			trustChain = append(trustChain, *signedResponse)
-			parsedTrustChain = append(parsedTrustChain, *subordinateStatement)
-			continue
+	var signedRoute []string
+	var route []model.EntityStatement
+	var statementFailure error
+	for retries := 0; ; retries++ {
+		if retries > cfg.EntitiesTraversedLimit() {
+			cfg.LogError(ctx, "stopped trying other routes after more failed subordinate statements than the entity limit", slog.Int("retries", retries))
+			return nil, nil, nil, statementFailure
 		}
-
-		if held := cache.PeerBytes(); held > cfg.RequestPeerBytesLimit() {
-			cfg.LogError(ctx, "reached the maximum bytes of peer statements one request may hold", slog.String("subject", string(route[i].Sub)), slog.Int64("held", held), slog.Int64("max_bytes", cfg.RequestPeerBytesLimit()))
-			return nil, nil, nil, model.NewLimitReachedError("the resolver reached the maximum bytes of peer statements it may hold for one request")
-		}
-
-		signedResponse, subordinateStatement, err := subordinate_statement.Retrieve(ctx, cfg, route[i+1], route[i].Sub)
+		walk := newWalkMemo()
+		signedRoute, route, _, err = chainUpOne(ctx, cfg, targetLeafEntityIdentifier, targetTrustAnchorEntityIdentifier, []model.EntityIdentifier{}, []model.EntityStatement{}, []string{}, cache, walk)
+		err = walk.outcome(err)
+		walk.summarise(ctx, cfg, targetLeafEntityIdentifier, err)
 		if err != nil {
-			cfg.LogInfo(ctx, "subordinate statement unusable", slog.String("issuer", string(route[i+1].Sub)), slog.String("subject", string(route[i].Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return nil, nil, nil, walkNotCompleted(ctxErr)
+			if statementFailure != nil && !walkMustStop(err) {
+				return nil, nil, nil, statementFailure
 			}
-			return nil, nil, nil, subordinateStatementFailure(err)
+			return nil, nil, nil, err
 		}
-		cache.RecordPeerBytes(model.StatementCost(*signedResponse, subordinateStatement))
-		trustChain = append(trustChain, *signedResponse)
-		parsedTrustChain = append(parsedTrustChain, *subordinateStatement)
+
+		var failedLink *resolvecache.Link
+		trustChain, parsedTrustChain, failedLink, err = routeStatements(ctx, cfg, signedRoute, route, cache)
+		if err == nil {
+			break
+		}
+		if failedLink == nil || walkMustStop(err) {
+			return nil, nil, nil, err
+		}
+		cfg.LogInfo(ctx, "a subordinate statement on the chosen route failed, so the walk tries another route", slog.String("issuer", string(failedLink.Issuer)), slog.String("subject", string(failedLink.Subject)))
+		if statementFailure == nil {
+			statementFailure = err
+		}
+		cache.RecordDeadLink(*failedLink)
 	}
 
 	trustChain = append(trustChain, signedRoute[len(signedRoute)-1])
 	parsedTrustChain = append(parsedTrustChain, route[len(route)-1])
 
-	exp = model.CalculateChainExpiration(parsedTrustChain)
+	exp := model.CalculateChainExpiration(parsedTrustChain)
 	if err = model.VerifyChainExpiry(exp); err != nil {
 		cfg.LogInfo(ctx, "trust chain expiry unusable", slog.Int64("exp", exp), slog.String("error", model.TruncateForResponse(err.Error())))
 		return nil, nil, nil, err
@@ -109,6 +94,57 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 	}
 
 	return trustChain, parsedTrustChain, &exp, nil
+}
+
+func walkMustStop(err error) bool {
+	return errors.Is(err, model.ErrLimitReached) || errors.Is(err, errBudgetExhausted) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)
+}
+
+func routeStatements(ctx context.Context, cfg model.Configuration, signedRoute []string, route []model.EntityStatement, cache *resolvecache.Cache) ([]string, []model.EntityStatement, *resolvecache.Link, error) {
+	trustChain := []string{signedRoute[0]}
+	parsedTrustChain := []model.EntityStatement{route[0]}
+
+	if err := model.VerifyChainExpiry(model.CalculateChainExpiration(route)); err != nil {
+		return nil, nil, nil, err
+	}
+
+	for i := 0; i < len(route)-1; i++ {
+		link := &resolvecache.Link{Issuer: route[i+1].Sub, Subject: route[i].Sub}
+		if issue, own := cache.OwnIssued(route[i+1].Sub); own {
+			signedResponse, subordinateStatement, err := issue(ctx, route[i+1], route[i].Sub)
+			if err != nil {
+				cfg.LogInfo(ctx, "this server did not issue its own subordinate statement", slog.String("subject", string(route[i].Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return nil, nil, nil, walkNotCompleted(ctxErr)
+				}
+				if errors.Is(err, model.ErrServerError) || errors.Is(err, model.ErrTemporarilyUnavailable) {
+					return nil, nil, link, fmt.Errorf("%w%w%w", resolvecache.ErrOwnFault, resolvecache.ErrOwnIssuedFault, err)
+				}
+				return nil, nil, link, subordinateStatementFailure(err)
+			}
+			trustChain = append(trustChain, *signedResponse)
+			parsedTrustChain = append(parsedTrustChain, *subordinateStatement)
+			continue
+		}
+
+		if held := cache.PeerBytes(); held > cfg.RequestPeerBytesLimit() {
+			cfg.LogError(ctx, "reached the maximum bytes of peer statements one request may hold", slog.String("subject", string(route[i].Sub)), slog.Int64("held", held), slog.Int64("max_bytes", cfg.RequestPeerBytesLimit()))
+			return nil, nil, nil, model.NewLimitReachedError("the resolver reached the maximum bytes of peer statements it may hold for one request")
+		}
+
+		signedResponse, subordinateStatement, err := subordinate_statement.Retrieve(ctx, cfg, route[i+1], route[i].Sub)
+		if err != nil {
+			cfg.LogInfo(ctx, "subordinate statement unusable", slog.String("issuer", string(route[i+1].Sub)), slog.String("subject", string(route[i].Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, nil, nil, walkNotCompleted(ctxErr)
+			}
+			return nil, nil, link, subordinateStatementFailure(err)
+		}
+		cache.RecordPeerBytes(model.StatementCost(*signedResponse, subordinateStatement))
+		trustChain = append(trustChain, *signedResponse)
+		parsedTrustChain = append(parsedTrustChain, *subordinateStatement)
+	}
+	return trustChain, parsedTrustChain, nil, nil
 }
 
 func anchorAsItsOwnSubject(ctx context.Context, cfg model.Configuration, trustAnchor model.EntityIdentifier, cache *resolvecache.Cache) ([]string, []model.EntityStatement, *int64, error) {
@@ -182,6 +218,14 @@ const (
 )
 
 func subordinateStatementFailure(err error) error {
+	described := describeSubordinateStatementFailure(err)
+	if errors.Is(err, model.ErrLimitReached) && !errors.Is(described, model.ErrLimitReached) {
+		return fmt.Errorf("%w%w", model.ErrLimitReached, described)
+	}
+	return described
+}
+
+func describeSubordinateStatementFailure(err error) error {
 	if errors.Is(err, model.ErrTemporarilyUnavailable) {
 		return model.NewTemporarilyUnavailableError(subordinateStatementUnreachable)
 	}
@@ -475,7 +519,9 @@ func chainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 	depthRefused := false
 	var toCheck []model.EntityIdentifier
 	for _, trustIssuer := range subjectEntityStatement.AuthorityHints {
-		if trustIssuer == target {
+		if cache.IsDeadLink(resolvecache.Link{Issuer: trustIssuer, Subject: subject}) {
+			continue
+		} else if trustIssuer == target {
 			toCheck = []model.EntityIdentifier{trustIssuer}
 			break
 		} else if trustIssuer == subject {

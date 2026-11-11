@@ -239,6 +239,16 @@ func TestServer_OneSubordinatesRecordDoesNotTakeDownWhatServesTheOthers(t *testi
 			},
 		},
 		{
+			name: "a record with its own signer that refuses to sign",
+			record: func(t *testing.T) *model.SubordinateConfiguration {
+				signer, key := newKey(t, "bad")
+				return &model.SubordinateConfiguration{
+					JWKs:                josemodel.Jwks{Keys: []map[string]any{key}},
+					SignerConfiguration: &model.SignerConfiguration{Algorithm: "ES256", KeyID: "bad-signer", Signer: refusingSigner{public: signer.Public(), err: errors.New("key disabled")}},
+				}
+			},
+		},
+		{
 			name: "a record with its own signer whose public key cannot be published",
 			record: func(t *testing.T) *model.SubordinateConfiguration {
 				signer, key := newKey(t, "bad")

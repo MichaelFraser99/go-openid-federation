@@ -94,3 +94,49 @@ func TestServer_ExtendedList_TheAuthoritysOwnSignerFaultFailsThePage(t *testing.
 		})
 	}
 }
+
+func TestServer_ExtendedList_AThrottledSignerFailsThePageEvenWhenTheRecordSuppliedIt(t *testing.T) {
+	signer, err := jws.GetSigner(jwa.ES256, nil)
+	if err != nil {
+		t.Fatalf("failed to build a signer: %v", err)
+	}
+	subordinateSigner, err := jws.GetSigner(jwa.ES256, nil)
+	if err != nil {
+		t.Fatalf("failed to build a signer: %v", err)
+	}
+	public, err := jwk.PublicJwk(subordinateSigner.Public())
+	if err != nil {
+		t.Fatalf("failed to read a public key: %v", err)
+	}
+	(*public)["kid"] = "good"
+	throttled := &model.SignerConfiguration{Algorithm: "ES256", KeyID: "own-signer", Signer: refusingSigner{public: subordinateSigner.Public(), err: model.NewTemporarilyUnavailableError("the key store is throttling requests")}}
+	server := NewServer(model.ServerConfiguration{
+		EntityIdentifier:            "https://ta.example.com",
+		SignerConfiguration:         model.SignerConfiguration{Algorithm: "ES256", KeyID: "ta", Signer: signer},
+		EntityConfigurationLifetime: time.Hour,
+		IntermediateConfiguration:   &model.IntermediateConfiguration{SubordinateStatementLifetime: time.Hour},
+		MetadataRetriever:           recordStore{goodSubordinate: {JWKs: josemodel.Jwks{Keys: []map[string]any{*public}}, SignerConfiguration: throttled}},
+		Extensions: model.Extensions{
+			ExtendedListing: model.ExtendedListingConfiguration{Enabled: true, SizeLimit: 10, MetadataRetriever: twoEntityListing{}},
+		},
+		Configuration: model.Configuration{Logger: slog.New(slog.NewJSONHandler(&lockedBuffer{}, nil))},
+	})
+	mux := http.NewServeMux()
+	server.Configure(mux)
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+
+	response, err := ts.Client().Get(ts.URL + "/extended-list?claims=subordinate_statement")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer response.Body.Close() //nolint:errcheck
+	raw, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatalf("failed to read the response: %v", err)
+	}
+	var answer map[string]string
+	if err := json.Unmarshal(raw, &answer); err != nil || response.StatusCode != http.StatusServiceUnavailable || answer["error"] != model.TemporarilyUnavailable {
+		t.Errorf("[8.9 temporarily_unavailable] a throttle usually comes from a key store every signer shares, so the page must answer 503, not a listing with the statement left out, got %d %s", response.StatusCode, raw)
+	}
+}

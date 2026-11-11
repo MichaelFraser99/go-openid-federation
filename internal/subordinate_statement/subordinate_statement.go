@@ -361,7 +361,11 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 			return nil, signerFault(fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %s", err.Error()))
 		}
 		configuration.LogError(ctx, "the signer could not sign the subordinate statement", slog.String("sub", model.TruncateForResponse(string(subjectIdentifier))), slog.String("error", model.TruncateForResponse(err.Error())))
-		return nil, model.ClassifySignerError(err, signingFailureError)
+		classified := model.ClassifySignerError(err, signingFailureError)
+		if errors.Is(classified, model.ErrTemporarilyUnavailable) {
+			return nil, classified
+		}
+		return nil, signerFault(classified)
 	}
 
 	if err = entity_statement.VerifyIssuedSignature(ctx, *token, signerConfiguration.KeyID, signerConfiguration.Algorithm, signerConfiguration.Signer); err != nil {

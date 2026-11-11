@@ -3,6 +3,7 @@ package subordinate_statement
 import (
 	"crypto"
 	"errors"
+	"io"
 	"testing"
 	"time"
 
@@ -18,6 +19,15 @@ type otherPublicKeySigner struct {
 }
 
 func (o otherPublicKeySigner) Public() crypto.PublicKey { return o.public }
+
+type failingSigner struct {
+	public crypto.PublicKey
+	err    error
+}
+
+func (f failingSigner) Public() crypto.PublicKey { return f.public }
+
+func (f failingSigner) Sign(io.Reader, []byte, crypto.SignerOpts) ([]byte, error) { return nil, f.err }
 
 func TestNew_ASignerFaultIsAnUnusableRecordOnlyWhenTheRecordSuppliedTheSigner(t *testing.T) {
 	signerFor := func(t *testing.T, algorithm jwa.Algorithm) josemodel.Signer {
@@ -41,6 +51,12 @@ func TestNew_ASignerFaultIsAnUnusableRecordOnlyWhenTheRecordSuppliedTheSigner(t 
 		},
 		"a signature that does not verify under the signer's public key": func(t *testing.T) model.SignerConfiguration {
 			return model.SignerConfiguration{Algorithm: "ES256", KeyID: "signer", Signer: otherPublicKeySigner{Signer: signerFor(t, jwa.ES256), public: signerFor(t, jwa.ES256).Public()}}
+		},
+		"a signer that refuses to sign": func(t *testing.T) model.SignerConfiguration {
+			return model.SignerConfiguration{Algorithm: "ES256", KeyID: "signer", Signer: failingSigner{public: signerFor(t, jwa.ES256).Public(), err: errors.New("key disabled")}}
+		},
+		"a throttled signer": func(t *testing.T) model.SignerConfiguration {
+			return model.SignerConfiguration{Algorithm: "ES256", KeyID: "signer", Signer: failingSigner{public: signerFor(t, jwa.ES256).Public(), err: model.NewTemporarilyUnavailableError("the key store is throttling requests")}}
 		},
 	}
 
@@ -71,8 +87,12 @@ func TestNew_ASignerFaultIsAnUnusableRecordOnlyWhenTheRecordSuppliedTheSigner(t 
 				if err == nil {
 					t.Fatalf("expected the statement to be refused")
 				}
-				if errors.Is(err, ErrUnusableRecord) != recordsOwn {
-					t.Errorf("expected an unusable record to be %t, because only a signer the record supplies is that record's fault, got %v", recordsOwn, err)
+				want := recordsOwn && name != "a throttled signer"
+				if errors.Is(err, ErrUnusableRecord) != want {
+					t.Errorf("expected an unusable record to be %t: only a signer the record supplies is that record's fault, and a throttle is left to fail the page because key stores are usually shared, got %v", want, err)
+				}
+				if name == "a throttled signer" && !errors.Is(err, model.ErrTemporarilyUnavailable) {
+					t.Errorf("[8.9 temporarily_unavailable] expected a throttle to keep its class, got %v", err)
 				}
 			})
 		}

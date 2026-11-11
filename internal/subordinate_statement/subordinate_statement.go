@@ -317,8 +317,15 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		subordinateStatement.MetadataPolicy = &policy
 	}
 
+	signerFault := func(err error) error {
+		if subjectSubordinateConfiguration.SignerConfiguration != nil {
+			return unusableRecord(err)
+		}
+		return err
+	}
+
 	if signerConfiguration.KeyID == "" {
-		return nil, fmt.Errorf("key ID cannot be empty")
+		return nil, signerFault(fmt.Errorf("key ID cannot be empty"))
 	}
 
 	subordinateStatementBytes, err := json.Marshal(subordinateStatement)
@@ -341,7 +348,7 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 	}
 
 	if err := model.VerifyIssuanceAlgorithm(signerConfiguration.Algorithm); err != nil {
-		return nil, fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %s", err.Error())
+		return nil, signerFault(fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %s", err.Error()))
 	}
 
 	token, err := jwt.New(signerConfiguration.Signer, map[string]any{
@@ -351,14 +358,18 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 	}, subordinateStatementMap, jwt.Opts{Algorithm: jwa.GetAlgorithm(signerConfiguration.Algorithm)})
 	if err != nil {
 		if errors.Is(err, joseerror.ErrUnsupportedAlgorithm) || errors.Is(err, joseerror.ErrInvalidPrivateKey) {
-			return nil, fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %s", err.Error())
+			return nil, signerFault(fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %s", err.Error()))
 		}
-		configuration.LogError(ctx, "the signer could not sign the subordinate statement", slog.String("error", model.TruncateForResponse(err.Error())))
-		return nil, model.ClassifySignerError(err, signingFailureError)
+		configuration.LogError(ctx, "the signer could not sign the subordinate statement", slog.String("sub", model.TruncateForResponse(string(subjectIdentifier))), slog.String("error", model.TruncateForResponse(err.Error())))
+		classified := model.ClassifySignerError(err, signingFailureError)
+		if errors.Is(classified, model.ErrTemporarilyUnavailable) || ctx.Err() != nil {
+			return nil, classified
+		}
+		return nil, signerFault(classified)
 	}
 
 	if err = entity_statement.VerifyIssuedSignature(ctx, *token, signerConfiguration.KeyID, signerConfiguration.Algorithm, signerConfiguration.Signer); err != nil {
-		return nil, fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %s", err.Error())
+		return nil, signerFault(fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %s", err.Error()))
 	}
 
 	return token, nil

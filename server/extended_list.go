@@ -90,7 +90,7 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 			token, err := subordinate_statement.New(ctx, *parsedIdentifier, s.loadSubordinate(ctx, *parsedIdentifier, published), s.cfg)
 			if err != nil {
 				if !errors.Is(err, model.ErrNotFound) && !errors.Is(err, model.ErrInvalidSubject) && !errors.As(err, new(signerNotPublished)) && !errors.Is(err, subordinate_statement.ErrUnusableRecord) {
-					s.logFailure(ctx, "error creating subordinate statement", err, slog.String("error", err.Error()))
+					s.logFailure(ctx, "error creating subordinate statement", err, slog.String("sub", identifier), slog.String("error", err.Error()))
 					if errors.Is(err, model.ErrTemporarilyUnavailable) {
 						return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(extendedListingUnavailableError))
 					}

@@ -1030,7 +1030,11 @@ func verifyExtensionsHoldNoBuiltInType[V any](kind string, extensions map[string
 	for i, entityType := range misplaced {
 		moves[i] = fmt.Sprintf("%q to %s.%s", entityType, kind, builtInEntityTypeFields[entityType])
 	}
-	return fmt.Errorf("%s.Extensions holds built-in entity types, which it must not, so move %s", kind, strings.Join(moves, ", "))
+	held := "a built-in entity type"
+	if len(misplaced) > 1 {
+		held = "built-in entity types"
+	}
+	return fmt.Errorf("%s.Extensions holds %s, which it must not, so move %s", kind, held, strings.Join(moves, ", "))
 }
 
 func (m *Metadata) UnmarshalJSON(data []byte) error {

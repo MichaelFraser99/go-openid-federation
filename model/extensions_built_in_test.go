@@ -31,6 +31,9 @@ func TestMarshalJSON_ABuiltInEntityTypeInExtensionsIsRefused(t *testing.T) {
 				if err == nil {
 					t.Fatalf("expected %s.Extensions holding %q to be refused, because it would replace %s.%s when written", kind, entityType, kind, field)
 				}
+				if !strings.Contains(err.Error(), kind+".Extensions holds a built-in entity type, which it must not") {
+					t.Errorf("expected one misplaced type described in the singular, got %v", err)
+				}
 				for _, named := range []string{kind + ".Extensions", entityType, kind + "." + field} {
 					if !strings.Contains(err.Error(), named) {
 						t.Errorf("expected the refusal to name %s, got %v", named, err)
@@ -62,6 +65,14 @@ func TestMarshalJSON_SeveralBuiltInEntityTypesInExtensionsAreAllNamedInOneOrder(
 		if strings.Contains(err.Error(), "x_custom_type") {
 			t.Fatalf("expected a custom type left out of the refusal, got %v", err)
 		}
+	}
+}
+
+func TestMarshalJSON_TwoBuiltInEntityTypesInExtensionsAreDescribedInThePlural(t *testing.T) {
+	_, err := json.Marshal(Metadata{Extensions: map[string]map[string]any{"oauth_client": {}, "openid_provider": {}}})
+	want := `Metadata.Extensions holds built-in entity types, which it must not, so move "oauth_client" to Metadata.OAuthClientMetadata, "openid_provider" to Metadata.OpenIDConnectOpenIDProviderMetadata`
+	if err == nil || !strings.HasSuffix(err.Error(), want) {
+		t.Errorf("expected two misplaced types described in the plural:\nwant %s\ngot  %v", want, err)
 	}
 }
 

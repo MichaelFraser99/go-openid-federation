@@ -72,14 +72,14 @@ func TestServer_Fetch_RetrieverFailureKeepsItsErrorClass(t *testing.T) {
 			err:         model.NewTemporarilyUnavailableError("database down"),
 			status:      http.StatusServiceUnavailable,
 			code:        model.TemporarilyUnavailable,
-			description: "database down",
+			description: subordinateRetrievalFailureError,
 		},
 		"a store that failed unexpectedly": {
 			reference:   "8.9 server_error",
 			err:         model.NewServerError("query failed"),
 			status:      http.StatusInternalServerError,
 			code:        model.ServerError,
-			description: "query failed",
+			description: subordinateRetrievalFailureError,
 		},
 		"a subject the store refuses to serve": {
 			reference:   "8.9 invalid_subject",

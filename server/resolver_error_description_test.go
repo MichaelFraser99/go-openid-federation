@@ -90,7 +90,6 @@ func TestServer_AnUnclassifiedResolverErrorAnswersTheEndpointsFixedDescription(t
 			err:         model.NewTemporarilyUnavailableError("the alias directory is being rebuilt"),
 			status:      http.StatusServiceUnavailable,
 			code:        model.TemporarilyUnavailable,
-			description: "the alias directory is being rebuilt",
 		},
 	}
 

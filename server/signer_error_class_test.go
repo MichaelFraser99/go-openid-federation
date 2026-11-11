@@ -281,7 +281,7 @@ func TestServer_List_ARetrieverFailureKeepsItsErrorClass(t *testing.T) {
 			err:         model.NewServerError("the subordinate table is corrupt"),
 			status:      http.StatusInternalServerError,
 			code:        model.ServerError,
-			description: "the subordinate table is corrupt",
+			description: listingUnavailableError,
 		},
 		{
 			name:        "a store that says it is down for maintenance",
@@ -289,7 +289,7 @@ func TestServer_List_ARetrieverFailureKeepsItsErrorClass(t *testing.T) {
 			err:         model.NewTemporarilyUnavailableError("the subordinate store is down for maintenance"),
 			status:      http.StatusServiceUnavailable,
 			code:        model.TemporarilyUnavailable,
-			description: "the subordinate store is down for maintenance",
+			description: listingUnavailableError,
 		},
 		{
 			name:        "a store failure with no class of its own",

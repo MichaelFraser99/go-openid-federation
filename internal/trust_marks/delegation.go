@@ -44,7 +44,7 @@ func describeHeaderMember(value any) string {
 	if text, ok := value.(string); ok {
 		return model.TruncateForResponse(text)
 	}
-	return model.TruncateForResponse(fmt.Sprintf("%v", value))
+	return fmt.Sprintf("of type %T", value)
 }
 
 func delegationClaim(body map[string]any, claim string) (string, error) {

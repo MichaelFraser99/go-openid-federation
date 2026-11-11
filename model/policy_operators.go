@@ -545,10 +545,22 @@ func (p *PolicyOperators) UnmarshalJSON(data []byte) error {
 			p.Metadata = append(p.Metadata, pMetadata)
 		}
 	} else {
-		return fmt.Errorf("unable to parse %q as a valid Metadata Policy", string(data))
+		return fmt.Errorf("a metadata policy must be a JSON object, not %s", jsonKind(data))
 	}
 	slices.Sort(p.Unrecognised)
 	return nil
+}
+
+func jsonKind(data []byte) string {
+	switch data[0] {
+	case '[':
+		return "an array"
+	case '"':
+		return "a string"
+	case 't', 'f':
+		return "a boolean"
+	}
+	return "a number"
 }
 
 func parsePolicyOperator(key string, operatorJSON any) (MetadataPolicyOperator, error) {

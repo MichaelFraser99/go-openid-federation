@@ -323,7 +323,7 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 
 	subordinateStatementBytes, err := json.Marshal(subordinateStatement)
 	if err != nil {
-		return nil, fmt.Errorf("failed to serialize entity configuration: %s", err.Error())
+		return nil, unusableRecord(fmt.Errorf("failed to serialize the subordinate statement: %s", err.Error()))
 	}
 
 	var subordinateStatementMap map[string]any

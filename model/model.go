@@ -1003,6 +1003,27 @@ var builtInEntityTypes = []string{
 	"openid_credential_verifier",
 }
 
+var builtInEntityTypeFields = map[string]string{
+	"federation_entity":          "FederationMetadata",
+	"openid_relying_party":       "OpenIDRelyingPartyMetadata",
+	"openid_provider":            "OpenIDConnectOpenIDProviderMetadata",
+	"oauth_authorization_server": "OAuthAuthorizationServerMetadata",
+	"oauth_client":               "OAuthClientMetadata",
+	"oauth_resource":             "OAuthResourceMetadata",
+	"openid_wallet_provider":     "OpenIDWalletProviderMetadata",
+	"openid_credential_issuer":   "OpenIDCredentialIssuerMetadata",
+	"openid_credential_verifier": "OpenIDCredentialVerifierMetadata",
+}
+
+func verifyExtensionsHoldNoBuiltInType[V any](kind string, extensions map[string]V) error {
+	for entityType := range extensions {
+		if field, builtIn := builtInEntityTypeFields[entityType]; builtIn {
+			return fmt.Errorf("%s.Extensions holds %q, which is a built-in entity type, so set %s.%s instead", kind, entityType, kind, field)
+		}
+	}
+	return nil
+}
+
 func (m *Metadata) UnmarshalJSON(data []byte) error {
 	var bytesMap map[string]any
 	err := json.Unmarshal(data, &bytesMap)
@@ -1147,6 +1168,9 @@ func (m *Metadata) UnmarshalJSON(data []byte) error {
 }
 
 func (m Metadata) MarshalJSON() ([]byte, error) {
+	if err := verifyExtensionsHoldNoBuiltInType("Metadata", m.Extensions); err != nil {
+		return nil, err
+	}
 	resultMap := map[string]any{}
 	if m.FederationMetadata != nil {
 		resultMap["federation_entity"] = marshalMetadataToMap(*m.FederationMetadata)
@@ -1267,6 +1291,9 @@ func (m *MetadataPolicy) UnmarshalJSON(data []byte) error {
 }
 
 func (m MetadataPolicy) MarshalJSON() ([]byte, error) {
+	if err := verifyExtensionsHoldNoBuiltInType("MetadataPolicy", m.Extensions); err != nil {
+		return nil, err
+	}
 	resultMap := map[string]any{}
 	if m.FederationMetadata != nil {
 		resultMap["federation_entity"] = marshalPolicyOperatorSetToMap(m.FederationMetadata)

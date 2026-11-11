@@ -39,6 +39,7 @@ Each change you may have to act on is marked **Breaking change** in the section 
 - [An intermediate or trust anchor](#an-intermediate-or-trust-anchor): a leaf no longer publishes a `federation_fetch_endpoint` or `federation_list_endpoint` typed into its metadata.
 - [Extensions](#extensions): a `SubordinateStatus.ResponseLifetime` under one second answers 500 instead of signing an expired response.
 - [Errors](#errors): a transport error that wraps `model.ErrServerError` for one peer no longer ends a trust chain walk that has another route.
+- [Entity statements and metadata](#entity-statements-and-metadata): an `Extensions` entry under a built-in entity type is refused when written.
 
 ### From v0.11.0-rc.2
 
@@ -583,6 +584,10 @@ The following entity types are supported.
 | `openid_credential_verifier` | `OpenIDCredentialVerifierMetadata` |
 
 Each is a `map[string]any` with its own validation, split across two points in the chain.
+
+A type that is not in this table goes in `Metadata.Extensions`, and its policy in `MetadataPolicy.Extensions`, keyed by its identifier. A built-in type must use its field. `MarshalJSON` refuses an `Extensions` entry under a built-in identifier, because it would replace the typed field's entry when written. For example, `Extensions["federation_entity"]` would remove the `federation_fetch_endpoint`, `federation_list_endpoint` and `federation_resolve_endpoint` that the library adds for an intermediate. An entity configuration that holds such an entry answers 500 `server_error` on `/.well-known/openid-federation`, and the cause, naming the field to use, is logged at error level. A subordinate record whose policy holds one fails for that subordinate alone, as an unusable record.
+
+> **Breaking change.** Earlier releases wrote such an entry over the typed field without an error. Move it to the field the error names.
 
 When metadata is unmarshalled, every statement is checked for claim shape: URL claims are HTTPS with no fragment component, string array claims are arrays of strings, object claims are objects, and signing algorithm claims exclude `none` where an algorithm is required. `issuer` and `credential_issuer` also refuse a query. An empty object is accepted, so an entity may declare a type without asserting anything about it.
 

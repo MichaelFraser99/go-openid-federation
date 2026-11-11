@@ -1,8 +1,10 @@
 package trust_marks
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -91,7 +93,8 @@ func TestFilterByTrusted_ThisServersOwnFaultInAnIssuerWalkAnswersAsItsOwnFault(t
 				TrustMarkIssuers: map[string][]model.EntityIdentifier{accreditedTM: {fed.id["first"], fed.id["second"]}},
 			}
 
-			err := FilterByTrusted(t.Context(), model.Configuration{HttpClient: fed.client()}, resolved, trustAnchorConfiguration, cache)
+			var logs bytes.Buffer
+			err := FilterByTrusted(t.Context(), model.Configuration{HttpClient: fed.client(), Logger: slog.New(slog.NewJSONHandler(&logs, nil))}, resolved, trustAnchorConfiguration, cache)
 
 			if tc.want == nil {
 				if err != nil {
@@ -112,6 +115,16 @@ func TestFilterByTrusted_ThisServersOwnFaultInAnIssuerWalkAnswersAsItsOwnFault(t
 			}
 			if resolved.TrustMarks != nil {
 				t.Errorf("[%s] expected no trust marks left on a response that will not be sent, got %d", tc.reference, len(resolved.TrustMarks))
+			}
+			statement, description := "entity configuration", ownEntityConfigurationUnavailable
+			if tc.issued {
+				statement, description = "subordinate statement", ownSubordinateStatementUnavailable
+			}
+			if err.Error() != description {
+				t.Errorf("[%s] expected the description to name the statement that failed, %q, got %q", tc.reference, description, err.Error())
+			}
+			if !strings.Contains(logs.String(), "could not produce its own "+statement+" for a trust mark issuer walk") {
+				t.Errorf("[%s] expected the log to name the %s that failed, got %s", tc.reference, statement, logs.String())
 			}
 			if builds != 1 {
 				t.Errorf("[#195] expected the request to end at the first own fault, got %d attempts to build the entity configuration", builds)

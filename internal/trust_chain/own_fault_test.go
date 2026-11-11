@@ -284,3 +284,57 @@ func TestBuildTrustChain_ThisServersOwnStatementIsBuiltOnceWhenItFails(t *testin
 		t.Errorf("expected a second walk in the same request to reuse the failure, built %d times", builds)
 	}
 }
+
+func TestBuildTrustChain_TheSubjectsTransportClassIsTheAnswer(t *testing.T) {
+	hints := map[string][]string{
+		"blocked": {"good"},
+		"good":    {"ta"},
+		"ta":      {},
+	}
+	tests := []struct {
+		name      string
+		reference string
+		subject   string
+		peerErr   error
+		want      error
+		notWant   error
+	}{
+		{name: "a subject the transport reports temporarily unavailable", reference: "8.9 temporarily_unavailable", subject: "blocked", peerErr: fmt.Errorf("%wpeer throttled", model.ErrTemporarilyUnavailable), want: model.ErrTemporarilyUnavailable, notWant: model.ErrNotFound},
+		{name: "a subject the transport refuses as an invalid request", reference: "8.9 invalid_request", subject: "blocked", peerErr: fmt.Errorf("%wrefused by policy", model.ErrInvalidRequest), want: model.ErrInvalidRequest, notWant: model.ErrNotFound},
+		{name: "a subject the transport fails without a class", reference: "8.1.2 not_found", subject: "blocked", peerErr: errors.New("peer unreachable"), want: model.ErrNotFound},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tp := newTopo(t, hints)
+			client := *tp.server.Client()
+			client.Transport = blockingTransport{next: tp.server.Client().Transport, blocked: "blocked", err: tc.peerErr}
+
+			_, _, _, err := BuildTrustChain(t.Context(), model.Configuration{HttpClient: &client}, tp.id[tc.subject], tp.id["ta"], resolvecache.New())
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("[%s] the subject has no other route, so the consumer's class is the honest answer: expected %v, got %v", tc.reference, tc.want, err)
+			}
+			if tc.notWant != nil && errors.Is(err, tc.notWant) {
+				t.Errorf("[%s] expected the transport's class alone, got %v", tc.reference, err)
+			}
+			if strings.Contains(err.Error(), "refused by policy") || strings.Contains(err.Error(), "peer throttled") {
+				t.Errorf("[%s] expected this library's own description, not the transport's text, got %q", tc.reference, err.Error())
+			}
+		})
+	}
+}
+
+func TestBuildTrustChain_AHopsTransportClassIsNotTheAnswer(t *testing.T) {
+	tp := newTopo(t, map[string][]string{
+		"leaf":    {"blocked"},
+		"blocked": {"ta"},
+		"ta":      {},
+	})
+	client := *tp.server.Client()
+	client.Transport = blockingTransport{next: tp.server.Client().Transport, blocked: "blocked", err: fmt.Errorf("%wrefused by policy", model.ErrInvalidRequest)}
+
+	_, _, _, err := BuildTrustChain(t.Context(), model.Configuration{HttpClient: &client}, tp.id["leaf"], tp.id["ta"], resolvecache.New())
+	if !errors.Is(err, model.ErrInvalidTrustAnchor) || errors.Is(err, model.ErrInvalidRequest) {
+		t.Errorf("[8.9 invalid_trust_anchor] a hop's refusal is not the caller's invalid request, expected invalid_trust_anchor, got %v", err)
+	}
+}

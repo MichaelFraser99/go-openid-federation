@@ -19,6 +19,8 @@ type DeadEnd struct {
 
 var ErrOwnFault = errors.New("")
 
+var ErrOwnIssuedFault = errors.New("")
+
 type OwnEntityConfiguration func(ctx context.Context) (*string, *model.EntityStatement, error)
 
 type OwnSubordinateStatement func(ctx context.Context, issuer model.EntityStatement, subject model.EntityIdentifier) (*string, *model.EntityStatement, error)

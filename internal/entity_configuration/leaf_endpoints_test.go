@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -107,19 +108,11 @@ func TestNew_ALeafPublishesNoFetchOrListEndpoint(t *testing.T) {
 				}
 			}
 
-			errorLines := 0
-			for _, line := range strings.Split(logs.String(), "\n") {
-				if strings.Contains(line, `"level":"ERROR"`) {
-					errorLines++
-				}
+			if strings.Contains(logs.String(), `"level":"ERROR"`) {
+				t.Errorf("expected New to drop the claims without logging, because NewServer reports them once, got %s", logs.String())
 			}
-			if errorLines != len(tc.logged) {
-				t.Errorf("expected %d error lines, got %d: %s", len(tc.logged), errorLines, logs.String())
-			}
-			for _, claim := range tc.logged {
-				if !strings.Contains(logs.String(), claim) {
-					t.Errorf("expected the dropped %s named at error level, got %s", claim, logs.String())
-				}
+			if reported := UnpublishedLeafEndpoints(cfg); !slices.Equal(reported, tc.logged) {
+				t.Errorf("expected the claims reported for NewServer to log to be %v, got %v", tc.logged, reported)
 			}
 		})
 	}

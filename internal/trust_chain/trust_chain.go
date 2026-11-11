@@ -56,7 +56,7 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 					return nil, nil, nil, walkNotCompleted(ctxErr)
 				}
 				if errors.Is(err, model.ErrServerError) || errors.Is(err, model.ErrTemporarilyUnavailable) {
-					return nil, nil, nil, fmt.Errorf("%w%w", resolvecache.ErrOwnFault, err)
+					return nil, nil, nil, fmt.Errorf("%w%w%w", resolvecache.ErrOwnFault, resolvecache.ErrOwnIssuedFault, err)
 				}
 				return nil, nil, nil, subordinateStatementFailure(err)
 			}
@@ -444,6 +444,9 @@ func chainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 		}
 		if errors.Is(err, model.ErrInvalidTrustChain) {
 			return signedPath, path, false, model.NewInvalidTrustChainError(fmt.Sprintf("entity configuration for %s failed validation", subject))
+		}
+		if classified := model.ClassifiedError(err); classified != nil && len(path) == 0 {
+			return signedPath, path, false, classified
 		}
 		return signedPath, path, false, model.NewNotFoundError(fmt.Sprintf("failed to retrieve entity configuration for %s", subject))
 	}

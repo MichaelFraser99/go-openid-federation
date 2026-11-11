@@ -360,8 +360,12 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		if errors.Is(err, joseerror.ErrUnsupportedAlgorithm) || errors.Is(err, joseerror.ErrInvalidPrivateKey) {
 			return nil, signerFault(fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %s", err.Error()))
 		}
-		configuration.LogError(ctx, "the signer could not sign the subordinate statement", slog.String("sub", model.TruncateForResponse(string(subjectIdentifier))), slog.String("error", model.TruncateForResponse(err.Error())))
 		classified := model.ClassifySignerError(err, signingFailureError)
+		if errors.Is(classified, model.ErrTemporarilyUnavailable) {
+			configuration.LogInfo(ctx, "the signer could not sign the subordinate statement", slog.String("sub", model.TruncateForResponse(string(subjectIdentifier))), slog.String("error", model.TruncateForResponse(err.Error())))
+		} else {
+			configuration.LogError(ctx, "the signer could not sign the subordinate statement", slog.String("sub", model.TruncateForResponse(string(subjectIdentifier))), slog.String("error", model.TruncateForResponse(err.Error())))
+		}
 		if errors.Is(classified, model.ErrTemporarilyUnavailable) || ctx.Err() != nil {
 			return nil, classified
 		}

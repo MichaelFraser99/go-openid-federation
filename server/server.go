@@ -14,6 +14,7 @@ import (
 
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_configuration"
+	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -184,8 +185,10 @@ type loggedFailure struct{ error }
 
 func (e loggedFailure) Unwrap() error { return e.error }
 
+func (e loggedFailure) Is(target error) bool { return target == resolvecache.ErrLogged }
+
 func (s *Server) logFailure(ctx context.Context, msg string, response error, args ...any) {
-	if errors.As(response, new(loggedFailure)) {
+	if errors.Is(response, resolvecache.ErrLogged) {
 		return
 	}
 	if _, code := errorStatusAndCode(response); code == model.ServerError {

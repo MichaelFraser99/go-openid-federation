@@ -152,9 +152,17 @@ func FilterByTrusted(ctx context.Context, cfg model.Configuration, resolved *mod
 			if errors.Is(err, resolvecache.ErrOwnIssuedFault) {
 				statement, description = "subordinate statement", ownSubordinateStatementUnavailable
 			}
-			cfg.LogError(ctx, "this resolver could not produce its own "+statement+" for a trust mark issuer walk", slog.String("trust_mark_type", model.TruncateForResponse(tm.TrustMarkType)))
+			classified := model.ClassifySignerError(err, description)
+			if !errors.Is(err, resolvecache.ErrLogged) {
+				msg := "this resolver could not produce its own " + statement + " for a trust mark issuer walk"
+				if errors.Is(classified, model.ErrTemporarilyUnavailable) {
+					cfg.LogInfo(ctx, msg, slog.String("trust_mark_type", model.TruncateForResponse(tm.TrustMarkType)), slog.String("error", model.TruncateForResponse(err.Error())))
+				} else {
+					cfg.LogError(ctx, msg, slog.String("trust_mark_type", model.TruncateForResponse(tm.TrustMarkType)), slog.String("error", model.TruncateForResponse(err.Error())))
+				}
+			}
 			resolved.TrustMarks = nil
-			return model.ClassifySignerError(err, description)
+			return fmt.Errorf("%w%w", resolvecache.ErrLogged, classified)
 		}
 		if err != nil {
 			cfg.LogInfo(ctx, "failed to validate trust mark", slog.String("trust_mark_type", model.TruncateForResponse(tm.TrustMarkType)), slog.String("error", model.TruncateForResponse(err.Error())))
@@ -277,7 +285,7 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 	}
 
 	issuerKeys, err := issuerFederationKeys(ctx, cfg, *parsedIssuer, opts, cache)
-	if errors.Is(err, model.ErrServerError) {
+	if errors.Is(err, model.ErrServerError) && !errors.Is(err, resolvecache.ErrOwnFault) {
 		cfg.LogError(ctx, "this resolver's own configuration prevents establishing trust in the trust mark issuer", slog.String("error", err.Error()), slog.String("issuer", string(*parsedIssuer)))
 		return nil, err
 	}

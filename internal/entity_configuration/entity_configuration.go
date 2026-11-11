@@ -248,7 +248,6 @@ func validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 
 const signingFailureError = "unable to produce the entity configuration at this time"
 
-// New takes a given configuration struct and produces a signed Entity Configuration
 func logSignerFailure(ctx context.Context, cfg model.Configuration, classified error, msg string, args ...any) {
 	if errors.Is(classified, model.ErrTemporarilyUnavailable) {
 		cfg.LogInfo(ctx, msg, args...)

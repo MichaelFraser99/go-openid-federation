@@ -27,6 +27,7 @@ type Cache struct {
 	own            model.EntityIdentifier
 	buildOwn       OwnEntityConfiguration
 	buildOwnIssued OwnSubordinateStatement
+	ownFailure     error
 	entries        map[model.EntityIdentifier]entry
 	described      map[model.EntityIdentifier]struct{}
 	deadEnds       map[DeadEnd]struct{}
@@ -48,7 +49,20 @@ func (c *Cache) SetOwn(identifier model.EntityIdentifier, build OwnEntityConfigu
 		return
 	}
 	c.own = identifier
-	c.buildOwn = build
+	c.buildOwn = nil
+	c.ownFailure = nil
+	if build != nil {
+		c.buildOwn = func(ctx context.Context) (*string, *model.EntityStatement, error) {
+			if c.ownFailure != nil {
+				return nil, nil, c.ownFailure
+			}
+			signed, statement, err := build(ctx)
+			if err != nil {
+				c.ownFailure = err
+			}
+			return signed, statement, err
+		}
+	}
 	c.buildOwnIssued = issue
 }
 

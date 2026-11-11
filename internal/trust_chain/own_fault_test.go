@@ -249,3 +249,38 @@ func TestChainUpOne_ReturnsTheRememberedFault(t *testing.T) {
 		t.Errorf("[8.9 server_error] expected this server's fault on the only route, got %v", err)
 	}
 }
+
+func TestBuildTrustChain_ThisServersOwnStatementIsBuiltOnceWhenItFails(t *testing.T) {
+	hints := map[string][]string{"leaf": {"blocked", "a1"}, "blocked": {"ta"}, "ta": {}}
+	for i := 1; i <= 8; i++ {
+		next := []string{"blocked"}
+		if i < 8 {
+			next = append(next, fmt.Sprintf("a%d", i+1))
+		}
+		hints[fmt.Sprintf("a%d", i)] = next
+	}
+	tp := newTopo(t, hints)
+	client := *tp.server.Client()
+	cache := resolvecache.New()
+	builds := 0
+	cache.SetOwn(tp.id["blocked"], func(context.Context) (*string, *model.EntityStatement, error) {
+		builds++
+		return nil, nil, model.NewServerError("unable to produce the entity configuration at this time")
+	}, nil)
+
+	_, _, _, err := BuildTrustChain(t.Context(), model.Configuration{HttpClient: &client}, tp.id["leaf"], tp.id["ta"], cache)
+	if !errors.Is(err, model.ErrServerError) {
+		t.Fatalf("[8.9 server_error] expected this server's fault on every route, got %v", err)
+	}
+	if builds != 1 {
+		t.Errorf("expected this server's failing entity configuration built once for the request, built %d times", builds)
+	}
+
+	_, _, _, err = BuildTrustChain(t.Context(), model.Configuration{HttpClient: &client}, tp.id["a8"], tp.id["ta"], cache)
+	if !errors.Is(err, model.ErrServerError) {
+		t.Fatalf("[8.9 server_error] expected the remembered fault on a second walk in the request, got %v", err)
+	}
+	if builds != 1 {
+		t.Errorf("expected a second walk in the same request to reuse the failure, built %d times", builds)
+	}
+}

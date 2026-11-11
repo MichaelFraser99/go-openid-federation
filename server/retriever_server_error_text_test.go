@@ -162,6 +162,11 @@ func TestServer_ARetrieversFiveHundredClassAnswersTheEndpointsFixedDescription(t
 				if logged != failure.errorLogged {
 					t.Errorf("expected the retriever's cause logged at error level to be %t, got %s", failure.errorLogged, logs.String())
 				}
+				if !failure.ownText {
+					if lines := strings.Count(logs.String(), retrieverLeak); lines != 1 {
+						t.Errorf("expected the retriever's cause logged once for one failure, got %d lines: %s", lines, logs.String())
+					}
+				}
 			})
 		}
 	}

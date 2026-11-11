@@ -81,7 +81,7 @@ func TestOneOf_Resolve(t *testing.T) {
 				if err == nil {
 					t.Fatal("expected error")
 				}
-				expectedError := "metadata parameter value map[key:value] is not one of the allowed values"
+				expectedError := "metadata parameter value of type map[string]interface {} is not one of the allowed values"
 				if err.Error() != expectedError {
 					t.Errorf("expected error, got %q", err.Error())
 				}

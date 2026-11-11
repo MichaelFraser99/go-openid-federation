@@ -752,7 +752,7 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 	cfg.LogInfo(ctx, "applying policy to subject metadata", slog.String("subject", string(subject.Sub)))
 	applied, err := model.ApplyPolicy(subject, *finalisedPolicy)
 	if err != nil {
-		cfg.LogInfo(ctx, "failed to apply policy", slog.Any("metadata", subject), slog.Any("policy", *finalisedPolicy), slog.String("error", model.TruncateForResponse(err.Error())))
+		cfg.LogInfo(ctx, "failed to apply policy", slog.String("subject", string(subject.Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
 		return nil, model.NewInvalidMetadataError(fmt.Sprintf("metadata policy for %s cannot be applied to its metadata", subject.Sub))
 	}
 

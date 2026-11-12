@@ -28,7 +28,6 @@ type omissionLine struct {
 	Msg                  string `json:"msg"`
 	NotEntityIdentifiers int    `json:"not_entity_identifiers"`
 	Duplicates           int    `json:"duplicates"`
-	Omitted              int    `json:"omitted"`
 }
 
 func omissionLines(t *testing.T, logs string) []omissionLine {
@@ -64,7 +63,6 @@ func TestServer_List_ServesOnlyEntityIdentifiersEachOnce(t *testing.T) {
 		ordered      bool
 		invalid      int
 		duplicates   int
-		unrecorded   int
 		wantOmission bool
 	}{
 		{
@@ -114,11 +112,9 @@ func TestServer_List_ServesOnlyEntityIdentifiersEachOnce(t *testing.T) {
 			want:   []string{rp, op},
 		},
 		{
-			name:         "the store's subordinates, one without a record",
-			stored:       map[model.EntityIdentifier]*model.SubordinateConfiguration{rp: valid, op: nil},
-			want:         []string{rp},
-			unrecorded:   1,
-			wantOmission: true,
+			name:   "the store's subordinates, one with a nil record as a listing placeholder, since /fetch asks GetSubordinate",
+			stored: map[model.EntityIdentifier]*model.SubordinateConfiguration{rp: valid, op: nil},
+			want:   []string{rp, op},
 		},
 		{
 			name:         "the store's subordinates, one that is not an entity identifier",
@@ -173,20 +169,19 @@ func TestServer_List_ServesOnlyEntityIdentifiersEachOnce(t *testing.T) {
 				}
 				return
 			}
-			invalid, duplicates, unrecorded := 0, 0, 0
+			invalid, duplicates := 0, 0
 			for _, line := range lines {
 				if line.Level != "ERROR" {
 					t.Errorf("expected an omission logged at Error, because the store is this deployment's own, got %+v", line)
 				}
 				invalid += line.NotEntityIdentifiers
 				duplicates += line.Duplicates
-				unrecorded += line.Omitted
 			}
 			if len(lines) != 1 {
 				t.Errorf("expected one line for the response, not one per entry, got %+v", lines)
 			}
-			if invalid != tc.invalid || duplicates != tc.duplicates || unrecorded != tc.unrecorded {
-				t.Errorf("expected %d values that are not entity identifiers, %d duplicates and %d without a record logged, got %d, %d and %d", tc.invalid, tc.duplicates, tc.unrecorded, invalid, duplicates, unrecorded)
+			if invalid != tc.invalid || duplicates != tc.duplicates {
+				t.Errorf("expected %d values that are not entity identifiers and %d duplicates logged, got %d and %d", tc.invalid, tc.duplicates, invalid, duplicates)
 			}
 		})
 	}

@@ -51,16 +51,8 @@ func (s *Server) List(w http.ResponseWriter, r *http.Request) ResponseFunc {
 	}
 
 	identifiers := make([]model.EntityIdentifier, 0, len(subordinates))
-	unrecorded := 0
-	for identifier, record := range subordinates {
-		if record == nil {
-			unrecorded++
-			continue
-		}
+	for identifier := range subordinates {
 		identifiers = append(identifiers, identifier)
-	}
-	if unrecorded > 0 {
-		s.cfg.LogError(ctx, "omitting subordinates the store lists without a record, because /fetch cannot issue a statement for them", slog.Int("omitted", unrecorded))
 	}
 	return s.respondWithEntities(ctx, w, identifiers)
 }

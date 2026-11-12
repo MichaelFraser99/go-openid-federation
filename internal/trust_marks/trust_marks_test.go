@@ -380,14 +380,14 @@ func TestValidate(t *testing.T) {
 		},
 		"fails validation when JWT body is not valid base64": {
 			setupTest: func() (string, []model.EntityIdentifier, model.Configuration) {
-				head := base64.RawURLEncoding.EncodeToString([]byte(`{"typ":"trust-mark+jwt","kid":"test-key"}`))
+				head := base64.RawURLEncoding.EncodeToString([]byte(`{"typ":"trust-mark+jwt","kid":"test-key","alg":"RS256"}`))
 				return head + ".invalid-base64!@#.signature", []model.EntityIdentifier{"https://issuer.example.com"}, model.Configuration{}
 			},
 			expectErr: "failed to decode JWT body",
 		},
 		"fails validation when JWT body is not valid JSON": {
 			setupTest: func() (string, []model.EntityIdentifier, model.Configuration) {
-				head := base64.RawURLEncoding.EncodeToString([]byte(`{"typ":"trust-mark+jwt","kid":"test-key"}`))
+				head := base64.RawURLEncoding.EncodeToString([]byte(`{"typ":"trust-mark+jwt","kid":"test-key","alg":"RS256"}`))
 				body := base64.RawURLEncoding.EncodeToString([]byte("not valid json"))
 				return head + "." + body + ".signature", []model.EntityIdentifier{"https://issuer.example.com"}, model.Configuration{}
 			},
@@ -395,7 +395,7 @@ func TestValidate(t *testing.T) {
 		},
 		"fails validation when issuer claim is missing": {
 			setupTest: func() (string, []model.EntityIdentifier, model.Configuration) {
-				head := base64.RawURLEncoding.EncodeToString([]byte(`{"typ":"trust-mark+jwt","kid":"test-key"}`))
+				head := base64.RawURLEncoding.EncodeToString([]byte(`{"typ":"trust-mark+jwt","kid":"test-key","alg":"RS256"}`))
 				body := base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"https://entity.example.com"}`))
 				return head + "." + body + ".signature", []model.EntityIdentifier{"https://issuer.example.com"}, model.Configuration{}
 			},
@@ -403,7 +403,7 @@ func TestValidate(t *testing.T) {
 		},
 		"fails validation when issuer is not a valid entity identifier": {
 			setupTest: func() (string, []model.EntityIdentifier, model.Configuration) {
-				head := base64.RawURLEncoding.EncodeToString([]byte(`{"typ":"trust-mark+jwt","kid":"test-key"}`))
+				head := base64.RawURLEncoding.EncodeToString([]byte(`{"typ":"trust-mark+jwt","kid":"test-key","alg":"RS256"}`))
 				body := base64.RawURLEncoding.EncodeToString([]byte(`{"iss":"not a valid url","sub":"https://entity.example.com","trust_mark_type":"https://tm.example.com/a","iat":1}`))
 				return head + "." + body + ".signature", []model.EntityIdentifier{"https://issuer.example.com"}, model.Configuration{}
 			},

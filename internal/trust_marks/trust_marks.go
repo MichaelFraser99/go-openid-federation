@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
@@ -320,6 +321,14 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 		cfg.LogInfo(ctx, "trust mark header carries a critical extension", slog.String("error", err.Error()))
 		return nil, fmt.Errorf("the trust mark's JWT header is refused: %s", err.Error())
 	}
+	if typ, _ := headMap["typ"].(string); !entity_statement.NamesJWTType(typ, "trust-mark+jwt") { //todo: support additional, approved, types
+		cfg.LogInfo(ctx, "invalid trust mark type", slog.String("type", typ))
+		return nil, fmt.Errorf("invalid trust mark type")
+	}
+	if alg, _ := headMap["alg"].(string); !slices.Contains(cfg.AcceptedSigningAlgorithms(), jwa.GetAlgorithm(alg)) {
+		cfg.LogInfo(ctx, "trust mark header names an algorithm this deployment does not accept")
+		return nil, fmt.Errorf("the trust mark's 'alg' header names an algorithm this deployment does not accept")
+	}
 
 	bodyBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
@@ -383,7 +392,7 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 		return nil, fmt.Errorf("the trust mark 'kid' %q names a key published by issuer %s that cannot verify it: %s", model.TruncateForResponse(kid), *parsedIssuer, model.TruncateForResponse(err.Error()))
 	}
 
-	head, _, err := jwt.Validate(ctx, trustMark, func() ([]crypto.PublicKey, error) {
+	_, _, err = jwt.Validate(ctx, trustMark, func() ([]crypto.PublicKey, error) {
 		pubKey, err := jwk.PublicFromJwk(selectedKey)
 		if err != nil {
 			cfg.LogInfo(ctx, "the key published for the trust mark issuer cannot be read", slog.String("kid", kid), slog.String("issuer", string(*parsedIssuer)), slog.Any("members", slices.Sorted(maps.Keys(selectedKey))), slog.String("error", err.Error()))
@@ -398,13 +407,6 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 	if err != nil {
 		cfg.LogInfo(ctx, "failed to validate trust mark", slog.String("error", err.Error()), slog.String("trust_mark", model.TruncateForResponse(trustMark)))
 		return nil, fmt.Errorf("failed to validate trust mark: %v", err)
-	}
-
-	if typ, ok := head["typ"].(string); !ok {
-		return nil, fmt.Errorf("missing or invalid required field 'typ'")
-	} else if !entity_statement.NamesJWTType(typ, "trust-mark+jwt") { //todo: support additional, approved, types
-		cfg.LogInfo(ctx, "invalid trust mark type", slog.String("type", typ))
-		return nil, fmt.Errorf("invalid trust mark type")
 	}
 
 	if err := verifyDelegationRequirement(ctx, cfg, body, *parsedIssuer, opts.TrustAnchorConfiguration.TrustMarkOwners); err != nil {

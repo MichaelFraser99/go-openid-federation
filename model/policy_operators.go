@@ -526,7 +526,7 @@ type PolicyOperators struct {
 
 func (p *PolicyOperators) UnmarshalJSON(data []byte) error {
 	data = bytes.TrimSpace(data)
-	if len(data) == 0 || string(data) == "null" {
+	if len(data) == 0 {
 		return nil
 	}
 	if data[0] == '{' {
@@ -554,6 +554,9 @@ func (p *PolicyOperators) UnmarshalJSON(data []byte) error {
 }
 
 func jsonKind(data []byte) string {
+	if string(data) == "null" {
+		return "null"
+	}
 	switch data[0] {
 	case '[':
 		return "an array"

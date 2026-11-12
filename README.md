@@ -50,6 +50,7 @@ Each change you may have to act on is marked **Breaking change** in the section 
 - [Limits](#limits): a trust mark of a type the trust anchor does not trust no longer counts against `MaxTrustMarks`, and no longer writes a log line of its own. The summary line counts them as `untrusted_types`.
 - [Query parameters](#query-parameters): `/trust-mark-status` answers 404 for a trust mark whose `iss` is not this server, without asking your retriever.
 - [Anchoring a chain a caller supplies](#anchoring-a-chain-a-caller-supplies): an entity configuration or subordinate statement that carries a `trust_chain` or `peer_trust_chain` header is refused.
+- [Metadata policy](#metadata-policy): an entity type policy or a parameter policy whose value is `null` is refused.
 
 ### From v0.11.0-rc.2
 
@@ -761,6 +762,10 @@ Everything else compares by `reflect.DeepEqual`, which is exact on Go types and 
 On that path a set buckets values by a hash that equal values always share, and compares with `reflect.DeepEqual` only within a bucket, so a policy built in Go from many such values is still linear.
 
 A value that refers to itself, or that shares so much structure that walking it would visit more than 100,000 nodes, matches nothing, not even itself, in the same way a `NaN` does. A Go value can do this and a JSON value cannot: a decoded statement holds at most `MaxStatementValues` values, 10,000 by default. If you raise `MaxStatementValues` above 100,000, a single operand larger than that from a peer matches nothing either, so two equal operands of that size conflict. Earlier releases recursed until the stack overflowed on a self-referencing value, which is fatal to the process and cannot be recovered.
+
+Section 6.1.2 gives a metadata policy three levels: entity types, then metadata parameters, then operators. The value of an entity type and the value of a parameter policy must each be a JSON object. A `null` at either level is refused, as a string, a number or an array already is, and the statement that carries it is refused. An operator's own value is not restricted in this way: `{"value": null}` is accepted, because section 6.1.3.1.1 gives `null` a meaning there. An empty object at either level is accepted ([#129](https://github.com/MichaelFraser99/go-openid-federation/issues/129)).
+
+> **Breaking change.** An entity type policy or a parameter policy whose value is `null`, such as `{"openid_relying_party": null}` or `{"contacts": null}`, was accepted and had no effect. A subordinate statement that carries one is now refused, so a chain through that statement does not resolve. Decoding such JSON into a `model.MetadataPolicy` now returns an error.
 
 All seven operators from the specification are implemented: `value`, `add`, `default`, `one_of`, `subset_of`, `superset_of` and `essential`.
 

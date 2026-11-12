@@ -44,6 +44,8 @@ func TestPolicyOperators_UnmarshalJSONCalledDirectlyNamesTheKindItWasGiven(t *te
 		"an array after whitespace": {input: "  [1]", kind: "an array"},
 		"a negative number":         {input: "-1", kind: "a number"},
 		"text that is not JSON":     {input: "xyz", kind: "a value that is not valid JSON"},
+		"null after whitespace":     {input: " null ", kind: "null"},
+		"text that starts with n":   {input: "nope", kind: "a value that is not valid JSON"},
 	}
 
 	for name, tc := range tests {
@@ -58,7 +60,6 @@ func TestPolicyOperators_UnmarshalJSONCalledDirectlyNamesTheKindItWasGiven(t *te
 
 	for name, input := range map[string]string{
 		"an object after whitespace": "  {}",
-		"null after whitespace":      " null ",
 		"only whitespace":            "   ",
 	} {
 		t.Run(name, func(t *testing.T) {

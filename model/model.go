@@ -1224,6 +1224,11 @@ func (m *MetadataPolicy) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
+	for _, entityType := range slices.Sorted(maps.Keys(bytesMap)) {
+		if bytesMap[entityType] == nil {
+			return fmt.Errorf("the %s metadata policy must be a JSON object, not null", entityType)
+		}
+	}
 	if federation, ok := bytesMap["federation_entity"]; ok {
 		federationPolicyOperators, err := ReMarshalJsonAsEntityMetadata[map[string]PolicyOperators](federation)
 		if err != nil {

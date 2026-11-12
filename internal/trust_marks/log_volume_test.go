@@ -348,3 +348,78 @@ func TestFilterByTrusted_ASubjectPresentingNoTrustMarksWritesNoSummary(t *testin
 		})
 	}
 }
+
+func TestFilterByTrusted_OnlyMarksOfTypesTheAnchorTrustsCountAgainstTheLimit(t *testing.T) {
+	tests := []struct {
+		name       string
+		limit      int
+		marks      []string
+		kept       []string
+		unverified int
+		untrusted  int
+		maxLines   int
+	}{
+		{name: "sixty-five marks from another federation before one this anchor trusts", marks: append(slices.Repeat([]string{"u"}, 65), "t0"), kept: []string{"t0"}, untrusted: 65},
+		{name: "marks from another federation between trusted marks, past the limit", limit: 2, marks: []string{"u", "t0", "u", "t1", "u", "t2"}, kept: []string{"t0", "t1"}, unverified: 1, untrusted: 3},
+		{name: "trusted marks exactly at the limit", limit: 2, marks: []string{"t0", "u", "t1"}, kept: []string{"t0", "t1"}, untrusted: 1},
+		{name: "a trusted mark that fails verification still counts against the limit", limit: 1, marks: []string{"bad", "t0"}, kept: []string{}, unverified: 1},
+		{name: "a thousand marks from another federation write no line each", marks: slices.Repeat([]string{"u"}, 1000), kept: []string{}, untrusted: 1000, maxLines: 2},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newRvFed(t, map[string]string{"member": "ta"})
+			types := map[string][]model.EntityIdentifier{}
+			marks := make([]model.TrustMarkHolder, 0, len(tc.marks))
+			for i, mark := range tc.marks {
+				switch mark {
+				case "u":
+					trustMarkType := fmt.Sprintf("%s/other-federation/%d", rvType, i)
+					marks = append(marks, model.TrustMarkHolder{TrustMarkType: trustMarkType, TrustMark: federationTrustMark(t, f.ecKey["ta"], "test-key", f.id("ta"), trustMarkType, rvSub)})
+				case "bad":
+					trustMarkType := rvType + "/bad"
+					types[trustMarkType] = []model.EntityIdentifier{model.EntityIdentifier(f.id("ta"))}
+					marks = append(marks, model.TrustMarkHolder{TrustMarkType: trustMarkType, TrustMark: federationTrustMark(t, f.ecKey["member"], "test-key", f.id("ta"), trustMarkType, rvSub)})
+				default:
+					trustMarkType := rvType + "/" + mark
+					types[trustMarkType] = []model.EntityIdentifier{model.EntityIdentifier(f.id("ta"))}
+					marks = append(marks, model.TrustMarkHolder{TrustMarkType: trustMarkType, TrustMark: federationTrustMark(t, f.ecKey["ta"], "test-key", f.id("ta"), trustMarkType, rvSub)})
+				}
+			}
+			ta := f.taConfig(t, types)
+
+			handler := &recordingHandler{}
+			cfg := model.Configuration{HttpClient: f.server.Client(), Logger: slog.New(handler), MaxTrustMarks: tc.limit}
+			resolved := &model.ResolveResponse{Sub: rvSub, Exp: time.Now().Add(time.Hour).UTC().Unix(), TrustMarks: marks}
+			if err := FilterByTrusted(t.Context(), cfg, resolved, ta, nil); err != nil {
+				t.Fatalf("[8.3] a mark the resolver does not verify is dropped, never refused, got %v", err)
+			}
+
+			kept := make([]string, 0, len(resolved.TrustMarks))
+			for _, holder := range resolved.TrustMarks {
+				kept = append(kept, strings.TrimPrefix(holder.TrustMarkType, rvType+"/"))
+			}
+			if !slices.Equal(kept, tc.kept) {
+				t.Errorf("[8.3] expected the marks %v kept in the order listed, got %v", tc.kept, kept)
+			}
+
+			limitLines := handler.withAttr(slog.LevelInfo, "unverified")
+			if tc.unverified == 0 && len(limitLines) != 0 {
+				t.Errorf("expected no line about the limit when the trusted marks fit it, got %v", limitLines)
+			}
+			if tc.unverified > 0 && (len(limitLines) != 1 || limitLines[0].attrs["unverified"].Int64() != int64(tc.unverified)) {
+				t.Errorf("expected one line saying %d trusted marks went unverified past the limit, got %v", tc.unverified, limitLines)
+			}
+
+			summaries := handler.withAttr(slog.LevelInfo, "untrusted_types")
+			if len(summaries) != 1 || summaries[0].attrs["untrusted_types"].Int64() != int64(tc.untrusted) || summaries[0].attrs["presented"].Int64() != int64(len(tc.marks)) {
+				t.Errorf("expected one summary counting %d marks of types the anchor does not trust out of %d, got %v", tc.untrusted, len(tc.marks), summaries)
+			}
+			if tc.maxLines > 0 {
+				if lines := len(handler.atLevel(slog.LevelInfo)) + len(handler.atLevel(slog.LevelError)); lines > tc.maxLines {
+					t.Errorf("expected at most %d lines for marks of types the anchor does not trust, got %d", tc.maxLines, lines)
+				}
+			}
+		})
+	}
+}

@@ -47,6 +47,7 @@ Each change you may have to act on is marked **Breaking change** in the section 
 - [Query parameters](#query-parameters): `/list` and `/extended-list` leave out a store value that is not an entity identifier, and serve a repeated one once.
 - [Query parameters](#query-parameters): `/extended-list` removes a `subordinate_statement` from your retriever when `claims` is present without it, or when this server cannot issue one.
 - [Query parameters](#query-parameters): `/trust-mark` answers 500 for a value from `IssueTrustMark` that is not a trust mark for the requested subject and type.
+- [Limits](#limits): a trust mark of a type the trust anchor does not trust no longer counts against `MaxTrustMarks`, and no longer writes a log line of its own. The summary line counts them as `untrusted_types`.
 
 ### From v0.11.0-rc.2
 
@@ -417,7 +418,7 @@ The library refuses a redirect to a URL that does not use `https` on every fetch
 | `Configuration.MaxTrustChainDepth` | `model.DefaultMaxTrustChainDepth`, 10 | Entities on one path from the leaf to a trust anchor |
 | `Configuration.MaxEntitiesTraversed` | `model.DefaultMaxEntitiesTraversed`, 1024 | Entity configurations one request may fetch while walking `authority_hints`, across every chain it builds, plus the subordinate statements it fetches while retrying another route after one failed |
 | `Configuration.MaxTrustMarkIssuers` | `model.DefaultMaxTrustMarkIssuers`, 64 | Distinct trust mark issuers resolved for one subject |
-| `Configuration.MaxTrustMarks` | `model.DefaultMaxTrustMarks`, 64 | Trust marks one resolve verifies for its subject, in the order the subject lists them. Marks past the limit are left out of the response without being verified. If you raise it above `MaxTrustMarkIssuers`, a subject whose marks name more issuers than that is refused with 404 `invalid_subject` |
+| `Configuration.MaxTrustMarks` | `model.DefaultMaxTrustMarks`, 64 | Trust marks one resolve verifies for its subject, in the order the subject lists them. Only a mark whose type the trust anchor lists in `trust_mark_issuers` counts, whether or not it then verifies. A mark of any other type is left out without any cost, for example a mark from another federation. Trusted marks past the limit are left out of the response without being verified. If you raise it above `MaxTrustMarkIssuers`, a subject whose marks name more issuers than that is refused with 404 `invalid_subject` |
 | `Configuration.MaxResolveTime` | `model.DefaultMaxResolveTime`, 30s | How long one `/resolve` request, or one `Client.BuildTrustChain` or `Client.ResolveMetadata` call, may take, trust mark issuer walks included |
 | `Configuration.MaxStatementValues` | `model.DefaultMaxStatementValues`, 10,000 | JSON values in the header or body of one peer statement, trust mark or delegation, or of one entry in a chain passed to `Client.ResolveMetadata`. Separately, JSON values in the headers and bodies of all the trust marks one statement carries, and of their delegations |
 | `Configuration.MaxAuthorityHints` | `model.DefaultMaxAuthorityHints`, 64 | `authority_hints` an entity configuration may list when the walk is to follow them |
@@ -815,7 +816,7 @@ Trust marks in a resolve response are filtered against the trust anchor's `trust
 - its issuer has a trust chain to the same trust anchor, which is built within the request's bounds;
 - where the anchor names an owner for the type in `trust_mark_owners`, it carries a valid `delegation`.
 
-A mark that fails any of these is dropped, and resolution continues. At most `MaxTrustMarks` marks are considered, in the order the subject lists them (see [Limits](#limits)). Each refusal is logged at Info, because a subject chooses what it lists, and one Info line per resolve gives how many of the marks it presented were dropped. The one refusal logged at error level is a trust mark issuer this deployment could not walk for a fault of its own, such as a missing `HttpClient`.
+A mark that fails any of these is dropped, and resolution continues. At most `MaxTrustMarks` marks of types the trust anchor trusts are verified, in the order the subject lists them (see [Limits](#limits)). Marks of other types do not count against it. Each refusal of a mark the resolver tried to verify is logged at Info, because a subject chooses what it lists. One Info line per resolve gives how many of the marks it presented were dropped, and how many of those were of types the trust anchor does not trust, without a line for each one. The one refusal logged at error level is a trust mark issuer this deployment could not walk for a fault of its own, such as a missing `HttpClient`.
 
 > **Breaking change.** Trust mark and delegation refusals were logged at error level, so a subject listing junk marks could fill an error log. If you alert on them, alert on the Info summary line instead.
 

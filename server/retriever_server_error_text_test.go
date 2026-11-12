@@ -80,7 +80,7 @@ func TestServer_ARetrieversFiveHundredClassAnswersTheEndpointsFixedDescription(t
 			return ts.Client().Get(ts.URL + "/trust-mark-list?trust_mark_type=" + trustMarkType)
 		}},
 		{name: "/trust-mark-status", description: trustMarkStatusUnavailableError, request: func(ts *httptest.Server) (*http.Response, error) {
-			return ts.Client().PostForm(ts.URL+"/trust-mark-status", url.Values{"trust_mark": {"a.b.c"}})
+			return ts.Client().PostForm(ts.URL+"/trust-mark-status", url.Values{"trust_mark": {markIssuedBy(t, "https://ta.example.com")}})
 		}},
 		{name: "/subordinate-status", description: subordinateStatusUnavailableError, request: func(ts *httptest.Server) (*http.Response, error) {
 			return ts.Client().Get(ts.URL + "/subordinate-status?sub=" + sub)

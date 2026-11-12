@@ -116,7 +116,7 @@ func TestServer_RetrieverReturningNilWithoutError(t *testing.T) {
 			reference:    "8.4.2",
 			method:       http.MethodPost,
 			path:         "/trust-mark-status",
-			form:         url.Values{"trust_mark": {"a.b.c"}},
+			form:         url.Values{"trust_mark": {markIssuedBy(t, ts.URL)}},
 			expectStatus: http.StatusNotFound,
 			expectError:  "not_found",
 			expectDesc:   "unknown trust mark",

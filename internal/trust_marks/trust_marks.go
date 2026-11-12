@@ -27,6 +27,11 @@ func Status(ctx context.Context, cfg model.ServerConfiguration, trustMark string
 		return nil, fmt.Errorf("trust mark retriever not configured")
 	}
 
+	if !issuedBy(trustMark, cfg.EntityIdentifier, cfg.StatementValuesLimit()) {
+		cfg.LogInfo(ctx, "trust mark status requested for a value that is not a trust mark this server issued, treating it as unknown")
+		return nil, model.NewNotFoundError("unknown trust mark")
+	}
+
 	status, err := cfg.TrustMarkRetriever.GetTrustMarkStatus(ctx, trustMark)
 	if err != nil {
 		return nil, err
@@ -38,6 +43,26 @@ func Status(ctx context.Context, cfg model.ServerConfiguration, trustMark string
 	cfg.LogInfo(ctx, "trust mark status determined", slog.String("status", *status))
 
 	return &model.TrustMarkStatusResponse{Status: *status}, nil
+}
+
+func issuedBy(trustMark string, issuer model.EntityIdentifier, valueLimit int) bool {
+	parts := strings.SplitN(trustMark, ".", 4)
+	if len(parts) != 3 {
+		return false
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return false
+	}
+	if model.VerifyJSONValueCount(payload, valueLimit) != nil {
+		return false
+	}
+	var claims map[string]any
+	if json.Unmarshal(payload, &claims) != nil {
+		return false
+	}
+	iss, _ := claims["iss"].(string)
+	return iss == string(issuer)
 }
 
 func List(ctx context.Context, cfg model.ServerConfiguration, trustMarkIdentifier string, subjectEntityIdentifier *model.EntityIdentifier) ([]model.EntityIdentifier, error) {

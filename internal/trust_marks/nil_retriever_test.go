@@ -25,6 +25,11 @@ func (nilSubordinateStub) GetSubordinateSigners(context.Context) ([]model.Signer
 }
 
 func TestStatusAndIssue_TreatAnAbsentResultAsNotFound(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("failed to generate a key: %v", err)
+	}
+	issued := federationTrustMark(t, key, "tm", "https://issuer.example.com", "https://tm.example.com/a", "https://leaf.example.com")
 	calls := []struct {
 		name      string
 		reference string
@@ -34,7 +39,7 @@ func TestStatusAndIssue_TreatAnAbsentResultAsNotFound(t *testing.T) {
 			name:      "an unknown trust mark status",
 			reference: "8.4.2",
 			call: func(cfg model.ServerConfiguration) error {
-				_, err := Status(t.Context(), cfg, "a.b.c")
+				_, err := Status(t.Context(), cfg, issued)
 				return err
 			},
 		},
@@ -60,10 +65,13 @@ func TestStatusAndIssue_TreatAnAbsentResultAsNotFound(t *testing.T) {
 	for _, tc := range calls {
 		for _, shape := range shapes {
 			t.Run(tc.name+"/"+shape.name, func(t *testing.T) {
+				asked := 0
 				cfg := model.ServerConfiguration{
+					EntityIdentifier: "https://issuer.example.com",
 					TrustMarkRetriever: &mockTrustMarkRetriever{
-						getStatusFunc: func(context.Context, string) (*string, error) { return shape.value, nil },
+						getStatusFunc: func(context.Context, string) (*string, error) { asked++; return shape.value, nil },
 						issueTrustMarkFunc: func(context.Context, string, model.EntityIdentifier) (*string, error) {
+							asked++
 							return shape.value, nil
 						},
 					},
@@ -81,6 +89,9 @@ func TestStatusAndIssue_TreatAnAbsentResultAsNotFound(t *testing.T) {
 				}
 				if !errors.Is(err, model.ErrNotFound) {
 					t.Fatalf("[%s] the specification requires a 404 here, which needs the not found class, got %v", tc.reference, err)
+				}
+				if asked != 1 {
+					t.Errorf("[%s] expected the retriever asked once, so the absent result is what answers, got %d", tc.reference, asked)
 				}
 			})
 		}
@@ -103,7 +114,7 @@ func TestStatusAndIssue_ReturnALegitimateResult(t *testing.T) {
 		},
 	}
 
-	status, err := Status(t.Context(), cfg, "a.b.c")
+	status, err := Status(t.Context(), cfg, issued)
 	if err != nil {
 		t.Fatalf("expected a real status to be returned, got %v", err)
 	}

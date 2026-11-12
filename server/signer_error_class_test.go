@@ -161,7 +161,7 @@ func signingEndpoints() []signingEndpoint {
 				ts := signingServer(t, refuse, func(cfg *model.ServerConfiguration) {
 					cfg.TrustMarkRetriever = testTrustMarkRetriever{status: model.Pointer("active")}
 				})
-				form := url.Values{"trust_mark": {"a.b.c"}}
+				form := url.Values{"trust_mark": {markIssuedBy(t, ts.URL)}}
 				response, err := ts.Client().Post(ts.URL+"/trust-mark-status", "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
 				if err != nil {
 					t.Fatalf("the handler did not answer: %v", err)

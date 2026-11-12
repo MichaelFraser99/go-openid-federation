@@ -247,7 +247,7 @@ func TestServer_TrustMarkEndpoints_DoNotReflectTheRetrieversMessage(t *testing.T
 	}{
 		{name: "trust mark", method: http.MethodGet, path: "/trust-mark?sub=https://leaf.example.com&trust_mark_type=https://tm.example.com/a"},
 		{name: "trust mark list", method: http.MethodGet, path: "/trust-mark-list?trust_mark_type=https://tm.example.com/a"},
-		{name: "trust mark status", method: http.MethodPost, path: "/trust-mark-status", form: url.Values{"trust_mark": {"a.b.c"}}},
+		{name: "trust mark status", method: http.MethodPost, path: "/trust-mark-status", form: url.Values{"trust_mark": {"issued-by-the-server"}}},
 	}
 
 	for _, tc := range tests {
@@ -258,7 +258,11 @@ func TestServer_TrustMarkEndpoints_DoNotReflectTheRetrieversMessage(t *testing.T
 
 			var body io.Reader
 			if tc.form != nil {
-				body = strings.NewReader(tc.form.Encode())
+				form := tc.form
+				if form.Get("trust_mark") == "issued-by-the-server" {
+					form = url.Values{"trust_mark": {markIssuedBy(t, ts.URL)}}
+				}
+				body = strings.NewReader(form.Encode())
 			}
 			request, err := http.NewRequest(tc.method, ts.URL+tc.path, body)
 			if err != nil {
@@ -436,14 +440,18 @@ func TestServer_RecoveryAppliesToEveryConfiguredRoute(t *testing.T) {
 		{name: "subordinate status", method: http.MethodGet, path: "/subordinate-status?sub=https://leaf.example.com"},
 		{name: "trust mark", method: http.MethodGet, path: "/trust-mark?sub=https://leaf.example.com&trust_mark_type=https://tm.example.com/a"},
 		{name: "trust mark list", method: http.MethodGet, path: "/trust-mark-list?trust_mark_type=https://tm.example.com/a"},
-		{name: "trust mark status", method: http.MethodPost, path: "/trust-mark-status", form: url.Values{"trust_mark": {"a.b.c"}}},
+		{name: "trust mark status", method: http.MethodPost, path: "/trust-mark-status", form: url.Values{"trust_mark": {"issued-by-the-server"}}},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			var body io.Reader
 			if tc.form != nil {
-				body = strings.NewReader(tc.form.Encode())
+				form := tc.form
+				if form.Get("trust_mark") == "issued-by-the-server" {
+					form = url.Values{"trust_mark": {markIssuedBy(t, ts.URL)}}
+				}
+				body = strings.NewReader(form.Encode())
 			}
 			request, err := http.NewRequest(tc.method, ts.URL+tc.path, body)
 			if err != nil {

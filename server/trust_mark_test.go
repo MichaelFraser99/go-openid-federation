@@ -35,7 +35,8 @@ func (r *capturingTrustMarkRetriever) ListTrustMarks(_ context.Context, trustMar
 }
 
 func TestServer_TrustMark_IssuesTrustMark(t *testing.T) {
-	retriever := &capturingTrustMarkRetriever{issued: model.Pointer("issued.trust.mark")}
+	issued := signedTrustMark(t, "trust-mark+jwt", issuedMarkClaims())
+	retriever := &capturingTrustMarkRetriever{issued: &issued}
 	s := startTrustMarkStatusServer(t, retriever)
 
 	resp, err := s.Client().Get(s.URL + "/trust-mark?sub=https://sub.example.com&trust_mark_type=https://tm.example.com/verified")
@@ -55,7 +56,7 @@ func TestServer_TrustMark_IssuesTrustMark(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read body: %v", err)
 	}
-	if string(body) != "issued.trust.mark" {
+	if string(body) != issued {
 		t.Errorf("expected issued trust mark echoed back, got %q", body)
 	}
 

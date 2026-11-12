@@ -267,6 +267,11 @@ func TestList(t *testing.T) {
 
 func TestIssue(t *testing.T) {
 	entityID := model.EntityIdentifier("https://example.com/entity")
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("failed to generate a key: %v", err)
+	}
+	issuedTestMark := federationTrustMark(t, key, "tm", "https://issuer.example.com", "https://trust-mark.example.com", string(entityID))
 
 	tests := map[string]struct {
 		setupConfig             func() model.ServerConfiguration
@@ -276,8 +281,9 @@ func TestIssue(t *testing.T) {
 	}{
 		"issues trust mark successfully": {
 			setupConfig: func() model.ServerConfiguration {
-				token := "issued.trust.mark"
+				token := issuedTestMark
 				return model.ServerConfiguration{
+					EntityIdentifier: "https://issuer.example.com",
 					TrustMarkRetriever: &mockTrustMarkRetriever{
 						issueTrustMarkFunc: func(ctx context.Context, trustMarkIdentifier string, entityIdentifier model.EntityIdentifier) (*string, error) {
 							return &token, nil
@@ -294,8 +300,8 @@ func TestIssue(t *testing.T) {
 				if result == nil {
 					t.Fatal("expected non-nil result")
 				}
-				if *result != "issued.trust.mark" {
-					t.Errorf("expected trust mark 'issued.trust.mark', got %q", *result)
+				if *result != issuedTestMark {
+					t.Errorf("expected the issued trust mark, got %q", *result)
 				}
 			},
 		},

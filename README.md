@@ -46,6 +46,7 @@ Each change you may have to act on is marked **Breaking change** in the section 
 - [Entity statements and metadata](#entity-statements-and-metadata): an `Extensions` entry under a built-in entity type is refused when written.
 - [Query parameters](#query-parameters): `/list` and `/extended-list` leave out a store value that is not an entity identifier, and serve a repeated one once.
 - [Query parameters](#query-parameters): `/extended-list` removes a `subordinate_statement` from your retriever when `claims` is present without it, or when this server cannot issue one.
+- [Query parameters](#query-parameters): `/trust-mark` answers 500 for a value from `IssueTrustMark` that is not a trust mark for the requested subject and type.
 
 ### From v0.11.0-rc.2
 
@@ -306,6 +307,17 @@ Like every classified error, the message you give `NewPageNotFoundError` is sent
 | --- | --- |
 | `sub` | yes |
 | `trust_mark_type` | yes |
+
+Your `IssueTrustMark` signs the trust mark, and the endpoint serves it under `application/trust-mark+jwt`. Before it serves the value, the endpoint makes sure that the value is a trust mark for the request, as sections 7 and 7.1 define one:
+
+- It is a compact JWS with three segments and a signature.
+- Its header `typ` is `trust-mark+jwt`, with or without the `application/` prefix, and its `alg` is not `none`.
+- Its payload has `iss`, `sub`, `trust_mark_type` and `iat`.
+- Its `iss` is this server's entity identifier, its `sub` is the requested subject and its `trust_mark_type` is the requested type. Each is an exact string match.
+
+The endpoint does not verify the signature. If the value fails one of these checks, the endpoint answers 500 `server_error` with its fixed description, and logs the check that failed at error level. The log line does not include the value.
+
+> **Breaking change.** The endpoint served any non-empty value from `IssueTrustMark` at 200. A value that is not a trust mark for the requested subject and type now answers 500. If your retriever returns a trust mark with a `typ` that your trust framework defines, other than `trust-mark+jwt`, it is now refused here. This library already refused such a trust mark when it resolved one.
 
 **`/trust-mark-list`**
 

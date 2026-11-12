@@ -66,8 +66,53 @@ func Issue(ctx context.Context, cfg model.ServerConfiguration, trustMarkIdentifi
 		cfg.LogInfo(ctx, "trust mark issuer returned no trust mark and no error, treating the entity as not holding it")
 		return nil, model.NewNotFoundError("entity does not have the specified trust mark")
 	}
+	if err := verifyIssued(*trustMark, cfg.EntityIdentifier, trustMarkIdentifier, subjectEntityIdentifier); err != nil {
+		return nil, model.NewServerError("the trust mark retriever returned a value that is not the requested trust mark: " + err.Error())
+	}
 
 	return trustMark, nil
+}
+
+func verifyIssued(trustMark string, issuer model.EntityIdentifier, trustMarkType string, subject model.EntityIdentifier) error {
+	parts := strings.SplitN(trustMark, ".", 4)
+	if len(parts) != 3 {
+		return errors.New("it is not a compact JWS")
+	}
+	headBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return errors.New("its header is not base64url")
+	}
+	var head map[string]any
+	if json.Unmarshal(headBytes, &head) != nil {
+		return errors.New("its header is not a JSON object")
+	}
+	if typ, _ := head["typ"].(string); !entity_statement.NamesJWTType(typ, "trust-mark+jwt") {
+		return errors.New("its 'typ' header is not trust-mark+jwt")
+	}
+	if alg, _ := head["alg"].(string); alg == "" || alg == "none" {
+		return errors.New("it is not signed")
+	}
+	if signature, err := base64.RawURLEncoding.DecodeString(parts[2]); err != nil || len(signature) == 0 {
+		return errors.New("it carries no signature")
+	}
+	bodyBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return errors.New("its payload is not base64url")
+	}
+	var body model.TrustMark
+	if json.Unmarshal(bodyBytes, &body) != nil {
+		return errors.New("its payload is not a trust mark")
+	}
+	if body.Issuer != string(issuer) {
+		return errors.New("its 'iss' is not this server")
+	}
+	if body.Sub != string(subject) {
+		return errors.New("its 'sub' is not the requested subject")
+	}
+	if body.Type != trustMarkType {
+		return errors.New("its 'trust_mark_type' is not the requested type")
+	}
+	return nil
 }
 
 type ValidateOptions struct {

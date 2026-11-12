@@ -46,6 +46,11 @@ func (m *mockTrustMarkRetriever) IssueTrustMark(ctx context.Context, trustMarkId
 }
 
 func TestStatus(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("failed to generate a key: %v", err)
+	}
+	issued := federationTrustMark(t, key, "tm", "https://issuer.example.com", "https://tm.example.com/a", "https://leaf.example.com")
 	tests := map[string]struct {
 		setupConfig func() model.ServerConfiguration
 		trustMark   string
@@ -55,6 +60,7 @@ func TestStatus(t *testing.T) {
 			setupConfig: func() model.ServerConfiguration {
 				status := "active"
 				return model.ServerConfiguration{
+					EntityIdentifier: "https://issuer.example.com",
 					TrustMarkRetriever: &mockTrustMarkRetriever{
 						getStatusFunc: func(ctx context.Context, trustMark string) (*string, error) {
 							return &status, nil
@@ -62,7 +68,7 @@ func TestStatus(t *testing.T) {
 					},
 				}
 			},
-			trustMark: "test.trust.mark",
+			trustMark: issued,
 			validate: func(t *testing.T, result *model.TrustMarkStatusResponse, err error) {
 				if err != nil {
 					t.Fatalf("expected no error, got %q", err.Error())
@@ -79,6 +85,7 @@ func TestStatus(t *testing.T) {
 			setupConfig: func() model.ServerConfiguration {
 				status := "revoked"
 				return model.ServerConfiguration{
+					EntityIdentifier: "https://issuer.example.com",
 					TrustMarkRetriever: &mockTrustMarkRetriever{
 						getStatusFunc: func(ctx context.Context, trustMark string) (*string, error) {
 							return &status, nil
@@ -86,7 +93,7 @@ func TestStatus(t *testing.T) {
 					},
 				}
 			},
-			trustMark: "test.trust.mark",
+			trustMark: issued,
 			validate: func(t *testing.T, result *model.TrustMarkStatusResponse, err error) {
 				if err != nil {
 					t.Fatalf("expected no error, got %q", err.Error())
@@ -102,7 +109,7 @@ func TestStatus(t *testing.T) {
 					TrustMarkRetriever: nil,
 				}
 			},
-			trustMark: "test.trust.mark",
+			trustMark: issued,
 			validate: func(t *testing.T, result *model.TrustMarkStatusResponse, err error) {
 				if err == nil {
 					t.Fatal("expected error when retriever not configured, got nil")
@@ -112,6 +119,7 @@ func TestStatus(t *testing.T) {
 		"returns error when retriever fails": {
 			setupConfig: func() model.ServerConfiguration {
 				return model.ServerConfiguration{
+					EntityIdentifier: "https://issuer.example.com",
 					TrustMarkRetriever: &mockTrustMarkRetriever{
 						getStatusFunc: func(ctx context.Context, trustMark string) (*string, error) {
 							return nil, fmt.Errorf("retriever error")
@@ -119,7 +127,7 @@ func TestStatus(t *testing.T) {
 					},
 				}
 			},
-			trustMark: "test.trust.mark",
+			trustMark: issued,
 			validate: func(t *testing.T, result *model.TrustMarkStatusResponse, err error) {
 				if err == nil {
 					t.Fatal("expected error when retriever fails, got nil")

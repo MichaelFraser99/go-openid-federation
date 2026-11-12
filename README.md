@@ -48,6 +48,7 @@ Each change you may have to act on is marked **Breaking change** in the section 
 - [Query parameters](#query-parameters): `/extended-list` removes a `subordinate_statement` from your retriever when `claims` is present without it, or when this server cannot issue one.
 - [Query parameters](#query-parameters): `/trust-mark` answers 500 for a value from `IssueTrustMark` that is not a trust mark for the requested subject and type.
 - [Limits](#limits): a trust mark of a type the trust anchor does not trust no longer counts against `MaxTrustMarks`, and no longer writes a log line of its own. The summary line counts them as `untrusted_types`.
+- [Query parameters](#query-parameters): `/trust-mark-status` answers 404 for a trust mark whose `iss` is not this server, without asking your retriever.
 
 ### From v0.11.0-rc.2
 
@@ -330,6 +331,17 @@ The endpoint does not verify the signature. If the value fails one of these chec
 **`/trust-mark-status`**
 
 Takes `trust_mark` as a POST form value.
+
+Section 8.4.2 says that the endpoint MUST answer 404 for "something it did not issue". So before the endpoint asks your `GetTrustMarkStatus`, it reads the `iss` claim from the payload of the trust mark. The endpoint answers 404 `not_found` without asking your retriever in these cases:
+
+- The value is not three segments separated by dots.
+- The payload is not base64url, or not a JSON object.
+- The payload holds more values than `MaxStatementValues`.
+- The `iss` is not this server's entity identifier, as an exact string.
+
+The endpoint does not verify the signature. A trust mark that names this server as `iss` but that this server did not issue still reaches your retriever. Look up the whole trust mark, not only its subject and type.
+
+> **Breaking change.** Every value went to `GetTrustMarkStatus`, and the endpoint signed the status that came back. A retriever that decided by subject and type could answer `active` for a trust mark that another entity issued, and this server then signed a response for it. Such a request now answers 404. A request for a value that is not a trust mark also answers 404 now, without your retriever being asked.
 
 **`/subordinate-status`**
 

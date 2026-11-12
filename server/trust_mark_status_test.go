@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
@@ -61,10 +62,25 @@ func startTrustMarkStatusServer(t *testing.T, retriever model.TrustMarkRetriever
 	return s
 }
 
+func markIssuedBy(t *testing.T, issuer string) string {
+	t.Helper()
+	encode := func(value any) string {
+		raw, err := json.Marshal(value)
+		if err != nil {
+			t.Fatalf("failed to encode a trust mark segment: %v", err)
+		}
+		return base64.RawURLEncoding.EncodeToString(raw)
+	}
+	return encode(map[string]any{"alg": "ES256", "kid": "tm", "typ": "trust-mark+jwt"}) + "." +
+		encode(map[string]any{"iss": issuer, "sub": "https://leaf.example.com", "trust_mark_type": "https://tm.example.com/a", "iat": time.Now().Unix()}) + "." +
+		base64.RawURLEncoding.EncodeToString([]byte("signature"))
+}
+
 func TestServer_TrustMarkStatus(t *testing.T) {
 	s := startTrustMarkStatusServer(t, testTrustMarkRetriever{status: model.Pointer("active")})
 
-	form := url.Values{"trust_mark": {"a.b.c"}}
+	issued := markIssuedBy(t, "https://issuer.example.com")
+	form := url.Values{"trust_mark": {issued}}
 	resp, err := s.Client().Post(s.URL+"/trust-mark-status", "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
 	if err != nil {
 		t.Fatalf("expected no error, got %q", err.Error())
@@ -82,7 +98,7 @@ func TestServer_TrustMarkStatus(t *testing.T) {
 	if claims["status"] != "active" {
 		t.Errorf("expected status 'active', got %v", claims["status"])
 	}
-	if claims["trust_mark"] != "a.b.c" {
+	if claims["trust_mark"] != issued {
 		t.Errorf("expected trust_mark echoed back, got %v", claims["trust_mark"])
 	}
 	if claims["iss"] != "https://issuer.example.com" {

@@ -67,7 +67,7 @@ func TestServer_ASignedResponseIsNotIssuedUnderAnAlgorithmThisLibraryCannotSignW
 				cfg.Logger = slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 				cfg.TrustMarkRetriever = testTrustMarkRetriever{status: model.Pointer("active")}
 			})
-			response, err := ts.Client().Post(ts.URL+"/trust-mark-status", "application/x-www-form-urlencoded", strings.NewReader(url.Values{"trust_mark": {"a.b.c"}}.Encode()))
+			response, err := ts.Client().Post(ts.URL+"/trust-mark-status", "application/x-www-form-urlencoded", strings.NewReader(url.Values{"trust_mark": {markIssuedBy(t, ts.URL)}}.Encode()))
 			if err != nil {
 				t.Fatalf("the handler did not answer: %v", err)
 			}

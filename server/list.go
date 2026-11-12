@@ -51,17 +51,60 @@ func (s *Server) List(w http.ResponseWriter, r *http.Request) ResponseFunc {
 	}
 
 	identifiers := make([]model.EntityIdentifier, 0, len(subordinates))
-	for identifier := range subordinates {
+	unrecorded := 0
+	for identifier, record := range subordinates {
+		if record == nil {
+			unrecorded++
+			continue
+		}
 		identifiers = append(identifiers, identifier)
+	}
+	if unrecorded > 0 {
+		s.cfg.LogError(ctx, "omitting subordinates the store lists without a record, because /fetch cannot issue a statement for them", slog.Int("omitted", unrecorded))
 	}
 	return s.respondWithEntities(ctx, w, identifiers)
 }
 
+type listingEntries struct {
+	seen      map[string]struct{}
+	invalid   int
+	duplicate int
+}
+
+func newListingEntries(size int) *listingEntries {
+	return &listingEntries{seen: make(map[string]struct{}, size)}
+}
+
+func (l *listingEntries) admit(value any) (string, bool) {
+	identifier, _ := value.(string)
+	if _, err := model.ValidateEntityIdentifier(identifier); err != nil {
+		l.invalid++
+		return "", false
+	}
+	if _, seen := l.seen[identifier]; seen {
+		l.duplicate++
+		return "", false
+	}
+	l.seen[identifier] = struct{}{}
+	return identifier, true
+}
+
+func (s *Server) logOmittedEntries(ctx context.Context, entries *listingEntries) {
+	if entries.invalid == 0 && entries.duplicate == 0 {
+		return
+	}
+	s.cfg.LogError(ctx, "omitting listing entries the store returned that are not entity identifiers or repeat one already listed", slog.Int("not_entity_identifiers", entries.invalid), slog.Int("duplicates", entries.duplicate))
+}
+
 func (s *Server) respondWithEntities(ctx context.Context, w http.ResponseWriter, identifiers []model.EntityIdentifier) ResponseFunc {
+	listed := newListingEntries(len(identifiers))
 	entities := make([]string, 0, len(identifiers))
 	for _, identifier := range identifiers {
-		entities = append(entities, string(identifier))
+		if admitted, ok := listed.admit(string(identifier)); ok {
+			entities = append(entities, admitted)
+		}
 	}
+	s.logOmittedEntries(ctx, listed)
 	entitiesJSON, err := json.Marshal(entities)
 	if err != nil {
 		s.cfg.LogError(ctx, "error marshalling entities", slog.String("error", err.Error()))

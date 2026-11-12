@@ -14,8 +14,6 @@ import (
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
-const extendedListingMalformedIdentifierError = "one or more subordinate entities has a missing or malformed 'id'"
-
 const extendedListingUnavailableError = "unable to list extended subordinate entities at this time"
 
 func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFunc {
@@ -58,9 +56,15 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 	}
 
 	response := *subordinates
-	if response.ImmediateSubordinateEntities == nil {
-		response.ImmediateSubordinateEntities = []map[string]any{}
+	listed := newListingEntries(len(response.ImmediateSubordinateEntities))
+	admitted := make([]map[string]any, 0, len(response.ImmediateSubordinateEntities))
+	for _, subordinateEntity := range response.ImmediateSubordinateEntities {
+		if _, ok := listed.admit(subordinateEntity["id"]); ok {
+			admitted = append(admitted, subordinateEntity)
+		}
 	}
+	s.logOmittedEntries(ctx, listed)
+	response.ImmediateSubordinateEntities = admitted
 
 	if subordinateStatement {
 		entities := make([]map[string]any, len(response.ImmediateSubordinateEntities))
@@ -75,20 +79,11 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 
 		published := s.newPublishedKeys()
 		for i, subordinateEntity := range response.ImmediateSubordinateEntities {
-			identifier, ok := subordinateEntity["id"].(string)
-			if !ok {
-				s.cfg.LogError(ctx, "missing or malformed 'id' field in one or more subordinate entities, this is a result of mis-configuration")
-				return s.RespondWithError(ctx, w, model.NewServerError(extendedListingMalformedIdentifierError))
-			}
-
-			parsedIdentifier, err := model.ValidateEntityIdentifier(identifier)
-			if err != nil {
-				s.cfg.LogError(ctx, "invalid 'id' parameter included in retrieved list response, this is a result of mis-configuration", slog.String("error", err.Error()))
-				return s.RespondWithError(ctx, w, model.NewServerError(extendedListingUnavailableError))
-			}
+			identifier, _ := subordinateEntity["id"].(string)
+			subject := model.EntityIdentifier(identifier)
 
 			//todo: this is going to need some form of caching mechanism to not be extremely expensive to run - we might want to drop this parameter from the draft
-			token, err := subordinate_statement.New(ctx, *parsedIdentifier, s.loadSubordinate(ctx, *parsedIdentifier, published), s.cfg)
+			token, err := subordinate_statement.New(ctx, subject, s.loadSubordinate(ctx, subject, published), s.cfg)
 			if err != nil {
 				status, code := errorStatusAndCode(err)
 				refusedByTheStore := status < http.StatusInternalServerError && !errors.Is(err, model.ErrNotFound) && !errors.Is(err, model.ErrInvalidSubject)

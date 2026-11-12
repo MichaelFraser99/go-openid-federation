@@ -321,7 +321,7 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 		cfg.LogInfo(ctx, "trust mark header carries a critical extension", slog.String("error", err.Error()))
 		return nil, fmt.Errorf("the trust mark's JWT header is refused: %s", err.Error())
 	}
-	if typ, _ := headMap["typ"].(string); !entity_statement.NamesJWTType(typ, "trust-mark+jwt") { //todo: support additional, approved, types
+	if typ, _ := headMap["typ"].(string); !entity_statement.NamesJWTType(typ, "trust-mark+jwt") {
 		cfg.LogInfo(ctx, "invalid trust mark type", slog.String("type", typ))
 		return nil, fmt.Errorf("invalid trust mark type")
 	}

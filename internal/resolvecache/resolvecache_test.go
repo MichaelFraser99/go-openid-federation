@@ -2,6 +2,8 @@ package resolvecache
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/MichaelFraser99/go-openid-federation/model"
@@ -170,6 +172,16 @@ func TestCache_OwnIsOfferedOnlyForTheIdentifierItWasSetFor(t *testing.T) {
 			lookup:     own,
 			wantIssued: true,
 		},
+		"the identifier it was set for, set again without a subordinate statement builder": {
+			cache:   func() *Cache { c := both(); c.SetOwn(own, build, nil); return c },
+			lookup:  own,
+			wantOwn: true,
+		},
+		"the identifier it was set for, set again without an entity configuration builder": {
+			cache:      func() *Cache { c := both(); c.SetOwn(own, nil, issue); return c },
+			lookup:     own,
+			wantIssued: true,
+		},
 		"a cache it was never set on": {
 			cache:  New,
 			lookup: own,
@@ -222,5 +234,95 @@ func TestCache_DescribeIsTrueOncePerIdentifier(t *testing.T) {
 	}
 	if !c.Describe("https://b.example.com") {
 		t.Error("expected another identifier to be described on its first call")
+	}
+}
+
+func TestCache_OwnIssuedBuildsEachSubjectsStatementOncePerRequest(t *testing.T) {
+	const own = model.EntityIdentifier("https://ta.example.com")
+	failure := errors.New("the store failed")
+
+	tests := map[string]struct {
+		fails    map[model.EntityIdentifier]bool
+		asked    []model.EntityIdentifier
+		reset    bool
+		wantRuns map[model.EntityIdentifier]int
+	}{
+		"one subject asked twice": {
+			asked:    []model.EntityIdentifier{"https://a.example.com", "https://a.example.com"},
+			wantRuns: map[model.EntityIdentifier]int{"https://a.example.com": 1},
+		},
+		"two subjects asked once each": {
+			asked:    []model.EntityIdentifier{"https://a.example.com", "https://b.example.com"},
+			wantRuns: map[model.EntityIdentifier]int{"https://a.example.com": 1, "https://b.example.com": 1},
+		},
+		"two subjects asked in turn, each twice": {
+			asked:    []model.EntityIdentifier{"https://a.example.com", "https://b.example.com", "https://a.example.com", "https://b.example.com"},
+			wantRuns: map[model.EntityIdentifier]int{"https://a.example.com": 1, "https://b.example.com": 1},
+		},
+		"a subject whose statement failed, asked again": {
+			fails:    map[model.EntityIdentifier]bool{"https://a.example.com": true},
+			asked:    []model.EntityIdentifier{"https://a.example.com", "https://a.example.com"},
+			wantRuns: map[model.EntityIdentifier]int{"https://a.example.com": 1},
+		},
+		"a failed subject beside one that succeeds": {
+			fails:    map[model.EntityIdentifier]bool{"https://a.example.com": true},
+			asked:    []model.EntityIdentifier{"https://a.example.com", "https://b.example.com", "https://b.example.com"},
+			wantRuns: map[model.EntityIdentifier]int{"https://a.example.com": 1, "https://b.example.com": 1},
+		},
+		"one subject asked twice, with the builder set again between": {
+			asked:    []model.EntityIdentifier{"https://a.example.com", "https://a.example.com"},
+			reset:    true,
+			wantRuns: map[model.EntityIdentifier]int{"https://a.example.com": 2},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			runs := map[model.EntityIdentifier]int{}
+			issue := func(_ context.Context, _ model.EntityStatement, subject model.EntityIdentifier) (*string, *model.EntityStatement, error) {
+				runs[subject]++
+				if tt.fails[subject] {
+					return nil, nil, fmt.Errorf("%w %d", failure, runs[subject])
+				}
+				signed := fmt.Sprintf("%s#%d", subject, runs[subject])
+				return &signed, &model.EntityStatement{Sub: subject}, nil
+			}
+			c := New()
+			c.SetOwn(own, nil, issue)
+
+			first := map[model.EntityIdentifier]string{}
+			for i, subject := range tt.asked {
+				if tt.reset && i == len(tt.asked)/2 {
+					c.SetOwn(own, nil, issue)
+					first = map[model.EntityIdentifier]string{}
+				}
+				build, ok := c.OwnIssued(own)
+				if !ok {
+					t.Fatal("expected the builder offered for the identifier it was set for")
+				}
+				signed, statement, err := build(t.Context(), model.EntityStatement{Sub: own}, subject)
+				got := ""
+				if tt.fails[subject] {
+					if !errors.Is(err, failure) {
+						t.Fatalf("expected the builder's failure for %s, got %v", subject, err)
+					}
+					got = err.Error()
+				} else {
+					if err != nil || signed == nil || statement == nil || statement.Sub != subject {
+						t.Fatalf("expected the statement about %s, got %v %v %v", subject, signed, statement, err)
+					}
+					got = *signed
+				}
+				if want, seen := first[subject]; seen && got != want {
+					t.Errorf("expected the result built first for %s, %q, got %q", subject, want, got)
+				}
+				first[subject] = got
+			}
+			for subject, want := range tt.wantRuns {
+				if runs[subject] != want {
+					t.Errorf("expected the statement about %s built %d times, got %d", subject, want, runs[subject])
+				}
+			}
+		})
 	}
 }

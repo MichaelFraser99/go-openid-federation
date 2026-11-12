@@ -187,6 +187,12 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			expectErr: "example_type metadata policy must be a JSON object, not null",
 		},
 		{
+			name:      "metadata_policy with several null entity type policies names the first in sorted order",
+			step:      "6.1.2",
+			claims:    `"metadata_policy":{"openid_relying_party":null,"x_custom":null,"federation_entity":null,"openid_provider":null,"oauth_client":null,"example_type":null}`,
+			expectErr: "the example_type metadata policy must be a JSON object, not null",
+		},
+		{
 			name:      "metadata_policy with a parameter policy that is null",
 			step:      "6.1.2",
 			claims:    `"metadata_policy":{"openid_relying_party":{"contacts":null}}`,

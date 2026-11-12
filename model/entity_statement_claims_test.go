@@ -175,6 +175,41 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			expectClass: ErrInvalidMetadata,
 		},
 		{
+			name:      "metadata_policy with an entity type policy that is null",
+			step:      "6.1.2",
+			claims:    `"metadata_policy":{"openid_relying_party":null}`,
+			expectErr: "openid_relying_party metadata policy must be a JSON object, not null",
+		},
+		{
+			name:      "metadata_policy with an extension entity type policy that is null",
+			step:      "6.1.2",
+			claims:    `"metadata_policy":{"example_type":null}`,
+			expectErr: "example_type metadata policy must be a JSON object, not null",
+		},
+		{
+			name:      "metadata_policy with a parameter policy that is null",
+			step:      "6.1.2",
+			claims:    `"metadata_policy":{"openid_relying_party":{"contacts":null}}`,
+			expectErr: "a metadata policy must be a JSON object, not null",
+		},
+		{
+			name:      "metadata_policy with a parameter policy that is null under an extension entity type",
+			step:      "6.1.2",
+			claims:    `"metadata_policy":{"example_type":{"contacts":null}}`,
+			expectErr: "a metadata policy must be a JSON object, not null",
+		},
+		{
+			name:   "metadata_policy with a value operator that is null is accepted",
+			step:   "6.1.3.1.1",
+			claims: `"metadata_policy":{"openid_relying_party":{"contacts":{"value":null}}}`,
+			assert: func(t *testing.T, statement EntityStatement) {
+				operators := statement.MetadataPolicy.OpenIDRelyingPartyMetadata["contacts"].Metadata
+				if len(operators) != 1 || operators[0].String() != "value" || operators[0].OperatorValue() != nil {
+					t.Errorf("expected one value operator holding null, got %v", operators)
+				}
+			},
+		},
+		{
 			name:      "jwks with no keys member",
 			step:      "3.2 step 9",
 			claims:    `"jwks":{}`,

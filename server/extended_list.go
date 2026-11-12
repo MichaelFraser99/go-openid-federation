@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"slices"
 	"strconv"
@@ -39,6 +40,8 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 		s.cfg.LogInfo(ctx, "received extended list request with malformed filter", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, err)
 	}
+	_, claimsPresent := r.URL.Query()["claims"]
+	statementExcluded := claimsPresent && !subordinateStatement
 
 	subordinates, err := s.cfg.Extensions.ExtendedListing.MetadataRetriever.GetExtendedSubordinates(ctx, filter)
 	if err != nil {
@@ -94,6 +97,7 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 					}
 					return s.RespondWithError(ctx, w, model.NewServerError(extendedListingUnavailableError))
 				}
+				delete(response.ImmediateSubordinateEntities[i], "subordinate_statement")
 				if errors.Is(err, subordinate_statement.ErrUnusableRecord) {
 					s.cfg.LogError(ctx, "omitting the subordinate statement for an entity whose record cannot be published", slog.String("sub", identifier), slog.String("error", err.Error()))
 				} else if refusedByTheStore {
@@ -110,6 +114,10 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 	publishable := make([]map[string]any, 0, len(response.ImmediateSubordinateEntities))
 	for _, subordinateEntity := range response.ImmediateSubordinateEntities {
 		identifier, _ := subordinateEntity["id"].(string)
+		if _, supplied := subordinateEntity["subordinate_statement"]; supplied && statementExcluded {
+			subordinateEntity = maps.Clone(subordinateEntity)
+			delete(subordinateEntity, "subordinate_statement")
+		}
 
 		serialised, err := json.Marshal(subordinateEntity)
 		if err != nil {

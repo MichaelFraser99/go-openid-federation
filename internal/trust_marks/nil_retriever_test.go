@@ -2,6 +2,8 @@ package trust_marks
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"errors"
 	"testing"
 
@@ -86,11 +88,17 @@ func TestStatusAndIssue_TreatAnAbsentResultAsNotFound(t *testing.T) {
 }
 
 func TestStatusAndIssue_ReturnALegitimateResult(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("failed to generate a key: %v", err)
+	}
+	issued := federationTrustMark(t, key, "tm", "https://issuer.example.com", "https://tm.example.com/a", "https://leaf.example.com")
 	cfg := model.ServerConfiguration{
+		EntityIdentifier: "https://issuer.example.com",
 		TrustMarkRetriever: &mockTrustMarkRetriever{
 			getStatusFunc: func(context.Context, string) (*string, error) { return model.Pointer("active"), nil },
 			issueTrustMarkFunc: func(context.Context, string, model.EntityIdentifier) (*string, error) {
-				return model.Pointer("a.b.c"), nil
+				return &issued, nil
 			},
 		},
 	}
@@ -107,7 +115,7 @@ func TestStatusAndIssue_ReturnALegitimateResult(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected a real trust mark to be returned, got %v", err)
 	}
-	if *mark != "a.b.c" {
+	if *mark != issued {
 		t.Errorf("expected the trust mark to be carried, got %q", *mark)
 	}
 }

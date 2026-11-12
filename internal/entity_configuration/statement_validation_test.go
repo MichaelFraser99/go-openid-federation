@@ -104,6 +104,35 @@ func TestValidate_EntityConfigurationStatementRules(t *testing.T) {
 			head: map[string]any{"kid": "leaf", "typ": "Entity-Statement+JWT", "alg": "RS256"},
 		},
 		{
+			name:      "a trust_chain header",
+			step:      "4.3",
+			head:      map[string]any{"kid": "leaf", "typ": "entity-statement+jwt", "alg": "RS256", "trust_chain": []any{"a.b.c", "d.e.f"}},
+			expectErr: "must not carry the 'trust_chain' header",
+		},
+		{
+			name:      "a trust_chain header that is not an array",
+			step:      "4.3",
+			head:      map[string]any{"kid": "leaf", "typ": "entity-statement+jwt", "alg": "RS256", "trust_chain": "not-an-array"},
+			expectErr: "must not carry the 'trust_chain' header",
+		},
+		{
+			name:      "a trust_chain header that is null",
+			step:      "4.3",
+			head:      map[string]any{"kid": "leaf", "typ": "entity-statement+jwt", "alg": "RS256", "trust_chain": nil},
+			expectErr: "must not carry the 'trust_chain' header",
+		},
+		{
+			name:      "a peer_trust_chain header",
+			step:      "4.4",
+			head:      map[string]any{"kid": "leaf", "typ": "entity-statement+jwt", "alg": "RS256", "peer_trust_chain": []any{map[string]any{}}},
+			expectErr: "must not carry the 'peer_trust_chain' header",
+		},
+		{
+			name: "a header whose name differs from trust_chain only in case",
+			step: "4.3",
+			head: map[string]any{"kid": "leaf", "typ": "entity-statement+jwt", "alg": "RS256", "Trust_Chain": []any{"a.b.c"}},
+		},
+		{
 			name:      "an unknown critical header",
 			step:      "RFC 7515 4.1.11",
 			head:      map[string]any{"kid": "leaf", "typ": "entity-statement+jwt", "alg": "RS256", "crit": []any{"x-unknown"}},

@@ -73,6 +73,12 @@ func ValidateStatementHeader(headMap map[string]any) error {
 		return fmt.Errorf("entity statements must be signed, the 'alg' header must not be 'none'")
 	}
 
+	for _, chainHeader := range []string{"trust_chain", "peer_trust_chain"} {
+		if _, present := headMap[chainHeader]; present {
+			return fmt.Errorf("entity configurations and subordinate statements must not carry the '%s' header", chainHeader)
+		}
+	}
+
 	return VerifyNoCriticalHeader(headMap)
 }
 

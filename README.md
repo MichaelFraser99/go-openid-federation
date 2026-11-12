@@ -45,6 +45,7 @@ Each change you may have to act on is marked **Breaking change** in the section 
 - [Trust chains](#trust-chains): a subordinate statement that cannot be fetched no longer ends a resolve that another route can complete.
 - [Entity statements and metadata](#entity-statements-and-metadata): an `Extensions` entry under a built-in entity type is refused when written.
 - [Query parameters](#query-parameters): `/list` and `/extended-list` leave out a store value that is not an entity identifier, and serve a repeated one once.
+- [Query parameters](#query-parameters): `/extended-list` removes a `subordinate_statement` from your retriever when `claims` is present without it, or when this server cannot issue one.
 
 ### From v0.11.0-rc.2
 
@@ -273,7 +274,7 @@ Resolving metadata makes outbound HTTP requests for the caller-supplied `sub` an
 | --- | --- | --- |
 | `from` | no | Opaque pagination cursor, taken from a previous response's `next` |
 | `limit` | no | A positive integer. Defaults to `Extensions.ExtendedListing.SizeLimit`, and a larger value is reduced to it |
-| `claims` | no | Comma separated, repeatable, or both. The value `subordinate_statement` issues a signed subordinate statement per entity |
+| `claims` | no | Comma separated, repeatable, or both. The value `subordinate_statement` issues a signed subordinate statement per entity. When `claims` is present without it, no entry carries `subordinate_statement` |
 | `entity_type` | no | Repeatable, as on `/list` |
 | `trust_mark_type` | no | Repeatable, as on `/list` |
 | `trust_marked` | no | `true` or `false`, as on `/list` |
@@ -284,6 +285,12 @@ An entry whose `id` is not an entity identifier is left out, whatever `claims` a
 > **Breaking change.** An entry whose `id` was not an entity identifier was served at 200. With `claims=subordinate_statement`, the same entry answered 500 for the whole page. The entry is now left out in both cases, and the rest of the page is served. A repeated `id` was served twice and is now served once.
 
 > **Breaking change.** One subordinate's unusable record answered 500 for the whole `/extended-list?claims=subordinate_statement` page. One subordinate signer with an empty `KeyID`, no `Signer`, or a public key that cannot be written as a JWK answered 500 on `/.well-known/openid-federation` for the whole authority. Now only that subordinate's `/fetch` answers 500. If you detect a bad record by those 500s, alert on the error-level log line instead. The same now holds for a subordinate's own signer whose key cannot sign for its declared algorithm, whose signature does not verify under the key it publishes, or that fails to sign for any reason other than a throttle. Each answered 500 for the whole page. So did a 4xx class other than `model.ErrNotFound` or `model.ErrInvalidSubject` from your store's `GetSubordinate` for one listed subordinate, and nothing was logged at error level.
+
+Table 4 of the draft says that `subordinate_statement` MUST NOT be returned when `claims` is present but does not name it. So in that case the endpoint removes a `subordinate_statement` that your retriever puts in an entry. `?claims=` with no value counts as present. When `claims` names it, the statement in each entry is the one this server issues, and a value from your retriever is replaced. If this server cannot issue a statement for an entry, the entry is listed without one, and a value from your retriever is removed, not served. When `claims` is absent, the draft has no rule, so a value from your retriever is served as it is.
+
+Every other claim in an entry is your retriever's to choose. The endpoint passes the names in `claims` to your retriever as `ExtendedListingFilter.Claims`, without `subordinate_statement`, and serves the other members of each entry as your retriever returns them. The draft's Figure 4 shows `claims=trust_marks` as a request to "only include Trust Marks in the response". If you want to honour that, leave out the members that `claims` does not name. The endpoint does not remove them for you, because Table 4's MUST NOT applies only to `subordinate_statement`.
+
+> **Breaking change.** A `subordinate_statement` that your retriever put in an entry was served whatever `claims` named. It was also served when `claims` named it but this server could not issue a statement for that entry. It is now removed in both cases.
 
 The endpoint takes the `/list` filters as well as its own, which [Extended Subordinate Listing 1.0](https://openid.net/specs/openid-federation-extended-listing-1_0.html) section 3.2 requires. Supplying `updated_after`, `updated_before` or `audit_timestamps` returns `unsupported_parameter`.
 

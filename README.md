@@ -49,6 +49,7 @@ Each change you may have to act on is marked **Breaking change** in the section 
 - [Query parameters](#query-parameters): `/trust-mark` answers 500 for a value from `IssueTrustMark` that is not a trust mark for the requested subject and type.
 - [Limits](#limits): a trust mark of a type the trust anchor does not trust no longer counts against `MaxTrustMarks`, and no longer writes a log line of its own. The summary line counts them as `untrusted_types`.
 - [Query parameters](#query-parameters): `/trust-mark-status` answers 404 for a trust mark whose `iss` is not this server, without asking your retriever.
+- [Anchoring a chain a caller supplies](#anchoring-a-chain-a-caller-supplies): an entity configuration or subordinate statement that carries a `trust_chain` or `peer_trust_chain` header is refused.
 
 ### From v0.11.0-rc.2
 
@@ -863,6 +864,10 @@ Two limits are worth knowing:
 
 `Client.ResolveMetadata` takes a chain the caller supplies, such as one from a peer's `trust_chain` JWS header. The library does not read that header, so the caller must extract it.
 
+Sections 4.3 and 4.4 say that an entity configuration or a subordinate statement MUST NOT carry the `trust_chain` or `peer_trust_chain` header, because each is itself part of a trust chain. So an entity configuration or subordinate statement whose JWS header has either member is refused, whatever the value is, and `null` is included. The member names are matched exactly, as section 16 requires. This applies to every statement the library reads: a fetched statement, and each entry of a chain that a caller gives to `Client.ResolveMetadata`. Other JWTs, such as a trust mark, may carry these headers, and the library ignores them there.
+
+> **Breaking change.** An entity configuration or subordinate statement that carried a `trust_chain` or `peer_trust_chain` header was accepted. It is now refused, so a chain that needs it does not resolve, and a walk tries another route where one exists. A chain that a caller supplies with such an entry is refused.
+
 Two things are checked at the top of a chain, and only the second has cryptographic content.
 
 The first is the identifier, and a chain may end in either of two shapes. Where the last statement is the trust anchor's own entity configuration, its `iss` and its `sub` must both equal the named anchor. Where the anchor's entity configuration is omitted and the last statement is the anchor's subordinate statement about the entity below it, only `iss` must equal the named anchor — the library then fetches the anchor's own entity configuration from its well-known URL and applies both checks to that. A chain that ends in neither shape is refused with `invalid_trust_anchor`. One too short to carry a statement about its subject is refused with `invalid_trust_chain`, before any request is made.
@@ -1049,11 +1054,10 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | Clock skew tolerance | `model.ClockSkewLeeway` is a constant and cannot be configured | [#141](https://github.com/MichaelFraser99/go-openid-federation/issues/141) |
 | Server configuration validation | A bad `ServerConfiguration` is reported when a peer first fetches, not at startup | [#145](https://github.com/MichaelFraser99/go-openid-federation/issues/145) |
 | Extension claims | Dropped on parse and cannot be issued | [#132](https://github.com/MichaelFraser99/go-openid-federation/issues/132) |
-| `trust_chain` and `peer_trust_chain` JOSE headers | Not read or written | [#139](https://github.com/MichaelFraser99/go-openid-federation/issues/139) |
+| `trust_chain` and `peer_trust_chain` JOSE headers | Not read or written. An entity configuration or subordinate statement that carries either header is refused, as sections 4.3 and 4.4 require | [#139](https://github.com/MichaelFraser99/go-openid-federation/issues/139) |
 | Trust mark type identifiers as object member names | Decided, not planned: member names in `trust_mark_issuers` and `trust_mark_owners` are not checked against a syntax, because §7.1 makes a URL RECOMMENDED rather than required and the one MUST, collision resistance, is not checkable | [#140](https://github.com/MichaelFraser99/go-openid-federation/issues/140) |
 | `subordinate_statement` on an unlistable entity | Decided: a deliberate deviation. Table 4 of the extended listing draft makes the attribute a MUST when requested, and an entity the subordinate store does not hold is returned without it. See [Retriever interfaces](#retriever-interfaces) | [#126](https://github.com/MichaelFraser99/go-openid-federation/issues/126) |
 | Policy merge against trust chain length | Cost grows faster than the chain. `MaxTrustChainDepth` now bounds the chain, which bounds the cost, but the merge still re-keys the whole accumulated array on every level | [#153](https://github.com/MichaelFraser99/go-openid-federation/issues/153) |
-| Chain building after a failed subordinate statement fetch | The walk finds a route first and then fetches its subordinate statements. One failed fetch fails the request, and no other route is tried | [#123](https://github.com/MichaelFraser99/go-openid-federation/issues/123) |
 | Entity identifiers with a path | `Configure` serves the endpoints at the server root, so an entity whose identifier has a path is not served at its advertised URL | [#128](https://github.com/MichaelFraser99/go-openid-federation/issues/128) |
 | Duplicate member names in `metadata_policy` | Accepted, and the last one wins (section 6.1.2) | [#168](https://github.com/MichaelFraser99/go-openid-federation/issues/168) |
 | Duplicate and folded member names in exported types | Types a consumer decodes still match member names case-insensitively, and resolve duplicates last-wins | [#178](https://github.com/MichaelFraser99/go-openid-federation/issues/178) |

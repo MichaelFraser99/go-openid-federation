@@ -12,6 +12,12 @@ type entry struct {
 	statement *model.EntityStatement
 }
 
+type issued struct {
+	signed    *string
+	statement *model.EntityStatement
+	err       error
+}
+
 type Link struct {
 	Issuer  model.EntityIdentifier
 	Subject model.EntityIdentifier
@@ -37,6 +43,7 @@ type Cache struct {
 	buildOwn       OwnEntityConfiguration
 	buildOwnIssued OwnSubordinateStatement
 	ownFailure     error
+	ownIssued      map[model.EntityIdentifier]issued
 	entries        map[model.EntityIdentifier]entry
 	described      map[model.EntityIdentifier]struct{}
 	deadEnds       map[DeadEnd]struct{}
@@ -73,7 +80,21 @@ func (c *Cache) SetOwn(identifier model.EntityIdentifier, build OwnEntityConfigu
 			return signed, statement, err
 		}
 	}
-	c.buildOwnIssued = issue
+	c.buildOwnIssued = nil
+	c.ownIssued = nil
+	if issue != nil {
+		c.buildOwnIssued = func(ctx context.Context, issuer model.EntityStatement, subject model.EntityIdentifier) (*string, *model.EntityStatement, error) {
+			if known, ok := c.ownIssued[subject]; ok {
+				return known.signed, known.statement, known.err
+			}
+			signed, statement, err := issue(ctx, issuer, subject)
+			if c.ownIssued == nil {
+				c.ownIssued = map[model.EntityIdentifier]issued{}
+			}
+			c.ownIssued[subject] = issued{signed: signed, statement: statement, err: err}
+			return signed, statement, err
+		}
+	}
 }
 
 func (c *Cache) Own(identifier model.EntityIdentifier) (OwnEntityConfiguration, bool) {

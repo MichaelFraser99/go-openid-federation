@@ -311,7 +311,7 @@ Like every classified error, the message you give `NewPageNotFoundError` is sent
 Your `IssueTrustMark` signs the trust mark, and the endpoint serves it under `application/trust-mark+jwt`. Before it serves the value, the endpoint makes sure that the value is a trust mark for the request, as sections 7 and 7.1 define one:
 
 - It is a compact JWS with three segments and a signature.
-- Its header `typ` is `trust-mark+jwt`, with or without the `application/` prefix, and its `alg` is not `none`.
+- Its header `typ` is `trust-mark+jwt`, with or without the `application/` prefix, its `alg` is not `none`, and its `kid` is a non-empty string, as section 7 requires.
 - Its payload has `iss`, `sub`, `trust_mark_type` and `iat`.
 - Its `iss` is this server's entity identifier, its `sub` is the requested subject and its `trust_mark_type` is the requested type. Each is an exact string match.
 

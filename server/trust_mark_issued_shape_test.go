@@ -128,6 +128,15 @@ func TestServer_TrustMark_ServesOnlyATrustMarkForTheRequestedSubjectAndType(t *t
 		{name: "a header with no alg", cause: "not signed", mark: func(t *testing.T) string {
 			return encodedSegment(t, headerWith("alg", nil)) + "." + encodedSegment(t, issuedMarkClaims()) + "." + signature
 		}},
+		{name: "a header with no kid", cause: "'kid' header", mark: func(t *testing.T) string {
+			return encodedSegment(t, headerWith("kid", nil)) + "." + encodedSegment(t, issuedMarkClaims()) + "." + signature
+		}},
+		{name: "a header with an empty kid", cause: "'kid' header", mark: func(t *testing.T) string {
+			return encodedSegment(t, headerWith("kid", "")) + "." + encodedSegment(t, issuedMarkClaims()) + "." + signature
+		}},
+		{name: "a header with a kid that is not a string", cause: "'kid' header", mark: func(t *testing.T) string {
+			return encodedSegment(t, headerWith("kid", 7)) + "." + encodedSegment(t, issuedMarkClaims()) + "." + signature
+		}},
 		{name: "an empty signature", cause: "no signature", mark: func(t *testing.T) string {
 			return encodedSegment(t, header) + "." + encodedSegment(t, issuedMarkClaims()) + "."
 		}},

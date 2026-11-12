@@ -92,6 +92,9 @@ func verifyIssued(trustMark string, issuer model.EntityIdentifier, trustMarkType
 	if alg, _ := head["alg"].(string); alg == "" || alg == "none" {
 		return errors.New("it is not signed")
 	}
+	if kid, _ := head["kid"].(string); kid == "" {
+		return errors.New("its 'kid' header is not a non-empty string")
+	}
 	if signature, err := base64.RawURLEncoding.DecodeString(parts[2]); err != nil || len(signature) == 0 {
 		return errors.New("it carries no signature")
 	}

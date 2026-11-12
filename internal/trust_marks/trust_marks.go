@@ -169,18 +169,20 @@ func FilterByTrusted(ctx context.Context, cfg model.Configuration, resolved *mod
 	limit := cfg.TrustMarkIssuerLimit()
 	issuerKeys := newIssuerKeyCache(limit)
 	presented := len(resolved.TrustMarks)
-	considered := resolved.TrustMarks
-	if markLimit := cfg.TrustMarkLimit(); presented > markLimit {
-		cfg.LogInfo(ctx, "the subject presents more trust marks than this resolver will verify, dropping those past the limit unverified", slog.Int("limit", markLimit), slog.Int("presented", presented))
-		considered = considered[:markLimit]
-	}
-	trustedTrustMarks := make([]model.TrustMarkHolder, 0, len(considered))
-	for _, tm := range considered {
+	markLimit := cfg.TrustMarkLimit()
+	verified, untrusted, unverified := 0, 0, 0
+	trustedTrustMarks := make([]model.TrustMarkHolder, 0, min(presented, markLimit))
+	for _, tm := range resolved.TrustMarks {
 		authorizedIssuers, trusted := trustAnchorConfiguration.TrustMarkIssuers[tm.TrustMarkType]
 		if !trusted {
-			cfg.LogInfo(ctx, "trust mark type is not trusted by the trust anchor, omitting", slog.String("trust_mark_type", tm.TrustMarkType))
+			untrusted++
 			continue
 		}
+		if verified == markLimit {
+			unverified++
+			continue
+		}
+		verified++
 
 		validated, err := Validate(ctx, cfg, tm.TrustMark, ValidateOptions{
 			ExpectedType:             tm.TrustMarkType,
@@ -227,8 +229,11 @@ func FilterByTrusted(ctx context.Context, cfg model.Configuration, resolved *mod
 			resolved.Exp = *validated.Expiry
 		}
 	}
+	if unverified > 0 {
+		cfg.LogInfo(ctx, "the subject presents more trust marks of types the trust anchor trusts than this resolver will verify, dropping those past the limit unverified", slog.Int("limit", markLimit), slog.Int("unverified", unverified))
+	}
 	if presented > 0 {
-		cfg.LogInfo(ctx, "dropped trust marks the trust anchor does not trust or this resolver could not verify", slog.Int("dropped", presented-len(trustedTrustMarks)), slog.Int("presented", presented))
+		cfg.LogInfo(ctx, "dropped trust marks the trust anchor does not trust or this resolver could not verify", slog.Int("dropped", presented-len(trustedTrustMarks)), slog.Int("presented", presented), slog.Int("untrusted_types", untrusted))
 	}
 	resolved.TrustMarks = trustedTrustMarks
 	return nil

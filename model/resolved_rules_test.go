@@ -35,6 +35,8 @@ func TestVerifyResolved_AppliesTheRulesTheParserApplies(t *testing.T) {
 			metadata: &Metadata{OAuthAuthorizationServerMetadata: &OAuthAuthorizationServerMetadata{
 				"issuer":                   string(subject),
 				"response_types_supported": []any{"code"},
+				"authorization_endpoint":   "https://leaf.example.com/authorize",
+				"token_endpoint":           "https://leaf.example.com/token",
 				"token_endpoint_auth_signing_alg_values_supported": []any{"none"},
 			}},
 			refused: true,

@@ -51,6 +51,7 @@ Each change you may have to act on is marked **Breaking change** in the section 
 - [Query parameters](#query-parameters): `/trust-mark-status` answers 404 for a trust mark whose `iss` is not this server, without asking your retriever.
 - [Anchoring a chain a caller supplies](#anchoring-a-chain-a-caller-supplies): an entity configuration or subordinate statement that carries a `trust_chain` or `peer_trust_chain` header is refused.
 - [Metadata policy](#metadata-policy): an entity type policy or a parameter policy whose value is `null` is refused.
+- [Entity statements and metadata](#entity-statements-and-metadata): resolved `oauth_authorization_server` metadata must hold the endpoints and signing algorithm lists that RFC 8414 section 2 makes conditional.
 
 ### From v0.11.0-rc.2
 
@@ -655,6 +656,16 @@ The claim shape rules run again on the resolved metadata, not only on each state
 > **Breaking change.** `Metadata.VerifyResolved` takes the subject's Entity Identifier as a second argument, and refuses resolved `openid_provider` or `oauth_authorization_server` metadata whose `issuer` is not that identifier. OpenID Federation for OpenID Connect 1.1 sections 5.1.2 and 5.1.3 make the match a MUST. Before this, an entity could publish OpenID Connect or OAuth metadata for an issuer it does not control, backed by its own trust chain, and a superior could point a subject's `issuer` elsewhere with a policy. The comparison is exact, as the clause states, so `https://op.example.com` and `https://op.example.com/openid` do not match.
 
 > **Breaking change.** `Metadata.VerifyResolved` also refuses resolved `openid_credential_issuer` metadata whose `credential_issuer` is not the subject's Entity Identifier. OpenID Federation for Wallet Architectures 1.0, draft 05, section 6.2.1, says it "MUST be equal to the `iss`/`sub` pair value in the Credential Issuer's Entity Configuration". Before this, an entity could publish Credential Issuer metadata naming another issuer, and a wallet that takes the Credential Issuer Identifier from resolved metadata would address that issuer under trust established for the publisher. The comparison is exact, as for `issuer`. The source is a draft, so this rule follows it if it changes.
+
+Resolved `oauth_authorization_server` metadata must also hold the parameters that RFC 8414 section 2 makes conditional. OpenID Federation for OpenID Connect 1.1 section 5.1.3 applies that section to this type. The rules are:
+
+- `authorization_endpoint` is required when `grant_types_supported` names `authorization_code` or `implicit`.
+- `token_endpoint` is required unless `implicit` is the only grant type in `grant_types_supported`.
+- `token_endpoint_auth_signing_alg_values_supported` is required when `token_endpoint_auth_methods_supported` names `private_key_jwt` or `client_secret_jwt`. The same rule applies to the `revocation_endpoint` and `introspection_endpoint` parameters.
+
+If `grant_types_supported` is absent, RFC 8414 gives the default `["authorization_code", "implicit"]`, so both endpoints are required. An empty `grant_types_supported` requires `token_endpoint` only. Grant type and method names are compared exactly, as they are registered.
+
+> **Breaking change.** Resolved `oauth_authorization_server` metadata that held only `issuer` and `response_types_supported` previously resolved, and now gets `invalid_metadata`. Add `authorization_endpoint` and `token_endpoint`, or set `grant_types_supported` to the grant types that the server supports. Metadata that names `private_key_jwt` or `client_secret_jwt` for an endpoint now also needs the signing algorithm list for that endpoint. The resolution is refused as a whole, as for every resolved metadata fault ([#158](https://github.com/MichaelFraser99/go-openid-federation/issues/158)).
 
 Whether the required claims of a type are present is checked at the end of resolution, not on each statement. A subject may publish part of a type's metadata and leave its superior to supply the rest, through either a `metadata` claim or a metadata policy, so no single statement has to be complete on its own. The resolved metadata does, and `VerifyResolvedMetadata` is where that is judged. An empty object is accepted on a statement, and in the resolved metadata only for a type that has no required claims; for the rest it means none of them arrived.
 

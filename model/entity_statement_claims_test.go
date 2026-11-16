@@ -187,6 +187,71 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			expectClass: ErrInvalidMetadata,
 		},
 		{
+			name:        "metadata_policy with a duplicate entity type",
+			step:        "6.1.2",
+			claims:      `"metadata_policy":{"openid_relying_party":{"contacts":{"add":["a"]}},"openid_relying_party":{"contacts":{"add":["evil"]}}}`,
+			expectErr:   "holds a duplicate member name",
+			expectClass: ErrInvalidMetadata,
+		},
+		{
+			name:        "metadata_policy with a duplicate parameter",
+			step:        "6.1.2",
+			claims:      `"metadata_policy":{"openid_relying_party":{"contacts":{"add":["a"]},"contacts":{"add":["evil"]}}}`,
+			expectErr:   "holds a duplicate member name",
+			expectClass: ErrInvalidMetadata,
+		},
+		{
+			name:        "metadata_policy with a duplicate operator",
+			step:        "6.1.2",
+			claims:      `"metadata_policy":{"openid_relying_party":{"contacts":{"subset_of":["a"],"subset_of":["a","evil"]}}}`,
+			expectErr:   "holds a duplicate member name",
+			expectClass: ErrInvalidMetadata,
+		},
+		{
+			name:        "metadata_policy with a duplicate parameter under an extension type",
+			step:        "6.1.2",
+			claims:      `"metadata_policy":{"example_type":{"contacts":{"add":["a"]},"contacts":{"add":["evil"]}}}`,
+			expectErr:   "holds a duplicate member name",
+			expectClass: ErrInvalidMetadata,
+		},
+		{
+			name:        "metadata_policy whose second copy holds a duplicate",
+			step:        "6.1.2",
+			claims:      `"metadata_policy":{"openid_relying_party":{"contacts":{"add":["a"]}}},"metadata_policy":{"openid_relying_party":{"contacts":{"add":["a"],"add":["evil"]}}}`,
+			expectErr:   "holds a duplicate member name",
+			expectClass: ErrInvalidMetadata,
+		},
+		{
+			name:   "metadata_policy with a repeated name inside an operand, below the three levels",
+			step:   "6.1.2",
+			claims: `"metadata_policy":{"openid_relying_party":{"jwks":{"value":{"keys":[],"keys":[]}}}}`,
+			assert: func(t *testing.T, statement EntityStatement) {
+				if statement.MetadataPolicy == nil || len(statement.MetadataPolicy.OpenIDRelyingPartyMetadata["jwks"].Metadata) != 1 {
+					t.Errorf("expected the jwks value operator to be parsed, got %+v", statement.MetadataPolicy)
+				}
+			},
+		},
+		{
+			name:   "metadata_policy with one name in two branches",
+			step:   "6.1.2",
+			claims: `"metadata_policy":{"openid_relying_party":{"contacts":{"add":["a"]}},"oauth_client":{"contacts":{"add":["a"]}}}`,
+			assert: func(t *testing.T, statement EntityStatement) {
+				if statement.MetadataPolicy == nil || len(statement.MetadataPolicy.OpenIDRelyingPartyMetadata["contacts"].Metadata) != 1 || len(statement.MetadataPolicy.OAuthClientMetadata["contacts"].Metadata) != 1 {
+					t.Errorf("expected contacts under both entity types, got %+v", statement.MetadataPolicy)
+				}
+			},
+		},
+		{
+			name:   "a duplicate member in metadata, which 6.1.2 does not cover",
+			step:   "6.1.2",
+			claims: `"metadata":{"federation_entity":{"organization_name":"a","organization_name":"b"}}`,
+			assert: func(t *testing.T, statement EntityStatement) {
+				if statement.Metadata == nil || (*statement.Metadata.FederationMetadata)["organization_name"] != "b" {
+					t.Errorf("expected the last copy to win, as #178 records, got %+v", statement.Metadata)
+				}
+			},
+		},
+		{
 			name:      "metadata_policy with an entity type policy that is null",
 			step:      "6.1.2",
 			claims:    `"metadata_policy":{"openid_relying_party":null}`,
@@ -671,6 +736,35 @@ func TestEntityStatement_RepeatedHintsAreReadOnce(t *testing.T) {
 			}
 			if got != tc.expect {
 				t.Errorf("[%s] expected %d distinct identifiers, got %d", tc.reference, tc.expect, got)
+			}
+		})
+	}
+}
+
+func TestMetadataPolicy_UnmarshalJSON_RefusesADuplicateMember(t *testing.T) {
+	tests := map[string]struct {
+		policy  string
+		refused bool
+	}{
+		"a duplicate entity type":    {policy: `{"openid_relying_party":{},"openid_relying_party":{}}`, refused: true},
+		"a duplicate parameter":      {policy: `{"openid_relying_party":{"contacts":{},"contacts":{}}}`, refused: true},
+		"a duplicate operator":       {policy: `{"openid_relying_party":{"contacts":{"add":["a"],"add":["b"]}}}`, refused: true},
+		"a repeat inside an operand": {policy: `{"openid_relying_party":{"jwks":{"value":{"keys":[],"keys":[]}}}}`},
+		"no duplicate":               {policy: `{"openid_relying_party":{"contacts":{"add":["a"]}}}`},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			var policy MetadataPolicy
+			err := json.Unmarshal([]byte(tc.policy), &policy)
+			if !tc.refused {
+				if err != nil {
+					t.Fatalf("expected the policy to decode, got %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, ErrInvalidMetadata) || !strings.Contains(err.Error(), "holds a duplicate member name") {
+				t.Fatalf("[6.1.2] expected the duplicate to be refused as invalid_metadata, got %v", err)
 			}
 		})
 	}

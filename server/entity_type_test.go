@@ -309,7 +309,7 @@ func TestServer_Resolve_ExtensionEntityTypes(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			trustAnchorServer.cfg.IntermediateConfiguration.FlushCache()
+			trustAnchorServer.config().IntermediateConfiguration.FlushCache()
 			intermediateConfigurations := &model.IntermediateConfiguration{
 				SubordinateStatementLifetime: 1 * time.Minute,
 			}
@@ -345,7 +345,7 @@ func TestServer_Resolve_ExtensionEntityTypes(t *testing.T) {
 			server.SetEntityIdentifier(model.EntityIdentifier(s.URL))
 			server.SetHttpClient(testClient)
 
-			trustAnchorServer.cfg.IntermediateConfiguration.AddSubordinate(model.EntityIdentifier(s.URL), &model.SubordinateConfiguration{
+			trustAnchorServer.config().IntermediateConfiguration.AddSubordinate(model.EntityIdentifier(s.URL), &model.SubordinateConfiguration{
 				CachedAt: time.Now().UTC().Unix(),
 				JWKs:     josemodel.Jwks{Keys: []map[string]any{*signerPublicJWK}},
 				Policies: tt.trustAnchorPolicy,

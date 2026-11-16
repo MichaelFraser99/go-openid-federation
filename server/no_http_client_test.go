@@ -27,8 +27,8 @@ func TestConfigure_SuppliesNoHttpClientOfItsOwn(t *testing.T) {
 	})
 	mux := http.NewServeMux()
 	srv.Configure(mux)
-	if srv.cfg.HttpClient != nil {
-		t.Fatalf("expected Configure to leave HttpClient unset, it installed %T", srv.cfg.HttpClient)
+	if srv.config().HttpClient != nil {
+		t.Fatalf("expected Configure to leave HttpClient unset, it installed %T", srv.config().HttpClient)
 	}
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)

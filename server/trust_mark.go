@@ -28,7 +28,7 @@ func (s *Server) TrustMark(w http.ResponseWriter, r *http.Request) ResponseFunc 
 		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("request missing required parameter 'trust_mark_type'"))
 	}
 
-	trustMark, err := trust_marks.Issue(ctx, s.cfg, trustMarkType, *parsedSub)
+	trustMark, err := trust_marks.Issue(ctx, *s.config(), trustMarkType, *parsedSub)
 	if err != nil {
 		classified := s.retrieverError(err, trustMarkUnavailableError)
 		s.logFailure(ctx, "error issuing the trust mark", classified, slog.String("error", err.Error()))

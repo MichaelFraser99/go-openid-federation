@@ -71,7 +71,7 @@ func TestServer_ExtendedList_ASubordinateStatementIsReturnedOnlyWhenClaimsAllows
 				t.Fatalf("failed to read a subordinate key: %v", err)
 			}
 			(*public)["kid"] = "sub"
-			server.cfg.IntermediateConfiguration.AddSubordinate(registered, &model.SubordinateConfiguration{JWKs: josemodel.Jwks{Keys: []map[string]any{*public}}})
+			server.config().IntermediateConfiguration.AddSubordinate(registered, &model.SubordinateConfiguration{JWKs: josemodel.Jwks{Keys: []map[string]any{*public}}})
 			mux := http.NewServeMux()
 			server.Configure(mux)
 			ts := httptest.NewTLSServer(mux)

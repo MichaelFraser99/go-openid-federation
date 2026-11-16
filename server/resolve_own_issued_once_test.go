@@ -97,8 +97,10 @@ func TestServer_Resolve_ATrustMarkIssuerWalkReusesTheSubordinateStatementThisSer
 			leaf := httptest.NewTLSServer(leafMux)
 			t.Cleanup(leaf.Close)
 			leafIdentifier = leaf.URL
-			anchor.cfg.EntityConfiguration.TrustMarkIssuers = map[string][]model.EntityIdentifier{markType: {model.EntityIdentifier(leaf.URL)}}
-			anchor.cfg.IntermediateConfiguration.AddSubordinate(model.EntityIdentifier(leaf.URL), &model.SubordinateConfiguration{
+			anchor.updateConfiguration(func(cfg *model.ServerConfiguration) {
+				cfg.EntityConfiguration.TrustMarkIssuers = map[string][]model.EntityIdentifier{markType: {model.EntityIdentifier(leaf.URL)}}
+			})
+			anchor.config().IntermediateConfiguration.AddSubordinate(model.EntityIdentifier(leaf.URL), &model.SubordinateConfiguration{
 				JWKs: josemodel.Jwks{Keys: []map[string]any{*leafJWK}},
 			})
 

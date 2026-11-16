@@ -17,7 +17,7 @@ func (s *Server) Fetch(w http.ResponseWriter, r *http.Request) ResponseFunc {
 	sub := r.URL.Query().Get("sub")
 
 	if sub == "" {
-		s.cfg.LogInfo(ctx, "no sub query parameter found")
+		s.config().LogInfo(ctx, "no sub query parameter found")
 		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("request missing required parameter 'sub'"))
 	}
 
@@ -35,12 +35,12 @@ func (s *Server) issueSubordinateStatement(ctx context.Context, sub string) (*st
 		return nil, err
 	}
 
-	if model.NamesTheSameEntity(*parsedSub, s.cfg.EntityIdentifier) {
-		s.cfg.LogInfo(ctx, "provided 'sub' parameter matches server entity identifier")
+	if model.NamesTheSameEntity(*parsedSub, s.config().EntityIdentifier) {
+		s.config().LogInfo(ctx, "provided 'sub' parameter matches server entity identifier")
 		return nil, model.NewInvalidRequestError("an entity cannot issue a subordinate statement for itself")
 	}
 
-	token, err := subordinate_statement.New(ctx, *parsedSub, s.loadSubordinate(ctx, *parsedSub, s.newPublishedKeys()), s.cfg)
+	token, err := subordinate_statement.New(ctx, *parsedSub, s.loadSubordinate(ctx, *parsedSub, s.newPublishedKeys()), *s.config())
 	if err != nil {
 		classified := s.retrieverError(err, subordinateStatementUnavailableError)
 		s.logFailure(ctx, "error creating subordinate statement", classified, slog.String("error", err.Error()))
@@ -60,9 +60,9 @@ func (s *Server) ownSubordinateStatement(ctx context.Context, issuer model.Entit
 		}
 		return nil, nil, model.NewInvalidTrustChainError("this server does not issue a subordinate statement for the subject")
 	}
-	accepted, statement, err := subordinate_statement.Accept(ctx, s.cfg.Configuration, issuer, subject, *signed)
+	accepted, statement, err := subordinate_statement.Accept(ctx, s.config().Configuration, issuer, subject, *signed)
 	if err != nil {
-		s.cfg.LogError(ctx, "this server's own subordinate statement does not pass the checks a resolver applies to it", slog.String("subject", string(subject)), slog.String("error", err.Error()))
+		s.config().LogError(ctx, "this server's own subordinate statement does not pass the checks a resolver applies to it", slog.String("subject", string(subject)), slog.String("error", err.Error()))
 		return nil, nil, model.NewServerError(subordinateStatementUnavailableError)
 	}
 	return accepted, statement, nil

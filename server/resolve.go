@@ -17,20 +17,20 @@ import (
 const resolveUnavailableError = "unable to resolve entities at this time"
 
 func (s *Server) Resolve(w http.ResponseWriter, r *http.Request) ResponseFunc {
-	ctx, cancel := context.WithTimeout(r.Context(), s.cfg.ResolveTimeLimit())
+	ctx, cancel := context.WithTimeout(r.Context(), s.config().ResolveTimeLimit())
 	defer cancel()
 	sub := r.URL.Query().Get("sub")
 	trustAnchor := r.URL.Query().Get("trust_anchor")
 	entityTypes := r.URL.Query()["entity_type"]
 
-	s.cfg.LogInfo(ctx, "received resolve request", slog.String("sub", sub), slog.String("trust_anchor", trustAnchor))
+	s.config().LogInfo(ctx, "received resolve request", slog.String("sub", sub), slog.String("trust_anchor", trustAnchor))
 
 	if sub == "" {
-		s.cfg.LogInfo(ctx, "received resolve request with missing parameter 'sub'")
+		s.config().LogInfo(ctx, "received resolve request with missing parameter 'sub'")
 		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("request missing required parameter 'sub'"))
 	}
 	if trustAnchor == "" {
-		s.cfg.LogInfo(ctx, "received resolve request with missing parameter 'trust_anchor'")
+		s.config().LogInfo(ctx, "received resolve request with missing parameter 'trust_anchor'")
 		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("missing required parameter 'trust_anchor'"))
 	}
 
@@ -45,23 +45,23 @@ func (s *Server) Resolve(w http.ResponseWriter, r *http.Request) ResponseFunc {
 	}
 
 	cache := resolvecache.New()
-	cache.SetOwn(s.cfg.EntityIdentifier, s.ownEntityConfiguration, s.ownSubordinateStatement)
+	cache.SetOwn(s.config().EntityIdentifier, s.ownEntityConfiguration, s.ownSubordinateStatement)
 
-	trustChain, parsedTrustChain, _, err := trust_chain.BuildTrustChain(ctx, s.cfg.Configuration, *parsedSub, *parsedTrustAnchor, cache)
+	trustChain, parsedTrustChain, _, err := trust_chain.BuildTrustChain(ctx, s.config().Configuration, *parsedSub, *parsedTrustAnchor, cache)
 	if err != nil {
 		return s.respondWithResolveFailure(ctx, w, "error building trust chain", err)
 	}
 
-	resolved, err := trust_chain.ResolveMetadata(ctx, s.cfg.Configuration, s.cfg.EntityIdentifier, *parsedTrustAnchor, trustChain, cache)
+	resolved, err := trust_chain.ResolveMetadata(ctx, s.config().Configuration, s.config().EntityIdentifier, *parsedTrustAnchor, trustChain, cache)
 	if err != nil {
 		return s.respondWithResolveFailure(ctx, w, "error resolving trust chain", err)
 	}
 
-	if err = trust_marks.FilterByTrusted(ctx, s.cfg.Configuration, resolved, parsedTrustChain[len(parsedTrustChain)-1], cache); err != nil {
+	if err = trust_marks.FilterByTrusted(ctx, s.config().Configuration, resolved, parsedTrustChain[len(parsedTrustChain)-1], cache); err != nil {
 		return s.respondWithResolveFailure(ctx, w, "error filtering trust marks", err)
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		s.cfg.LogInfo(ctx, "the resolve request did not complete before its deadline", slog.String("error", ctxErr.Error()))
+		s.config().LogInfo(ctx, "the resolve request did not complete before its deadline", slog.String("error", ctxErr.Error()))
 		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(resolveUnavailableError))
 	}
 
@@ -71,27 +71,27 @@ func (s *Server) Resolve(w http.ResponseWriter, r *http.Request) ResponseFunc {
 
 	resolvedBytes, err := json.Marshal(resolved)
 	if err != nil {
-		s.cfg.LogError(ctx, "error marshalling resolved metadata", slog.String("error", err.Error()))
+		s.config().LogError(ctx, "error marshalling resolved metadata", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, model.NewServerError(resolveUnavailableError))
 	}
 
 	var resolvedMap map[string]any
 	if err = json.Unmarshal(resolvedBytes, &resolvedMap); err != nil {
-		s.cfg.LogError(ctx, "error unmarshalling resolved metadata", slog.String("error", err.Error()))
+		s.config().LogError(ctx, "error unmarshalling resolved metadata", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, model.NewServerError(resolveUnavailableError))
 	}
 
-	if err := model.VerifyIssuanceAlgorithm(s.cfg.SignerConfiguration.Algorithm); err != nil {
-		s.cfg.LogError(ctx, "the configured signing algorithm cannot be signed with", slog.String("error", err.Error()))
+	if err := model.VerifyIssuanceAlgorithm(s.config().SignerConfiguration.Algorithm); err != nil {
+		s.config().LogError(ctx, "the configured signing algorithm cannot be signed with", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, model.NewServerError(resolveUnavailableError))
 	}
-	token, err := jwt.New(s.cfg.SignerConfiguration.Signer, map[string]any{
-		"kid": s.cfg.SignerConfiguration.KeyID,
+	token, err := jwt.New(s.config().SignerConfiguration.Signer, map[string]any{
+		"kid": s.config().SignerConfiguration.KeyID,
 		"typ": "resolve-response+jwt",
-		"alg": s.cfg.SignerConfiguration.Algorithm,
-	}, resolvedMap, jwt.Opts{Algorithm: jwa.GetAlgorithm(s.cfg.SignerConfiguration.Algorithm)})
+		"alg": s.config().SignerConfiguration.Algorithm,
+	}, resolvedMap, jwt.Opts{Algorithm: jwa.GetAlgorithm(s.config().SignerConfiguration.Algorithm)})
 	if err != nil {
-		s.cfg.LogError(ctx, "error creating resolve response", slog.String("error", err.Error()))
+		s.config().LogError(ctx, "error creating resolve response", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, model.ClassifySignerError(err, resolveUnavailableError))
 	}
 

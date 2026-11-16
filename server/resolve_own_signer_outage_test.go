@@ -358,7 +358,7 @@ func TestServer_Resolve_ATrustAnchorBuildsItsOwnEntityConfigurationRatherThanFet
 					registered = append(registered, padded)
 				}
 				if !tc.unregistered {
-					anchor.cfg.IntermediateConfiguration.AddSubordinate(model.EntityIdentifier(leaf.URL), &model.SubordinateConfiguration{
+					anchor.config().IntermediateConfiguration.AddSubordinate(model.EntityIdentifier(leaf.URL), &model.SubordinateConfiguration{
 						JWKs: josemodel.Jwks{Keys: registered},
 					})
 				}
@@ -467,8 +467,8 @@ func TestServer_Resolve_AnIntermediateBuildsItsOwnEntityConfigurationWithItsAuth
 			}
 			intermediate, intermediateServer, counter := newAuthority(t, signer, "ia")
 			intermediate.AddAuthorityHint(model.EntityIdentifier(anchorServer.URL))
-			intermediate.cfg.MaxRequestPeerBytes = tc.peerBytes
-			anchor.cfg.IntermediateConfiguration.AddSubordinate(model.EntityIdentifier(intermediateServer.URL), &model.SubordinateConfiguration{
+			intermediate.updateConfiguration(func(cfg *model.ServerConfiguration) { cfg.MaxRequestPeerBytes = tc.peerBytes })
+			anchor.config().IntermediateConfiguration.AddSubordinate(model.EntityIdentifier(intermediateServer.URL), &model.SubordinateConfiguration{
 				JWKs: josemodel.Jwks{Keys: []map[string]any{publicKey(t, intermediateSigner, "ia")}},
 			})
 
@@ -496,7 +496,7 @@ func TestServer_Resolve_AnIntermediateBuildsItsOwnEntityConfigurationWithItsAuth
 			leaf := httptest.NewTLSServer(leafMux)
 			t.Cleanup(leaf.Close)
 			leafIdentifier = leaf.URL
-			intermediate.cfg.IntermediateConfiguration.AddSubordinate(model.EntityIdentifier(leaf.URL), &model.SubordinateConfiguration{
+			intermediate.config().IntermediateConfiguration.AddSubordinate(model.EntityIdentifier(leaf.URL), &model.SubordinateConfiguration{
 				JWKs: josemodel.Jwks{Keys: []map[string]any{leafJWK}},
 			})
 

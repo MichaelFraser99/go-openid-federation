@@ -30,7 +30,7 @@ func (s *Server) TrustMarkList(w http.ResponseWriter, r *http.Request) ResponseF
 		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("request missing required parameter 'trust_mark_type'"))
 	}
 
-	status, err := trust_marks.List(ctx, s.cfg, trustMarkType, parsedSub)
+	status, err := trust_marks.List(ctx, *s.config(), trustMarkType, parsedSub)
 	if err != nil {
 		classified := s.retrieverError(err, trustMarkListingUnavailableError)
 		s.logFailure(ctx, "error listing trust marks", classified, slog.String("error", err.Error()))
@@ -43,7 +43,7 @@ func (s *Server) TrustMarkList(w http.ResponseWriter, r *http.Request) ResponseF
 
 	statusBytes, err := json.Marshal(status)
 	if err != nil {
-		s.cfg.LogInfo(ctx, "error marshalling trust mark status", slog.String("error", err.Error()))
+		s.config().LogInfo(ctx, "error marshalling trust mark status", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, model.NewServerError(trustMarkListingUnavailableError))
 	}
 

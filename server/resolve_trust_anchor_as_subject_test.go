@@ -90,7 +90,7 @@ func TestServer_Resolve_ATrustAnchorResolvesAsItsOwnSubject(t *testing.T) {
 			anchor := model.EntityIdentifier(ts.URL)
 			s.SetEntityIdentifier(anchor)
 			s.SetHttpClient(ts.Client())
-			s.cfg.TrustAnchors = tc.anchors(anchor)
+			s.updateConfiguration(func(cfg *model.ServerConfiguration) { cfg.TrustAnchors = tc.anchors(anchor) })
 
 			response, err := ts.Client().Get(ts.URL + "/resolve?sub=" + ts.URL + "&trust_anchor=" + ts.URL)
 			if err != nil {

@@ -99,7 +99,7 @@ func TestServer_Resolve_RefusesASuperiorsUnusableRegisteredKeyWithoutReflectingI
 			defer leaf.Close()
 			leafIdentifier = leaf.URL
 
-			anchor.cfg.IntermediateConfiguration.AddSubordinate(model.EntityIdentifier(leafIdentifier), &model.SubordinateConfiguration{
+			anchor.config().IntermediateConfiguration.AddSubordinate(model.EntityIdentifier(leafIdentifier), &model.SubordinateConfiguration{
 				JWKs: josemodel.Jwks{Keys: []map[string]any{tc.registered}},
 			})
 

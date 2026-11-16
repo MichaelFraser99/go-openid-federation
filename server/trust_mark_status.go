@@ -18,7 +18,7 @@ func (s *Server) TrustMarkStatus(w http.ResponseWriter, r *http.Request) Respons
 	ctx := r.Context()
 
 	if err := r.ParseForm(); err != nil {
-		s.cfg.LogInfo(ctx, "error parsing request", slog.String("error", err.Error()))
+		s.config().LogInfo(ctx, "error parsing request", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("failed to parse request parameters"))
 	}
 	trustMark := r.PostForm.Get("trust_mark")
@@ -27,7 +27,7 @@ func (s *Server) TrustMarkStatus(w http.ResponseWriter, r *http.Request) Respons
 		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("request missing required parameter 'trust_mark'"))
 	}
 
-	status, err := trust_marks.Status(ctx, s.cfg, trustMark)
+	status, err := trust_marks.Status(ctx, *s.config(), trustMark)
 	if err != nil {
 		classified := s.retrieverError(err, trustMarkStatusUnavailableError)
 		s.logFailure(ctx, "error determining trust mark status", classified, slog.String("error", err.Error()))
@@ -36,30 +36,30 @@ func (s *Server) TrustMarkStatus(w http.ResponseWriter, r *http.Request) Respons
 
 	statusBytes, err := json.Marshal(status)
 	if err != nil {
-		s.cfg.LogInfo(ctx, "error marshalling trust mark status", slog.String("error", err.Error()))
+		s.config().LogInfo(ctx, "error marshalling trust mark status", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, model.NewServerError(trustMarkStatusUnavailableError))
 	}
 
 	var statusMap map[string]any
 	if err = json.Unmarshal(statusBytes, &statusMap); err != nil {
-		s.cfg.LogInfo(ctx, "error unmarshalling subordinate status response", slog.String("error", err.Error()))
+		s.config().LogInfo(ctx, "error unmarshalling subordinate status response", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, model.NewServerError(trustMarkStatusUnavailableError))
 	}
-	statusMap["iss"] = s.cfg.EntityIdentifier
+	statusMap["iss"] = s.config().EntityIdentifier
 	statusMap["iat"] = time.Now().UTC().Unix()
 	statusMap["trust_mark"] = trustMark
 
-	if err := model.VerifyIssuanceAlgorithm(s.cfg.SignerConfiguration.Algorithm); err != nil {
-		s.cfg.LogError(ctx, "the configured signing algorithm cannot be signed with", slog.String("error", err.Error()))
+	if err := model.VerifyIssuanceAlgorithm(s.config().SignerConfiguration.Algorithm); err != nil {
+		s.config().LogError(ctx, "the configured signing algorithm cannot be signed with", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, model.NewServerError(trustMarkStatusUnavailableError))
 	}
-	token, err := jwt.New(s.cfg.SignerConfiguration.Signer, map[string]any{
-		"kid": s.cfg.SignerConfiguration.KeyID,
+	token, err := jwt.New(s.config().SignerConfiguration.Signer, map[string]any{
+		"kid": s.config().SignerConfiguration.KeyID,
 		"typ": "trust-mark-status-response+jwt",
-		"alg": s.cfg.SignerConfiguration.Algorithm,
-	}, statusMap, jwt.Opts{Algorithm: jwa.GetAlgorithm(s.cfg.SignerConfiguration.Algorithm)})
+		"alg": s.config().SignerConfiguration.Algorithm,
+	}, statusMap, jwt.Opts{Algorithm: jwa.GetAlgorithm(s.config().SignerConfiguration.Algorithm)})
 	if err != nil {
-		s.cfg.LogInfo(ctx, "error creating resolve response", slog.String("error", err.Error()))
+		s.config().LogInfo(ctx, "error creating resolve response", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, model.ClassifySignerError(err, trustMarkStatusUnavailableError))
 	}
 

@@ -24,7 +24,7 @@ func (s *Server) HandleWellKnown(w http.ResponseWriter, r *http.Request) Respons
 }
 
 func (s *Server) newEntityConfiguration(ctx context.Context) (*string, error) {
-	cfg := s.cfg
+	cfg := *s.config()
 	cfg.AuthorityHints = s.AuthorityHints()
 	return entity_configuration.New(ctx, cfg)
 }
@@ -36,9 +36,9 @@ func (s *Server) ownEntityConfiguration(ctx context.Context) (*string, *model.En
 		s.logFailure(ctx, "this server could not produce its own entity configuration for a trust chain walk", classified, slog.String("error", err.Error()))
 		return nil, nil, loggedFailure{classified}
 	}
-	accepted, statement, err := entity_configuration.Accept(ctx, s.cfg.Configuration, s.cfg.EntityIdentifier, *signed)
+	accepted, statement, err := entity_configuration.Accept(ctx, s.config().Configuration, s.config().EntityIdentifier, *signed)
 	if err != nil {
-		s.cfg.LogError(ctx, "this server's own entity configuration does not pass the checks a resolver applies to it", slog.String("error", err.Error()))
+		s.config().LogError(ctx, "this server's own entity configuration does not pass the checks a resolver applies to it", slog.String("error", err.Error()))
 		return nil, nil, loggedFailure{model.NewServerError(entityConfigurationUnavailableError)}
 	}
 	return accepted, statement, nil

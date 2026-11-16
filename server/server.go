@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_configuration"
@@ -19,7 +20,8 @@ import (
 )
 
 type Server struct {
-	cfg            model.ServerConfiguration
+	configuration  atomic.Pointer[model.ServerConfiguration]
+	setterMu       sync.Mutex
 	mu             sync.RWMutex
 	authorityHints []model.EntityIdentifier
 }
@@ -32,7 +34,24 @@ func NewServer(configuration model.ServerConfiguration) *Server {
 	for _, claim := range entity_configuration.UnpublishedLeafEndpoints(configuration) {
 		configuration.LogError(context.Background(), "a configured endpoint will be left out of the entity configuration, because an entity with no IntermediateConfiguration is a leaf and a leaf must not publish it", slog.String("claim", claim))
 	}
-	return &Server{cfg: configuration, authorityHints: hints}
+	s := &Server{authorityHints: hints}
+	s.configuration.Store(&configuration)
+	return s
+}
+
+func (s *Server) config() *model.ServerConfiguration {
+	if cfg := s.configuration.Load(); cfg != nil {
+		return cfg
+	}
+	return &model.ServerConfiguration{}
+}
+
+func (s *Server) updateConfiguration(change func(*model.ServerConfiguration)) {
+	s.setterMu.Lock()
+	defer s.setterMu.Unlock()
+	updated := *s.config()
+	change(&updated)
+	s.configuration.Store(&updated)
 }
 
 // SetEntityIdentifier
@@ -41,7 +60,7 @@ func NewServer(configuration model.ServerConfiguration) *Server {
 //	is not known to the user beforehand, such as during test server scenarios. Should not be called during
 //	production operations
 func (s *Server) SetEntityIdentifier(identifier model.EntityIdentifier) {
-	s.cfg.EntityIdentifier = identifier
+	s.updateConfiguration(func(cfg *model.ServerConfiguration) { cfg.EntityIdentifier = identifier })
 }
 
 // SetHttpClient
@@ -49,7 +68,7 @@ func (s *Server) SetEntityIdentifier(identifier model.EntityIdentifier) {
 //	Overrides the server's configured HTTP Client. Intended for test server scenarios.
 //	Should not be called during	production operations
 func (s *Server) SetHttpClient(client *http.Client) {
-	s.cfg.HttpClient = client
+	s.updateConfiguration(func(cfg *model.ServerConfiguration) { cfg.HttpClient = client })
 }
 
 // AddAuthorityHint
@@ -75,7 +94,7 @@ func (s *Server) AuthorityHints() []model.EntityIdentifier {
 }
 
 func (s *Server) resolveEntityIdentifier(ctx context.Context, param model.EntityIdentifierParam, raw string, fallback string) (*model.EntityIdentifier, error) {
-	resolver := s.cfg.EntityIdentifierResolver
+	resolver := s.config().EntityIdentifierResolver
 	if resolver == nil {
 		resolver = model.StandardEntityIdentifierResolver{}
 	}
@@ -86,7 +105,7 @@ func (s *Server) resolveEntityIdentifier(ctx context.Context, param model.Entity
 		return nil, classified
 	}
 	if identifier == nil {
-		s.cfg.LogError(ctx, "the entity identifier resolver returned no identifier and no error", slog.String("parameter", string(param)))
+		s.config().LogError(ctx, "the entity identifier resolver returned no identifier and no error", slog.String("parameter", string(param)))
 		return nil, model.NewServerError(fallback)
 	}
 	return identifier, nil
@@ -94,19 +113,19 @@ func (s *Server) resolveEntityIdentifier(ctx context.Context, param model.Entity
 
 func (s *Server) Configure(h *http.ServeMux) {
 	s.route(h, "/.well-known/openid-federation", s.HandleWellKnown, http.MethodGet)
-	if s.cfg.IntermediateConfiguration != nil {
+	if s.config().IntermediateConfiguration != nil {
 		s.route(h, "/list", s.List, http.MethodGet)
 		s.route(h, "/fetch", s.Fetch, http.MethodGet)
 		s.route(h, "/resolve", s.Resolve, http.MethodGet)
 
-		if s.cfg.Extensions.ExtendedListing.Enabled {
+		if s.config().Extensions.ExtendedListing.Enabled {
 			s.route(h, "/extended-list", s.ExtendedList, http.MethodGet)
 		}
-		if s.cfg.Extensions.SubordinateStatus.Enabled {
+		if s.config().Extensions.SubordinateStatus.Enabled {
 			s.route(h, "/subordinate-status", s.SubordinateStatus, http.MethodGet)
 		}
 	}
-	if s.cfg.TrustMarkRetriever != nil {
+	if s.config().TrustMarkRetriever != nil {
 		s.route(h, "/trust-mark-status", s.TrustMarkStatus, http.MethodPost)
 		s.route(h, "/trust-mark-list", s.TrustMarkList, http.MethodGet)
 		s.route(h, "/trust-mark", s.TrustMark, http.MethodGet)
@@ -139,7 +158,7 @@ func (s *Server) route(h *http.ServeMux, path string, handler func(http.Response
 func (s *Server) methodNotAllowed(allowed string) func(http.ResponseWriter, *http.Request) ResponseFunc {
 	return func(w http.ResponseWriter, r *http.Request) ResponseFunc {
 		return func() {
-			s.cfg.LogInfo(r.Context(), "rejecting a request made with an unsupported method",
+			s.config().LogInfo(r.Context(), "rejecting a request made with an unsupported method",
 				slog.String("path", r.URL.Path), slog.String("method", model.TruncateForResponse(r.Method)), slog.String("allowed", allowed))
 			_, body := s.parseError(model.NewInvalidRequestError(fmt.Sprintf("this endpoint accepts %s", allowed)))
 			w.Header().Set("Allow", allowed)
@@ -192,10 +211,10 @@ func (s *Server) logFailure(ctx context.Context, msg string, response error, arg
 		return
 	}
 	if _, code := errorStatusAndCode(response); code == model.ServerError {
-		s.cfg.LogError(ctx, msg, args...)
+		s.config().LogError(ctx, msg, args...)
 		return
 	}
-	s.cfg.LogInfo(ctx, msg, args...)
+	s.config().LogInfo(ctx, msg, args...)
 }
 
 const subordinateRetrievalFailureError = "unable to retrieve the subordinate configuration at this time"
@@ -218,7 +237,7 @@ type publishedKeys struct {
 }
 
 func (s *Server) newPublishedKeys() *publishedKeys {
-	cfg := s.cfg
+	cfg := *s.config()
 	cfg.Logger = nil
 	return &publishedKeys{cfg: cfg}
 }
@@ -251,7 +270,7 @@ func (s *Server) handle(handler func(http.ResponseWriter, *http.Request) Respons
 				}()
 				func() {
 					defer func() { _ = recover() }()
-					s.cfg.LogError(r.Context(), "recovered from a panic while serving a federation endpoint",
+					s.config().LogError(r.Context(), "recovered from a panic while serving a federation endpoint",
 						slog.String("path", r.URL.Path),
 						slog.String("panic", fmt.Sprintf("%v", recovered)),
 						slog.String("stack", string(debug.Stack())))
@@ -266,15 +285,15 @@ func (s *Server) handle(handler func(http.ResponseWriter, *http.Request) Respons
 
 func (s *Server) loadSubordinate(ctx context.Context, identifier model.EntityIdentifier, published *publishedKeys) func() (*model.SubordinateConfiguration, *model.SignerConfiguration, error) {
 	return func() (*model.SubordinateConfiguration, *model.SignerConfiguration, error) {
-		subordinate, err := s.cfg.GetSubordinate(ctx, identifier)
+		subordinate, err := s.config().GetSubordinate(ctx, identifier)
 		if err != nil {
 			if errors.Is(err, model.ErrNotFound) {
-				s.cfg.LogInfo(ctx, "error retrieving subordinate cfg", slog.String("error", err.Error()))
-				return nil, &s.cfg.SignerConfiguration, nil
+				s.config().LogInfo(ctx, "error retrieving subordinate cfg", slog.String("error", err.Error()))
+				return nil, &s.config().SignerConfiguration, nil
 			}
 			classified := s.retrieverError(err, subordinateRetrievalFailureError)
 			s.logFailure(ctx, "error retrieving subordinate cfg", classified, slog.String("error", err.Error()))
-			return nil, &s.cfg.SignerConfiguration, loggedFailure{classified}
+			return nil, &s.config().SignerConfiguration, loggedFailure{classified}
 		}
 		if subordinate.SignerConfiguration != nil {
 			if err := published.verify(ctx, *subordinate.SignerConfiguration); err != nil {
@@ -283,12 +302,12 @@ func (s *Server) loadSubordinate(ctx context.Context, identifier model.EntityIde
 					s.logFailure(ctx, "the published key set cannot be built, so a subordinate signer cannot be checked against it", classified, slog.String("sub", string(identifier)), slog.String("error", err.Error()))
 					return nil, nil, loggedFailure{classified}
 				}
-				s.cfg.LogError(ctx, "refusing to sign with a subordinate signer whose key is not the one this authority publishes under its key ID, because no resolver could verify the statement", slog.String("sub", string(identifier)), slog.String("kid", subordinate.SignerConfiguration.KeyID), slog.String("error", err.Error()))
+				s.config().LogError(ctx, "refusing to sign with a subordinate signer whose key is not the one this authority publishes under its key ID, because no resolver could verify the statement", slog.String("sub", string(identifier)), slog.String("kid", subordinate.SignerConfiguration.KeyID), slog.String("error", err.Error()))
 				return nil, nil, loggedFailure{signerNotPublished{model.NewServerError(subordinateSignerUnpublishedError)}}
 			}
 			return subordinate, subordinate.SignerConfiguration, nil
 		} else {
-			return subordinate, &s.cfg.SignerConfiguration, nil
+			return subordinate, &s.config().SignerConfiguration, nil
 		}
 	}
 }
@@ -304,12 +323,12 @@ func (s *Server) respondWith(w http.ResponseWriter, status int, contentType stri
 }
 
 func (s *Server) respondWithMisconfiguration(ctx context.Context, w http.ResponseWriter, cause string, description string) ResponseFunc {
-	s.cfg.LogError(ctx, cause)
+	s.config().LogError(ctx, cause)
 	return s.RespondWithError(ctx, w, model.NewServerError(description))
 }
 
 func (s *Server) RespondWithError(ctx context.Context, w http.ResponseWriter, err error) ResponseFunc {
-	s.cfg.LogInfo(ctx, "handling error response", slog.String("error", err.Error()))
+	s.config().LogInfo(ctx, "handling error response", slog.String("error", err.Error()))
 	code, response := s.parseError(err)
 	return s.respondWith(w, code, "application/json", []byte(response))
 }

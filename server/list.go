@@ -20,15 +20,15 @@ func (s *Server) List(w http.ResponseWriter, r *http.Request) ResponseFunc {
 
 	filter, err := parseSubordinateListingFilter(r.URL.Query())
 	if err != nil {
-		s.cfg.LogInfo(ctx, "received list request with malformed filter", slog.String("error", err.Error()))
+		s.config().LogInfo(ctx, "received list request with malformed filter", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, err)
 	}
 
-	if s.cfg.IntermediateConfiguration == nil {
+	if s.config().IntermediateConfiguration == nil {
 		return s.RespondWithJSON(w, []byte(`[]`))
 	}
 
-	if listingRetriever, ok := s.cfg.MetadataRetriever.(model.SubordinateListingRetriever); ok {
+	if listingRetriever, ok := s.config().MetadataRetriever.(model.SubordinateListingRetriever); ok {
 		identifiers, err := listingRetriever.ListSubordinates(ctx, filter)
 		if err != nil {
 			classified := s.retrieverError(err, subordinateListingUnavailableError)
@@ -39,11 +39,11 @@ func (s *Server) List(w http.ResponseWriter, r *http.Request) ResponseFunc {
 	}
 
 	if !filter.IsEmpty() {
-		s.cfg.LogInfo(ctx, "received list request with filters but no listing retriever configured")
+		s.config().LogInfo(ctx, "received list request with filters but no listing retriever configured")
 		return s.RespondWithError(ctx, w, model.NewUnsupportedParameterError("subordinate listing filters are not supported"))
 	}
 
-	identifiers, err := s.cfg.SubordinateIdentifiers(ctx)
+	identifiers, err := s.config().SubordinateIdentifiers(ctx)
 	if err != nil {
 		classified := s.retrieverError(err, listingUnavailableError)
 		s.logFailure(ctx, "error retrieving subordinates", classified, slog.String("error", err.Error()))
@@ -80,7 +80,7 @@ func (s *Server) logOmittedEntries(ctx context.Context, entries *listingEntries)
 	if entries.invalid == 0 && entries.duplicate == 0 {
 		return
 	}
-	s.cfg.LogError(ctx, "omitting listing entries the store returned that are not entity identifiers or repeat one already listed", slog.Int("not_entity_identifiers", entries.invalid), slog.Int("duplicates", entries.duplicate))
+	s.config().LogError(ctx, "omitting listing entries the store returned that are not entity identifiers or repeat one already listed", slog.Int("not_entity_identifiers", entries.invalid), slog.Int("duplicates", entries.duplicate))
 }
 
 func (s *Server) respondWithEntities(ctx context.Context, w http.ResponseWriter, identifiers []model.EntityIdentifier) ResponseFunc {
@@ -94,7 +94,7 @@ func (s *Server) respondWithEntities(ctx context.Context, w http.ResponseWriter,
 	s.logOmittedEntries(ctx, listed)
 	entitiesJSON, err := json.Marshal(entities)
 	if err != nil {
-		s.cfg.LogError(ctx, "error marshalling entities", slog.String("error", err.Error()))
+		s.config().LogError(ctx, "error marshalling entities", slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, model.NewServerError(listingUnavailableError))
 	}
 	return s.RespondWithJSON(w, entitiesJSON)

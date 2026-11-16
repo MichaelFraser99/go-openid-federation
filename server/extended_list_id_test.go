@@ -134,7 +134,7 @@ func TestServer_ExtendedList_OmitsEntriesWhoseIdIsNotAnEntityIdentifier(t *testi
 						t.Fatalf("failed to read a subordinate key: %v", err)
 					}
 					(*public)["kid"] = "sub"
-					server.cfg.IntermediateConfiguration.AddSubordinate(model.EntityIdentifier(subject), &model.SubordinateConfiguration{JWKs: josemodel.Jwks{Keys: []map[string]any{*public}}})
+					server.config().IntermediateConfiguration.AddSubordinate(model.EntityIdentifier(subject), &model.SubordinateConfiguration{JWKs: josemodel.Jwks{Keys: []map[string]any{*public}}})
 				}
 				mux := http.NewServeMux()
 				server.Configure(mux)

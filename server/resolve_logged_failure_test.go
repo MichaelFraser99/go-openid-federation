@@ -23,7 +23,7 @@ func TestServer_RespondWithResolveFailure_DoesNotLogAFailureAlreadyLogged(t *tes
 	} {
 		t.Run(name, func(t *testing.T) {
 			logs := &lockedBuffer{}
-			s := &Server{cfg: model.ServerConfiguration{Configuration: model.Configuration{Logger: slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelInfo}))}}}
+			s := NewServer(model.ServerConfiguration{Configuration: model.Configuration{Logger: slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelInfo}))}})
 			recorder := httptest.NewRecorder()
 			s.respondWithResolveFailure(t.Context(), recorder, "error filtering trust marks", tc.err)()
 

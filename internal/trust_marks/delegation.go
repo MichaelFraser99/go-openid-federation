@@ -108,6 +108,10 @@ func verifyDelegation(ctx context.Context, cfg model.Configuration, mark model.T
 		cfg.LogInfo(ctx, "failed to unmarshal the delegation header", slog.String("error", model.TruncateForResponse(err.Error())))
 		return fmt.Errorf("the trust mark's delegation has a header that is not a JSON object")
 	}
+	if err := model.VerifyUniqueHeaderParameters(headBytes); err != nil {
+		cfg.LogInfo(ctx, "the delegation header repeats a member name")
+		return fmt.Errorf("the trust mark's delegation %s", err.Error())
+	}
 	if err := entity_statement.VerifyNoCriticalHeader(head); err != nil {
 		cfg.LogInfo(ctx, "the delegation header carries a critical extension", slog.String("error", err.Error()))
 		return fmt.Errorf("the trust mark's delegation header is refused: %s", err.Error())
@@ -143,6 +147,10 @@ func verifyDelegation(ctx context.Context, cfg model.Configuration, mark model.T
 	if err := json.Unmarshal(bodyBytes, &body); err != nil {
 		cfg.LogInfo(ctx, "failed to unmarshal the delegation body", slog.String("error", model.TruncateForResponse(err.Error())))
 		return fmt.Errorf("the trust mark's delegation has a body that is not a JSON object")
+	}
+	if err := model.VerifyUniqueClaimNames(bodyBytes); err != nil {
+		cfg.LogInfo(ctx, "the delegation body repeats a member name")
+		return fmt.Errorf("the trust mark's delegation %s", err.Error())
 	}
 
 	delegatedIssuer, err := delegationClaim(body, "sub")

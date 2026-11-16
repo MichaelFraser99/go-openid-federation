@@ -478,6 +478,65 @@ func (i *IntermediateConfiguration) AddSubordinate(identifier EntityIdentifier, 
 	i.subordinates[identifier] = stored
 }
 
+func (s *SubordinateConfiguration) UnmarshalJSON(data []byte) error {
+	members, err := exactMembers(data)
+	if err != nil {
+		return fmt.Errorf("a subordinate configuration %s", err.Error())
+	}
+	var decoded SubordinateConfiguration
+	if raw, present := members["CachedAt"]; present {
+		if err := json.Unmarshal(raw, &decoded.CachedAt); err != nil {
+			return fmt.Errorf("'CachedAt' must be a number")
+		}
+	}
+	if raw, present := members["Policies"]; present && string(raw) != "null" {
+		if err := json.Unmarshal(raw, &decoded.Policies); err != nil {
+			return fmt.Errorf("'Policies' is not a valid metadata policy: %w", err)
+		}
+	}
+	if raw, present := members["JWKs"]; present && string(raw) != "null" {
+		var value any
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return fmt.Errorf("'JWKs' is not valid JSON")
+		}
+		keys, err := ParseJWKSet(value)
+		if err != nil {
+			return fmt.Errorf("'JWKs' %s", err.Error())
+		}
+		decoded.JWKs = keys
+	}
+	if raw, present := members["SignerConfiguration"]; present && string(raw) != "null" {
+		signer, err := exactMembers(raw)
+		if err != nil {
+			return fmt.Errorf("'SignerConfiguration' %s", err.Error())
+		}
+		decoded.SignerConfiguration = &SignerConfiguration{}
+		if raw, present := signer["Signer"]; present && string(raw) != "null" {
+			return fmt.Errorf("'SignerConfiguration' holds a 'Signer', which cannot be decoded from JSON")
+		}
+		for name, field := range map[string]*string{"KeyID": &decoded.SignerConfiguration.KeyID, "Algorithm": &decoded.SignerConfiguration.Algorithm} {
+			if raw, present := signer[name]; present {
+				if err := json.Unmarshal(raw, field); err != nil {
+					return fmt.Errorf("'SignerConfiguration' member '%s' must be a string", name)
+				}
+			}
+		}
+	}
+	*s = decoded
+	return nil
+}
+
+func exactMembers(data []byte) (map[string]json.RawMessage, error) {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(data, &members); err != nil || members == nil {
+		return nil, fmt.Errorf("must be a JSON object")
+	}
+	if hasDuplicateTopLevelMember(data) {
+		return nil, fmt.Errorf("repeats a member name")
+	}
+	return members, nil
+}
+
 func (s *SubordinateConfiguration) clone() *SubordinateConfiguration {
 	copied := *s
 	copied.Policies = *s.Policies.deepClone()
@@ -721,6 +780,9 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 	var jsonMap map[string]any
 	err := json.Unmarshal(data, &jsonMap)
 	if err != nil {
+		return err
+	}
+	if err := VerifyUniqueClaimNames(data); err != nil {
 		return err
 	}
 	e.decodedValues = CountDecodedValues(jsonMap)
@@ -1744,6 +1806,9 @@ type TrustMark struct {
 func (t *TrustMark) UnmarshalJSON(data []byte) error {
 	var jsonMap map[string]any
 	if err := json.Unmarshal(data, &jsonMap); err != nil {
+		return err
+	}
+	if err := VerifyUniqueClaimNames(data); err != nil {
 		return err
 	}
 

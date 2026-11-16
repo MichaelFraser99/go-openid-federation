@@ -28,12 +28,61 @@ func trustMarkWithoutType(t *testing.T) string {
 
 func statementJSON(t *testing.T, extra string) string {
 	t.Helper()
-	base := fmt.Sprintf(`"iss":"https://leaf.example.com","sub":"https://leaf.example.com","iat":%d,"exp":%d,"jwks":{"keys":[%s]}`,
-		time.Now().Add(-time.Minute).UTC().Unix(), time.Now().Add(time.Hour).UTC().Unix(), harnessJwk)
-	if extra == "" {
-		return "{" + base + "}"
+	base := []struct{ name, member string }{
+		{"iss", `"iss":"https://leaf.example.com"`},
+		{"sub", `"sub":"https://leaf.example.com"`},
+		{"iat", fmt.Sprintf(`"iat":%d`, time.Now().Add(-time.Minute).UTC().Unix())},
+		{"exp", fmt.Sprintf(`"exp":%d`, time.Now().Add(time.Hour).UTC().Unix())},
+		{"jwks", fmt.Sprintf(`"jwks":{"keys":[%s]}`, harnessJwk)},
 	}
-	return "{" + base + "," + extra + "}"
+	overridden := topLevelNames(t, "{"+extra+"}")
+	members := make([]string, 0, len(base)+1)
+	for _, claim := range base {
+		if !overridden[claim.name] {
+			members = append(members, claim.member)
+		}
+	}
+	if extra != "" {
+		members = append(members, extra)
+	}
+	return "{" + strings.Join(members, ",") + "}"
+}
+
+func topLevelNames(t *testing.T, object string) map[string]bool {
+	t.Helper()
+	decoder := json.NewDecoder(strings.NewReader(object))
+	decoder.UseNumber()
+	names := map[string]bool{}
+	depth := 0
+	expectName := false
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			return names
+		}
+		switch typed := token.(type) {
+		case json.Delim:
+			switch typed {
+			case '{':
+				depth++
+				expectName = depth == 1
+			case '[':
+				depth++
+			case '}', ']':
+				depth--
+				expectName = depth == 1
+			}
+		case string:
+			if depth == 1 && expectName {
+				names[typed] = true
+				expectName = false
+				continue
+			}
+			expectName = depth == 1
+		default:
+			expectName = depth == 1
+		}
+	}
 }
 
 func trustMarkFor(t *testing.T, trustMarkType string) string {
@@ -215,11 +264,10 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			expectClass: ErrInvalidMetadata,
 		},
 		{
-			name:        "metadata_policy whose second copy holds a duplicate",
-			step:        "6.1.2",
-			claims:      `"metadata_policy":{"openid_relying_party":{"contacts":{"add":["a"]}}},"metadata_policy":{"openid_relying_party":{"contacts":{"add":["a"],"add":["evil"]}}}`,
-			expectErr:   "holds a duplicate member name",
-			expectClass: ErrInvalidMetadata,
+			name:      "metadata_policy sent twice, which repeats a claim name",
+			step:      "RFC 7519 4",
+			claims:    `"metadata_policy":{"openid_relying_party":{"contacts":{"add":["a"]}}},"metadata_policy":{"openid_relying_party":{"contacts":{"add":["a"],"add":["evil"]}}}`,
+			expectErr: "the JWT claims set repeats a member name",
 		},
 		{
 			name:   "metadata_policy with a repeated name inside an operand, below the three levels",

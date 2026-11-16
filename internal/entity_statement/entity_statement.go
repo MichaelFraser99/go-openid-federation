@@ -165,6 +165,9 @@ func headerAlgorithm(token string) (string, error) {
 	if err = json.Unmarshal(head, &headMap); err != nil {
 		return "", fmt.Errorf("failed to unmarshal JWT head to json: %s", err.Error())
 	}
+	if err := model.VerifyUniqueHeaderParameters(head); err != nil {
+		return "", err
+	}
 	header, ok := headMap["alg"].(string)
 	if !ok {
 		return "", fmt.Errorf("missing or malformed header claim 'alg'")
@@ -350,9 +353,15 @@ func ExtractDetails(token string) (keyID, subject, issuer *string, err error) {
 	if err := json.Unmarshal(head, &headMap); err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to unmarshal JWT head to json: %s", err.Error())
 	}
+	if err := model.VerifyUniqueHeaderParameters(head); err != nil {
+		return nil, nil, nil, err
+	}
 
 	if err := json.Unmarshal(body, &bodyMap); err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to unmarshal JWT body to json: %s", err.Error())
+	}
+	if err := model.VerifyUniqueClaimNames(body); err != nil {
+		return nil, nil, nil, err
 	}
 
 	kid, ok := headMap["kid"].(string)

@@ -115,3 +115,22 @@ func skipRest(decoder *json.Decoder, first json.Token) error {
 	}
 	return nil
 }
+
+func VerifyUniqueHeaderParameters(header []byte) error {
+	if hasDuplicateTopLevelMember(header) {
+		return errors.New("the JWT header repeats a member name, which RFC 7515 section 4 forbids")
+	}
+	return nil
+}
+
+func VerifyUniqueClaimNames(claims []byte) error {
+	if hasDuplicateTopLevelMember(claims) {
+		return errors.New("the JWT claims set repeats a member name, which RFC 7519 section 4 forbids")
+	}
+	return nil
+}
+
+func hasDuplicateTopLevelMember(object []byte) bool {
+	duplicate, err := objectHasDuplicateMember(newTokenDecoder(object), 1)
+	return err == nil && duplicate
+}

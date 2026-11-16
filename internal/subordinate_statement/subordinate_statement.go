@@ -155,6 +155,9 @@ func validate(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JWT header: %s", err.Error())
 	}
+	if err := model.VerifyUniqueHeaderParameters(head); err != nil {
+		return nil, model.NewInvalidTrustChainError(err.Error())
+	}
 
 	body, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {

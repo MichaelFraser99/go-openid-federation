@@ -127,7 +127,7 @@ func TestVerifyResolved_RequiresTheIssuerToBeTheEntityIdentifier(t *testing.T) {
 			}},
 		},
 		"an openid_credential_issuer credential_issuer naming another entity": {
-			reference: "Wallet draft 05 6.2.1",
+			reference: "Wallet draft 06 6.3.1",
 			metadata: &Metadata{OpenIDCredentialIssuerMetadata: &OpenIDCredentialIssuerMetadata{
 				"credential_issuer":                   "https://attacker.example.com",
 				"credential_endpoint":                 "https://op.example.com/credential",
@@ -137,7 +137,7 @@ func TestVerifyResolved_RequiresTheIssuerToBeTheEntityIdentifier(t *testing.T) {
 			says:    "'credential_issuer' must be the entity identifier",
 		},
 		"an openid_credential_issuer credential_issuer with a trailing slash": {
-			reference: "Wallet draft 05 6.2.1",
+			reference: "Wallet draft 06 6.3.1",
 			metadata: &Metadata{OpenIDCredentialIssuerMetadata: &OpenIDCredentialIssuerMetadata{
 				"credential_issuer":                   "https://op.example.com/",
 				"credential_endpoint":                 "https://op.example.com/credential",
@@ -147,7 +147,7 @@ func TestVerifyResolved_RequiresTheIssuerToBeTheEntityIdentifier(t *testing.T) {
 			says:    "'credential_issuer' must be the entity identifier",
 		},
 		"an openid_credential_issuer credential_issuer that is not a string": {
-			reference: "Wallet draft 05 6.2.1",
+			reference: "Wallet draft 06 6.3.1",
 			metadata: &Metadata{OpenIDCredentialIssuerMetadata: &OpenIDCredentialIssuerMetadata{
 				"credential_issuer":                   []any{"https://op.example.com"},
 				"credential_endpoint":                 "https://op.example.com/credential",
@@ -157,7 +157,7 @@ func TestVerifyResolved_RequiresTheIssuerToBeTheEntityIdentifier(t *testing.T) {
 			says:    "'credential_issuer' must be a string",
 		},
 		"an openid_credential_issuer credential_issuer equal to the identifier": {
-			reference: "Wallet draft 05 6.2.1",
+			reference: "Wallet draft 06 6.3.1",
 			metadata: &Metadata{OpenIDCredentialIssuerMetadata: &OpenIDCredentialIssuerMetadata{
 				"credential_issuer":                   "https://op.example.com",
 				"credential_endpoint":                 "https://op.example.com/credential",

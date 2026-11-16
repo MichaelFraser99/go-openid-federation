@@ -177,3 +177,63 @@ func responseTypesRequireTokenEndpoint(m map[string]any) bool {
 	}
 	return false
 }
+
+func verifyNonEmptyStringArrayValues(m map[string]any, key string) ([]string, error) {
+	if err := VerifyNonEmptyStringArrayClaim(m, key); err != nil {
+		return nil, err
+	}
+	values, _ := MetadataStringSlice(m[key])
+	return values, nil
+}
+
+func verifyNonEmptyHTTPSURLArrayClaim(m map[string]any, key string) error {
+	values, err := verifyNonEmptyStringArrayValues(m, key)
+	if err != nil {
+		return err
+	}
+	for _, value := range values {
+		parsedURL, err := url.Parse(value)
+		if err != nil || parsedURL.Scheme != "https" || parsedURL.Host == "" {
+			return fmt.Errorf("'%s' must hold only https URLs", key)
+		}
+	}
+	return nil
+}
+
+func verifyNonEmptyEntityIdentifierArrayClaim(m map[string]any, key string) error {
+	values, err := verifyNonEmptyStringArrayValues(m, key)
+	if err != nil {
+		return err
+	}
+	for _, value := range values {
+		if _, err := ValidateEntityIdentifier(value); err != nil {
+			return fmt.Errorf("'%s' must hold only entity identifiers: %w", key, err)
+		}
+	}
+	return nil
+}
+
+func verifyNonEmptyObjectArrayClaim(m map[string]any, key string) error {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return nil
+	}
+	var count int
+	switch values := v.(type) {
+	case []map[string]any:
+		count = len(values)
+	case []any:
+		count = len(values)
+		for _, value := range values {
+			if _, ok := value.(map[string]any); !ok {
+				return fmt.Errorf("'%s' must be an array of JSON objects", key)
+			}
+		}
+	default:
+		return fmt.Errorf("'%s' must be an array of JSON objects", key)
+	}
+	if count == 0 {
+		return fmt.Errorf("'%s' must not be empty", key)
+	}
+	return nil
+}

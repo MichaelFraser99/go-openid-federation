@@ -506,15 +506,16 @@ func TestMetadata_SetEntityType_RoutesEveryBuiltInToItsOwnField(t *testing.T) {
 
 func TestBuiltInEntityTypes_ResolvedChecksAreWiredDeliberately(t *testing.T) {
 	withRequiredParameters := map[string]bool{
-		"federation_entity":          false,
-		"oauth_client":               false,
-		"oauth_resource":             false,
-		"openid_relying_party":       true,
-		"openid_provider":            true,
-		"oauth_authorization_server": true,
-		"openid_wallet_provider":     true,
-		"openid_credential_issuer":   true,
-		"openid_credential_verifier": true,
+		"federation_entity":                   false,
+		"oauth_client":                        false,
+		"oauth_resource":                      false,
+		"openid_relying_party":                true,
+		"openid_provider":                     true,
+		"oauth_authorization_server":          true,
+		"openid_wallet_provider":              true,
+		"openid_credential_issuer":            true,
+		"openid_credential_verifier":          true,
+		"openid_credential_verifier_provider": true,
 	}
 
 	if len(withRequiredParameters) != len(builtInEntityTypes) {

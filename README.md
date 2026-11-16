@@ -52,6 +52,8 @@ Each change you may have to act on is marked **Breaking change** in the section 
 - [Anchoring a chain a caller supplies](#anchoring-a-chain-a-caller-supplies): an entity configuration or subordinate statement that carries a `trust_chain` or `peer_trust_chain` header is refused.
 - [Metadata policy](#metadata-policy): an entity type policy or a parameter policy whose value is `null` is refused.
 - [Entity statements and metadata](#entity-statements-and-metadata): resolved `oauth_authorization_server` metadata must hold the endpoints and signing algorithm lists that RFC 8414 section 2 makes conditional.
+- [Entity statements and metadata](#entity-statements-and-metadata): `openid_credential_verifier_provider` is a built-in entity type with its own field, and its resolved metadata must hold `jwks`.
+- [Entity statements and metadata](#entity-statements-and-metadata): `openid_credential_verifier` metadata must follow Wallet Architectures draft 06 section 6.4.1.
 
 ### From v0.11.0-rc.2
 
@@ -630,6 +632,7 @@ The following entity types are supported.
 | `openid_wallet_provider` | `OpenIDWalletProviderMetadata` |
 | `openid_credential_issuer` | `OpenIDCredentialIssuerMetadata` |
 | `openid_credential_verifier` | `OpenIDCredentialVerifierMetadata` |
+| `openid_credential_verifier_provider` | `OpenIDCredentialVerifierProviderMetadata` |
 
 Each is a `map[string]any` with its own validation, split across two points in the chain.
 
@@ -655,7 +658,22 @@ The claim shape rules run again on the resolved metadata, not only on each state
 
 > **Breaking change.** `Metadata.VerifyResolved` takes the subject's Entity Identifier as a second argument, and refuses resolved `openid_provider` or `oauth_authorization_server` metadata whose `issuer` is not that identifier. OpenID Federation for OpenID Connect 1.1 sections 5.1.2 and 5.1.3 make the match a MUST. Before this, an entity could publish OpenID Connect or OAuth metadata for an issuer it does not control, backed by its own trust chain, and a superior could point a subject's `issuer` elsewhere with a policy. The comparison is exact, as the clause states, so `https://op.example.com` and `https://op.example.com/openid` do not match.
 
-> **Breaking change.** `Metadata.VerifyResolved` also refuses resolved `openid_credential_issuer` metadata whose `credential_issuer` is not the subject's Entity Identifier. OpenID Federation for Wallet Architectures 1.0, draft 05, section 6.2.1, says it "MUST be equal to the `iss`/`sub` pair value in the Credential Issuer's Entity Configuration". Before this, an entity could publish Credential Issuer metadata naming another issuer, and a wallet that takes the Credential Issuer Identifier from resolved metadata would address that issuer under trust established for the publisher. The comparison is exact, as for `issuer`. The source is a draft, so this rule follows it if it changes.
+> **Breaking change.** `Metadata.VerifyResolved` also refuses resolved `openid_credential_issuer` metadata whose `credential_issuer` is not the subject's Entity Identifier. OpenID Federation for Wallet Architectures 1.0, draft 06, section 6.3.1, says it "MUST be equal to the `iss`/`sub` pair value in the Credential Issuer's Entity Configuration". Before this, an entity could publish Credential Issuer metadata naming another issuer, and a wallet that takes the Credential Issuer Identifier from resolved metadata would address that issuer under trust established for the publisher. The comparison is exact, as for `issuer`. The source is a draft, so this rule follows it if it changes.
+
+Resolved `openid_credential_verifier_provider` metadata must hold `jwks`. Wallet Architectures draft 06 section 6.2 says that the keys that sign Verifier Attestation JWTs "MUST be published in the jwks parameter". A `jwks_uri` or a `signed_jwks_uri` does not meet this rule.
+
+`openid_credential_verifier` metadata follows Wallet Architectures draft 06 section 6.4.1:
+
+- Each key in `jwks` must have a `kid`. Two different keys must not have the same `kid`. The same key can occur twice with the same `kid`.
+- `request_uris`, `response_uris` and `redirect_uris` must each be a non-empty array of `https` URLs. A `redirect_uris` entry must not have a fragment, as RFC 6749 section 3.1.2 requires.
+- `dcql_queries` must be a non-empty array of JSON objects. The library does not validate the DCQL query in each object.
+- `credential_verifier_providers` must be a non-empty array of Entity Identifiers.
+
+The `kid` rule is a MUST in the draft. The array rules are the types that the draft gives each parameter. The source is a draft, so these rules follow it if it changes. The library does not check that a Credential Verifier lists a Credential Verifier Provider in `credential_verifier_providers`. A wallet makes that check when it verifies a Verifier Attestation JWT.
+
+> **Breaking change.** `openid_credential_verifier_provider` is now a built-in entity type. Earlier releases put it in `Metadata.Extensions` and `MetadataPolicy.Extensions`. Read it from the `OpenIDCredentialVerifierProviderMetadata` field instead. An `Extensions` entry with this name is now refused when it is written. If you registered your own entity type with this identifier, the built-in rules now apply to it as well as yours. Resolved metadata of this type without `jwks` now gets `invalid_metadata`.
+
+> **Breaking change.** `openid_credential_verifier` metadata that does not follow the rules above was accepted, and is now refused when it is parsed. Examples are a `jwks` key with no `kid`, an empty array, an `http` URL and a `dcql_queries` entry that is not an object. An entity configuration or a subordinate statement that holds such metadata is refused, so a chain through it does not resolve.
 
 Resolved `oauth_authorization_server` metadata must also hold the parameters that RFC 8414 section 2 makes conditional. OpenID Federation for OpenID Connect 1.1 section 5.1.3 applies that section to this type. The rules are:
 

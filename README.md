@@ -58,6 +58,7 @@ Each change you may have to act on is marked **Breaking change** in the section 
 - [Entity statements and metadata](#entity-statements-and-metadata): an entity identifier must be an RFC 3986 URI, so a raw space, a raw non-ASCII character or a port above 65535 is refused.
 - [Entity statements and metadata](#entity-statements-and-metadata): a credential issuer's `authorization_servers` must be a non-empty array of entity identifiers.
 - [Metadata policy](#metadata-policy): a merged policy whose `add` and `superset_of` operators hold more operands in total than `MaxStatementValues` is refused.
+- [Metadata policy](#metadata-policy): a `metadata_policy` that repeats a member name at any of its three levels is refused.
 
 ### From v0.11.0-rc.2
 
@@ -825,6 +826,10 @@ A value that refers to itself, or that shares so much structure that walking it 
 
 Section 6.1.2 gives a metadata policy three levels: entity types, then metadata parameters, then operators. The value of an entity type and the value of a parameter policy must each be a JSON object. A `null` at either level is refused, as a string, a number or an array already is, and the statement that carries it is refused. An operator's own value is not restricted in this way: `{"value": null}` is accepted, because section 6.1.3.1.1 gives `null` a meaning there. An empty object at either level is accepted ([#129](https://github.com/MichaelFraser99/go-openid-federation/issues/129)).
 
+A member name must not occur twice at any of these three levels, as section 6.1.2 requires. A statement whose `metadata_policy` repeats an entity type, a parameter or an operator is refused as `invalid_metadata`, and so is a `model.MetadataPolicy` decoded from such JSON. Go's `encoding/json` keeps the last copy of a repeated name, so the library reads the statement's own bytes to find a repeat. A repeated name inside an operator's operand, such as an object under `value`, is below the three levels and is accepted.
+
+> **Breaking change.** In v0.11.1, a repeated member name in `metadata_policy` was accepted, and the last copy was used. A statement that holds one is now refused, so a chain through it does not resolve.
+
 > **Breaking change.** An entity type policy or a parameter policy whose value is `null`, such as `{"openid_relying_party": null}` or `{"contacts": null}`, was accepted and had no effect. A subordinate statement that carries one is now refused, so a chain through that statement does not resolve. Decoding such JSON into a `model.MetadataPolicy` now returns an error.
 
 All seven operators from the specification are implemented: `value`, `add`, `default`, `one_of`, `subset_of`, `superset_of` and `essential`.
@@ -1131,7 +1136,6 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | Trust mark type identifiers as object member names | Decided, not planned: member names in `trust_mark_issuers` and `trust_mark_owners` are not checked against a syntax, because §7.1 makes a URL RECOMMENDED rather than required and the one MUST, collision resistance, is not checkable | [#140](https://github.com/MichaelFraser99/go-openid-federation/issues/140) |
 | `subordinate_statement` on an unlistable entity | Decided: a deliberate deviation. Table 4 of the extended listing draft makes the attribute a MUST when requested, and an entity the subordinate store does not hold is returned without it. See [Retriever interfaces](#retriever-interfaces) | [#126](https://github.com/MichaelFraser99/go-openid-federation/issues/126) |
 | Entity identifiers with a path | `Configure` serves the endpoints at the server root, so an entity whose identifier has a path is not served at its advertised URL | [#128](https://github.com/MichaelFraser99/go-openid-federation/issues/128) |
-| Duplicate member names in `metadata_policy` | Accepted, and the last one wins (section 6.1.2) | [#168](https://github.com/MichaelFraser99/go-openid-federation/issues/168) |
 | Duplicate and folded member names in exported types | Types a consumer decodes still match member names case-insensitively, and resolve duplicates last-wins | [#178](https://github.com/MichaelFraser99/go-openid-federation/issues/178) |
 | One broken entity type in a resolution | Refuses the whole resolution, including for a caller that asked for a different entity type | [#158](https://github.com/MichaelFraser99/go-openid-federation/issues/158) |
 | An entity type registered under a built-in identifier | Decided: the registration adds to the built-in check, so it can tighten a built-in type but not loosen it | [#74](https://github.com/MichaelFraser99/go-openid-federation/issues/74) |

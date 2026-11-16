@@ -2,6 +2,7 @@ package server
 
 import (
 	"crypto"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -62,6 +63,12 @@ func TestServer_Resolve_DoesNotReflectPeerStatementContent(t *testing.T) {
 			name: "a metadata entity type the peer controls",
 			claims: func(identifier string) map[string]any {
 				return map[string]any{"metadata": map[string]any{strings.Repeat(marker, 200): "not-an-object"}}
+			},
+		},
+		{
+			name: "a metadata key the peer controls, holding a number too large for a float64",
+			claims: func(identifier string) map[string]any {
+				return map[string]any{"metadata": map[string]any{"federation_entity": map[string]any{strings.Repeat(marker, 200): json.Number("1e999")}}}
 			},
 		},
 		{

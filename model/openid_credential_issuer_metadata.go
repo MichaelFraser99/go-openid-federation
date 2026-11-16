@@ -28,7 +28,7 @@ func (m OpenIDCredentialIssuerMetadata) VerifyMetadata() error {
 			return err
 		}
 	}
-	if err := VerifyStringArrayClaim(m, "authorization_servers"); err != nil {
+	if err := verifyNonEmptyEntityIdentifierArrayClaim(m, "authorization_servers"); err != nil {
 		return err
 	}
 	return VerifyJWKSetClaims(m)

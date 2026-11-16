@@ -59,7 +59,7 @@ func issuedBy(trustMark string, issuer model.EntityIdentifier, valueLimit int) b
 		return false
 	}
 	var claims map[string]any
-	if json.Unmarshal(payload, &claims) != nil {
+	if json.Unmarshal(payload, &claims) != nil || model.VerifyUniqueClaimNames(payload) != nil {
 		return false
 	}
 	iss, _ := claims["iss"].(string)
@@ -111,6 +111,9 @@ func verifyIssued(trustMark string, issuer model.EntityIdentifier, trustMarkType
 	var head map[string]any
 	if json.Unmarshal(headBytes, &head) != nil {
 		return errors.New("its header is not a JSON object")
+	}
+	if err := model.VerifyUniqueHeaderParameters(headBytes); err != nil {
+		return err
 	}
 	if typ, _ := head["typ"].(string); !entity_statement.NamesJWTType(typ, "trust-mark+jwt") {
 		return errors.New("its 'typ' header is not trust-mark+jwt")

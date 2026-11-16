@@ -723,6 +723,9 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
+	if err := VerifyUniqueClaimNames(data); err != nil {
+		return err
+	}
 	e.decodedValues = CountDecodedValues(jsonMap)
 
 	if iss, ok := jsonMap["iss"]; !ok {
@@ -1744,6 +1747,9 @@ type TrustMark struct {
 func (t *TrustMark) UnmarshalJSON(data []byte) error {
 	var jsonMap map[string]any
 	if err := json.Unmarshal(data, &jsonMap); err != nil {
+		return err
+	}
+	if err := VerifyUniqueClaimNames(data); err != nil {
 		return err
 	}
 

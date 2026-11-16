@@ -59,6 +59,7 @@ Each change you may have to act on is marked **Breaking change** in the section 
 - [Entity statements and metadata](#entity-statements-and-metadata): a credential issuer's `authorization_servers` must be a non-empty array of entity identifiers.
 - [Metadata policy](#metadata-policy): a merged policy whose `add` and `superset_of` operators hold more operands in total than `MaxStatementValues` is refused.
 - [Metadata policy](#metadata-policy): a `metadata_policy` that repeats a member name at any of its three levels is refused.
+- [Entity statements and metadata](#entity-statements-and-metadata): a statement, trust mark or delegation that repeats a name in its header or its claims is refused.
 
 ### From v0.11.0-rc.2
 
@@ -349,6 +350,7 @@ Section 8.4.2 says that the endpoint MUST answer 404 for "something it did not i
 - The value is not three segments separated by dots.
 - The payload is not base64url, or not a JSON object.
 - The payload holds more values than `MaxStatementValues`.
+- The payload repeats a member name at its top level.
 - The `iss` is not this server's entity identifier, as an exact string.
 
 The endpoint does not verify the signature. A trust mark that names this server as `iss` but that this server did not issue still reaches your retriever. Look up the whole trust mark, not only its subject and type.
@@ -585,6 +587,14 @@ A `SubordinateConfiguration` may carry its own `SignerConfiguration`. When prese
 ## Entity statements and metadata
 
 `model.EntityStatement` covers both entity configurations and subordinate statements. Its `UnmarshalJSON` enforces the required claims `iss`, `sub`, `iat`, `exp` and `jwks`, validates entity identifiers, and reads `jwks` as a JWK Set.
+
+A name must not occur twice at the top level of the header or of the claims of an entity statement, a trust mark or a delegation. RFC 7515 section 4 and RFC 7519 section 4 make header parameter names and claim names unique, and they let a parser refuse a repeat or keep the last copy. The library refuses it. If it kept the last copy, a parser that keeps the first copy could disagree with it about which `jwks` signed a statement. The rule applies at the top level only: a repeat inside a claim follows that claim's own rules, and RFC 7517 section 5 lets a JWK Set keep the last copy. `model.VerifyUniqueHeaderParameters` and `model.VerifyUniqueClaimNames` apply the same check to bytes that you hold.
+
+> **Breaking change.** In v0.11.1, a repeated name in the header or the claims was accepted, and the last copy was used. A statement, trust mark or delegation that repeats a name is now refused, so a chain through it does not resolve.
+
+`model.ResolveResponse`, `model.TrustMarkStatusResponse`, `model.ExtendedListingResponse`, `model.SubordinateStatusResponse` and `model.SubordinateStatusEvent` are for producing responses. The library never decodes them. If you decode a peer's response into one of them with `encoding/json`, member names match when case is ignored and a repeated name keeps the last copy. To read a peer's response, decode it into a map and take each member by its exact name.
+
+`model.SubordinateConfiguration` has no `UnmarshalJSON` of its own either. Decoded with `encoding/json`, its member names also match when case is ignored, and its `JWKs` does not pass through `model.ParseJWKSet`. Build it in Go, or decode it only from a store that you control.
 
 > **Breaking change.** Three `EntityStatement` fields changed type or were removed between v0.10.0 and v0.11.0-rc.2, so code that uses them no longer compiles:
 >
@@ -1136,7 +1146,6 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | Trust mark type identifiers as object member names | Decided, not planned: member names in `trust_mark_issuers` and `trust_mark_owners` are not checked against a syntax, because §7.1 makes a URL RECOMMENDED rather than required and the one MUST, collision resistance, is not checkable | [#140](https://github.com/MichaelFraser99/go-openid-federation/issues/140) |
 | `subordinate_statement` on an unlistable entity | Decided: a deliberate deviation. Table 4 of the extended listing draft makes the attribute a MUST when requested, and an entity the subordinate store does not hold is returned without it. See [Retriever interfaces](#retriever-interfaces) | [#126](https://github.com/MichaelFraser99/go-openid-federation/issues/126) |
 | Entity identifiers with a path | `Configure` serves the endpoints at the server root, so an entity whose identifier has a path is not served at its advertised URL | [#128](https://github.com/MichaelFraser99/go-openid-federation/issues/128) |
-| Duplicate and folded member names in exported types | Types a consumer decodes still match member names case-insensitively, and resolve duplicates last-wins | [#178](https://github.com/MichaelFraser99/go-openid-federation/issues/178) |
 | One broken entity type in a resolution | Refuses the whole resolution, including for a caller that asked for a different entity type | [#158](https://github.com/MichaelFraser99/go-openid-federation/issues/158) |
 | An entity type registered under a built-in identifier | Decided: the registration adds to the built-in check, so it can tighten a built-in type but not loosen it | [#74](https://github.com/MichaelFraser99/go-openid-federation/issues/74) |
 | Custom policy operators | Decided: not supported. They cannot be registered, parsed from JSON or merged | [#96](https://github.com/MichaelFraser99/go-openid-federation/issues/96) |

@@ -10,6 +10,7 @@ import (
 const MaxLoggedValueBytes = 1024
 
 func TruncateAtCharacter(value string, limit int) string {
+	limit = max(limit, 0)
 	if len(value) <= limit {
 		return value
 	}

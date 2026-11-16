@@ -55,6 +55,7 @@ Each change you may have to act on is marked **Breaking change** in the section 
 - [Entity statements and metadata](#entity-statements-and-metadata): `openid_credential_verifier_provider` is a built-in entity type with its own field, and its resolved metadata must hold `jwks`.
 - [Entity statements and metadata](#entity-statements-and-metadata): `openid_credential_verifier` metadata must follow Wallet Architectures draft 06 section 6.4.1.
 - [Retriever interfaces](#retriever-interfaces): `AddSubordinate`, `GetSubordinate` and `GetSubordinates` copy the configuration, so a write to it no longer changes what `/fetch` signs.
+- [Entity statements and metadata](#entity-statements-and-metadata): an entity identifier must be an RFC 3986 URI, so a raw space, a raw non-ASCII character or a port above 65535 is refused.
 
 ### From v0.11.0-rc.2
 
@@ -625,6 +626,15 @@ Parsing applies the claim rules from section 3.2 of the specification. Earlier r
 Both issuance paths check their own output against these rules. `Server.HandleWellKnown` and the fetch endpoint fail rather than publish a statement that this library would refuse to read.
 
 Entity identifiers are validated by `model.ValidateEntityIdentifier`. An identifier must be an HTTPS URL with a host. It must not carry a query, fragment or userinfo component. This validation is syntactic and does not make an identifier safe to fetch.
+
+An identifier must also be a URI as RFC 3986 defines it. Section 1.2 calls Entity Identifiers URLs, and they are the `iss` and `sub` of a JWT. RFC 7519 section 2 says that an `iss` or `sub` value with a colon "MUST be a URI [RFC3986]". So these identifiers are refused:
+
+- An identifier with a character that RFC 3986 does not allow, such as a space, `"`, `<`, `>`, `\`, `^`, `` ` ``, `{`, `|` or `}`. Percent-encode the character instead, for example `%20` for a space.
+- An identifier with `[` or `]` outside an IPv6 host.
+- An identifier with a raw non-ASCII character. Write the host in its ASCII form, for example `xn--4ca.example.com`, and percent-encode the path as UTF-8.
+- An identifier with a port above 65535, because an `https` port is a TCP port.
+
+> **Breaking change.** In v0.11.1, `model.ValidateEntityIdentifier` accepted these identifiers. A peer whose `iss` or `sub` holds one is now refused, and so is a `sub` or `trust_anchor` query parameter that holds one. If your own identifier holds a raw space or a raw non-ASCII character, change it to its percent-encoded or ASCII form. The identifier is compared as a string, so the new form is a different identifier to your superiors and subordinates.
 
 The following entity types are supported.
 

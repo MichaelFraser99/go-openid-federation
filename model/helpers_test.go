@@ -1329,7 +1329,7 @@ func TestApplyPolicyMergesNewPolicies(t *testing.T) {
 		},
 	}
 
-	result, err := applyPolicy(existing, policy)
+	result, err := applyPolicy(existing, policy, DefaultMaxStatementValues)
 	if err != nil {
 		t.Fatalf("applyPolicy failed: %v", err)
 	}
@@ -1370,7 +1370,7 @@ func TestApplyPolicyMergesExistingAndNewPolicies(t *testing.T) {
 		},
 	}
 
-	result, err := applyPolicy(existing, policy)
+	result, err := applyPolicy(existing, policy, DefaultMaxStatementValues)
 	if err != nil {
 		t.Fatalf("applyPolicy failed: %v", err)
 	}
@@ -1401,7 +1401,7 @@ func TestApplyPolicyWithNilExisting(t *testing.T) {
 		},
 	}
 
-	result, err := applyPolicy(nil, policy)
+	result, err := applyPolicy(nil, policy, DefaultMaxStatementValues)
 	if err != nil {
 		t.Fatalf("applyPolicy failed: %v", err)
 	}

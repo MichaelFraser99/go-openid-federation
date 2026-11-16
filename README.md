@@ -56,6 +56,7 @@ Each change you may have to act on is marked **Breaking change** in the section 
 - [Entity statements and metadata](#entity-statements-and-metadata): `openid_credential_verifier` metadata must follow Wallet Architectures draft 06 section 6.4.1.
 - [Retriever interfaces](#retriever-interfaces): `AddSubordinate`, `GetSubordinate` and `GetSubordinates` copy the configuration, so a write to it no longer changes what `/fetch` signs.
 - [Entity statements and metadata](#entity-statements-and-metadata): an entity identifier must be an RFC 3986 URI, so a raw space, a raw non-ASCII character or a port above 65535 is refused.
+- [Entity statements and metadata](#entity-statements-and-metadata): a credential issuer's `authorization_servers` must be a non-empty array of entity identifiers.
 
 ### From v0.11.0-rc.2
 
@@ -682,6 +683,10 @@ The claim shape rules run again on the resolved metadata, not only on each state
 > **Breaking change.** `Metadata.VerifyResolved` takes the subject's Entity Identifier as a second argument, and refuses resolved `openid_provider` or `oauth_authorization_server` metadata whose `issuer` is not that identifier. OpenID Federation for OpenID Connect 1.1 sections 5.1.2 and 5.1.3 make the match a MUST. Before this, an entity could publish OpenID Connect or OAuth metadata for an issuer it does not control, backed by its own trust chain, and a superior could point a subject's `issuer` elsewhere with a policy. The comparison is exact, as the clause states, so `https://op.example.com` and `https://op.example.com/openid` do not match.
 
 > **Breaking change.** `Metadata.VerifyResolved` also refuses resolved `openid_credential_issuer` metadata whose `credential_issuer` is not the subject's Entity Identifier. OpenID Federation for Wallet Architectures 1.0, draft 06, section 6.3.1, says it "MUST be equal to the `iss`/`sub` pair value in the Credential Issuer's Entity Configuration". Before this, an entity could publish Credential Issuer metadata naming another issuer, and a wallet that takes the Credential Issuer Identifier from resolved metadata would address that issuer under trust established for the publisher. The comparison is exact, as for `issuer`. The source is a draft, so this rule follows it if it changes.
+
+`authorization_servers` in `openid_credential_issuer` metadata must be a non-empty array of Entity Identifiers. OpenID4VCI section 12.2.4 makes it "A non-empty array of strings" that are RFC 8414 issuer identifiers. Wallet Architectures draft 06 section 6.3.1 makes each one a Federation Entity of type `oauth_authorization_server`, whose `issuer` is its Entity Identifier. The library checks the form only. It does not check that each one resolves as an `oauth_authorization_server` in the federation. A wallet makes that check when it uses the Credential Issuer.
+
+> **Breaking change.** In v0.11.1, `authorization_servers` could be any array of strings, including an empty array and values that are not Entity Identifiers. Such metadata is now refused when it is parsed, so a chain through a statement that holds it does not resolve.
 
 Resolved `openid_credential_verifier_provider` metadata must hold `jwks`. Wallet Architectures draft 06 section 6.2 says that the keys that sign Verifier Attestation JWTs "MUST be published in the jwks parameter". A `jwks_uri` or a `signed_jwks_uri` does not meet this rule.
 

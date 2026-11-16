@@ -342,6 +342,10 @@ func TestDefaultEntityTypeRegistry_DelegatesToTheCorrectValidator(t *testing.T) 
 			metadata:      map[string]any{"vp_formats_supported": map[string]any{}, "request_uris": "not-an-array"},
 			expectedError: "'request_uris' must be an array of strings",
 		},
+		"openid_credential_verifier_provider": {
+			metadata:      map[string]any{"jwks_uri": "http://insecure.example.com"},
+			expectedError: "'jwks_uri' must use the 'https' scheme",
+		},
 	}
 
 	registry := DefaultEntityTypeRegistry()
@@ -389,15 +393,16 @@ func TestDefaultEntityTypeRegistry_DelegatesResolvedValidation(t *testing.T) {
 		metadata      map[string]any
 		expectedError string
 	}{
-		"federation_entity":          {metadata: map[string]any{"anything": "goes"}},
-		"oauth_client":               {metadata: map[string]any{"anything": "goes"}},
-		"oauth_resource":             {metadata: map[string]any{"anything": "goes"}},
-		"openid_relying_party":       {metadata: map[string]any{"client_name": "Example"}, expectedError: "missing required 'redirect_uris' claim"},
-		"openid_provider":            {metadata: map[string]any{"issuer": "https://op.example.com"}, expectedError: "missing required 'authorization_endpoint' claim"},
-		"oauth_authorization_server": {metadata: map[string]any{"issuer": "https://as.example.com"}, expectedError: "missing required 'response_types_supported' claim"},
-		"openid_wallet_provider":     {metadata: map[string]any{"client_id_prefixes_supported": []any{"redirect_uri"}}, expectedError: "missing required 'vp_formats_supported' claim"},
-		"openid_credential_issuer":   {metadata: map[string]any{"client_name": "Example"}, expectedError: "missing required 'credential_issuer' claim"},
-		"openid_credential_verifier": {metadata: map[string]any{"redirect_uris": []any{"https://verifier.example.com/cb"}}, expectedError: "missing required 'vp_formats_supported' claim"},
+		"federation_entity":                   {metadata: map[string]any{"anything": "goes"}},
+		"oauth_client":                        {metadata: map[string]any{"anything": "goes"}},
+		"oauth_resource":                      {metadata: map[string]any{"anything": "goes"}},
+		"openid_relying_party":                {metadata: map[string]any{"client_name": "Example"}, expectedError: "missing required 'redirect_uris' claim"},
+		"openid_provider":                     {metadata: map[string]any{"issuer": "https://op.example.com"}, expectedError: "missing required 'authorization_endpoint' claim"},
+		"oauth_authorization_server":          {metadata: map[string]any{"issuer": "https://as.example.com"}, expectedError: "missing required 'response_types_supported' claim"},
+		"openid_wallet_provider":              {metadata: map[string]any{"client_id_prefixes_supported": []any{"redirect_uri"}}, expectedError: "missing required 'vp_formats_supported' claim"},
+		"openid_credential_issuer":            {metadata: map[string]any{"client_name": "Example"}, expectedError: "missing required 'credential_issuer' claim"},
+		"openid_credential_verifier":          {metadata: map[string]any{"redirect_uris": []any{"https://verifier.example.com/cb"}}, expectedError: "missing required 'vp_formats_supported' claim"},
+		"openid_credential_verifier_provider": {metadata: map[string]any{"jwks_uri": "https://verifier.example.com/jwks"}, expectedError: "missing required 'jwks' claim"},
 	}
 
 	if len(builtInEntityTypes) != len(tests) {

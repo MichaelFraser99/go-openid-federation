@@ -966,29 +966,31 @@ func (t *TrustMarkHolder) UnmarshalJSON(data []byte) error {
 }
 
 type Metadata struct {
-	FederationMetadata                  *FederationMetadata                  `json:"federation_entity,omitempty"`
-	OpenIDRelyingPartyMetadata          *OpenIDRelyingPartyMetadata          `json:"openid_relying_party,omitempty"`
-	OpenIDConnectOpenIDProviderMetadata *OpenIDConnectOpenIDProviderMetadata `json:"openid_provider,omitempty"`
-	OAuthAuthorizationServerMetadata    *OAuthAuthorizationServerMetadata    `json:"oauth_authorization_server,omitempty"`
-	OAuthClientMetadata                 *OAuthClientMetadata                 `json:"oauth_client,omitempty"`
-	OAuthResourceMetadata               *OAuthResourceMetadata               `json:"oauth_resource,omitempty"`
-	OpenIDWalletProviderMetadata        *OpenIDWalletProviderMetadata        `json:"openid_wallet_provider,omitempty"`
-	OpenIDCredentialIssuerMetadata      *OpenIDCredentialIssuerMetadata      `json:"openid_credential_issuer,omitempty"`
-	OpenIDCredentialVerifierMetadata    *OpenIDCredentialVerifierMetadata    `json:"openid_credential_verifier,omitempty"`
-	Extensions                          map[string]map[string]any            `json:"-"`
+	FederationMetadata                       *FederationMetadata                       `json:"federation_entity,omitempty"`
+	OpenIDRelyingPartyMetadata               *OpenIDRelyingPartyMetadata               `json:"openid_relying_party,omitempty"`
+	OpenIDConnectOpenIDProviderMetadata      *OpenIDConnectOpenIDProviderMetadata      `json:"openid_provider,omitempty"`
+	OAuthAuthorizationServerMetadata         *OAuthAuthorizationServerMetadata         `json:"oauth_authorization_server,omitempty"`
+	OAuthClientMetadata                      *OAuthClientMetadata                      `json:"oauth_client,omitempty"`
+	OAuthResourceMetadata                    *OAuthResourceMetadata                    `json:"oauth_resource,omitempty"`
+	OpenIDWalletProviderMetadata             *OpenIDWalletProviderMetadata             `json:"openid_wallet_provider,omitempty"`
+	OpenIDCredentialIssuerMetadata           *OpenIDCredentialIssuerMetadata           `json:"openid_credential_issuer,omitempty"`
+	OpenIDCredentialVerifierMetadata         *OpenIDCredentialVerifierMetadata         `json:"openid_credential_verifier,omitempty"`
+	OpenIDCredentialVerifierProviderMetadata *OpenIDCredentialVerifierProviderMetadata `json:"openid_credential_verifier_provider,omitempty"`
+	Extensions                               map[string]map[string]any                 `json:"-"`
 }
 
 type MetadataPolicy struct {
-	FederationMetadata                  map[string]PolicyOperators            `json:"federation_entity,omitempty"`
-	OpenIDRelyingPartyMetadata          map[string]PolicyOperators            `json:"openid_relying_party,omitempty"`
-	OpenIDConnectOpenIDProviderMetadata map[string]PolicyOperators            `json:"openid_provider,omitempty"`
-	OAuthAuthorizationServerMetadata    map[string]PolicyOperators            `json:"oauth_authorization_server,omitempty"`
-	OAuthClientMetadata                 map[string]PolicyOperators            `json:"oauth_client,omitempty"`
-	OAuthResourceMetadata               map[string]PolicyOperators            `json:"oauth_resource,omitempty"`
-	OpenIDWalletProviderMetadata        map[string]PolicyOperators            `json:"openid_wallet_provider,omitempty"`
-	OpenIDCredentialIssuerMetadata      map[string]PolicyOperators            `json:"openid_credential_issuer,omitempty"`
-	OpenIDCredentialVerifierMetadata    map[string]PolicyOperators            `json:"openid_credential_verifier,omitempty"`
-	Extensions                          map[string]map[string]PolicyOperators `json:"-"`
+	FederationMetadata                       map[string]PolicyOperators            `json:"federation_entity,omitempty"`
+	OpenIDRelyingPartyMetadata               map[string]PolicyOperators            `json:"openid_relying_party,omitempty"`
+	OpenIDConnectOpenIDProviderMetadata      map[string]PolicyOperators            `json:"openid_provider,omitempty"`
+	OAuthAuthorizationServerMetadata         map[string]PolicyOperators            `json:"oauth_authorization_server,omitempty"`
+	OAuthClientMetadata                      map[string]PolicyOperators            `json:"oauth_client,omitempty"`
+	OAuthResourceMetadata                    map[string]PolicyOperators            `json:"oauth_resource,omitempty"`
+	OpenIDWalletProviderMetadata             map[string]PolicyOperators            `json:"openid_wallet_provider,omitempty"`
+	OpenIDCredentialIssuerMetadata           map[string]PolicyOperators            `json:"openid_credential_issuer,omitempty"`
+	OpenIDCredentialVerifierMetadata         map[string]PolicyOperators            `json:"openid_credential_verifier,omitempty"`
+	OpenIDCredentialVerifierProviderMetadata map[string]PolicyOperators            `json:"openid_credential_verifier_provider,omitempty"`
+	Extensions                               map[string]map[string]PolicyOperators `json:"-"`
 }
 
 var builtInEntityTypes = []string{
@@ -1001,18 +1003,20 @@ var builtInEntityTypes = []string{
 	"openid_wallet_provider",
 	"openid_credential_issuer",
 	"openid_credential_verifier",
+	"openid_credential_verifier_provider",
 }
 
 var builtInEntityTypeFields = map[string]string{
-	"federation_entity":          "FederationMetadata",
-	"openid_relying_party":       "OpenIDRelyingPartyMetadata",
-	"openid_provider":            "OpenIDConnectOpenIDProviderMetadata",
-	"oauth_authorization_server": "OAuthAuthorizationServerMetadata",
-	"oauth_client":               "OAuthClientMetadata",
-	"oauth_resource":             "OAuthResourceMetadata",
-	"openid_wallet_provider":     "OpenIDWalletProviderMetadata",
-	"openid_credential_issuer":   "OpenIDCredentialIssuerMetadata",
-	"openid_credential_verifier": "OpenIDCredentialVerifierMetadata",
+	"federation_entity":                   "FederationMetadata",
+	"openid_relying_party":                "OpenIDRelyingPartyMetadata",
+	"openid_provider":                     "OpenIDConnectOpenIDProviderMetadata",
+	"oauth_authorization_server":          "OAuthAuthorizationServerMetadata",
+	"oauth_client":                        "OAuthClientMetadata",
+	"oauth_resource":                      "OAuthResourceMetadata",
+	"openid_wallet_provider":              "OpenIDWalletProviderMetadata",
+	"openid_credential_issuer":            "OpenIDCredentialIssuerMetadata",
+	"openid_credential_verifier":          "OpenIDCredentialVerifierMetadata",
+	"openid_credential_verifier_provider": "OpenIDCredentialVerifierProviderMetadata",
 }
 
 func verifyExtensionsHoldNoBuiltInType[V any](kind string, extensions map[string]V) error {
@@ -1164,6 +1168,18 @@ func (m *Metadata) UnmarshalJSON(data []byte) error {
 			}
 		}
 	}
+	if openidCredentialVerifierProvider, ok := bytesMap["openid_credential_verifier_provider"]; ok {
+		m.OpenIDCredentialVerifierProviderMetadata, err = ReMarshalJsonAsEntityMetadata[OpenIDCredentialVerifierProviderMetadata](openidCredentialVerifierProvider)
+		if err != nil {
+			return fmt.Errorf("malformed openid credential verifier provider metadata: %s", err.Error())
+		}
+		if m.OpenIDCredentialVerifierProviderMetadata != nil {
+			err = m.OpenIDCredentialVerifierProviderMetadata.VerifyMetadata()
+			if err != nil {
+				return fmt.Errorf("invalid openid credential verifier provider metadata: %w", err)
+			}
+		}
+	}
 	for entityType, entityMetadata := range bytesMap {
 		if slices.Contains(builtInEntityTypes, entityType) {
 			continue
@@ -1211,6 +1227,9 @@ func (m Metadata) MarshalJSON() ([]byte, error) {
 	}
 	if m.OpenIDCredentialVerifierMetadata != nil {
 		resultMap["openid_credential_verifier"] = marshalMetadataToMap(*m.OpenIDCredentialVerifierMetadata)
+	}
+	if m.OpenIDCredentialVerifierProviderMetadata != nil {
+		resultMap["openid_credential_verifier_provider"] = marshalMetadataToMap(*m.OpenIDCredentialVerifierProviderMetadata)
 	}
 	for entityType, entityMetadata := range m.Extensions {
 		resultMap[entityType] = marshalMetadataToMap(entityMetadata)
@@ -1292,6 +1311,13 @@ func (m *MetadataPolicy) UnmarshalJSON(data []byte) error {
 		}
 		m.OpenIDCredentialVerifierMetadata = *openidCredentialVerifierOperators
 	}
+	if openidCredentialVerifierProvider, ok := bytesMap["openid_credential_verifier_provider"]; ok {
+		openidCredentialVerifierProviderOperators, err := ReMarshalJsonAsEntityMetadata[map[string]PolicyOperators](openidCredentialVerifierProvider)
+		if err != nil {
+			return fmt.Errorf("malformed openid credential verifier provider metadata policy: %s", err.Error())
+		}
+		m.OpenIDCredentialVerifierProviderMetadata = *openidCredentialVerifierProviderOperators
+	}
 	for entityType, entityPolicy := range bytesMap {
 		if slices.Contains(builtInEntityTypes, entityType) {
 			continue
@@ -1340,6 +1366,9 @@ func (m MetadataPolicy) MarshalJSON() ([]byte, error) {
 	if m.OpenIDCredentialVerifierMetadata != nil {
 		resultMap["openid_credential_verifier"] = marshalPolicyOperatorSetToMap(m.OpenIDCredentialVerifierMetadata)
 	}
+	if m.OpenIDCredentialVerifierProviderMetadata != nil {
+		resultMap["openid_credential_verifier_provider"] = marshalPolicyOperatorSetToMap(m.OpenIDCredentialVerifierProviderMetadata)
+	}
 	for entityType, operators := range m.Extensions {
 		resultMap[entityType] = marshalPolicyOperatorSetToMap(operators)
 	}
@@ -1375,6 +1404,9 @@ func (m *Metadata) byEntityType() map[string]map[string]any {
 	if m.OpenIDCredentialVerifierMetadata != nil {
 		entries["openid_credential_verifier"] = *m.OpenIDCredentialVerifierMetadata
 	}
+	if m.OpenIDCredentialVerifierProviderMetadata != nil {
+		entries["openid_credential_verifier_provider"] = *m.OpenIDCredentialVerifierProviderMetadata
+	}
 	for entityType, entityMetadata := range m.Extensions {
 		entries[entityType] = entityMetadata
 	}
@@ -1383,15 +1415,16 @@ func (m *Metadata) byEntityType() map[string]map[string]any {
 
 func (m *MetadataPolicy) byEntityType() map[string]map[string]PolicyOperators {
 	entries := map[string]map[string]PolicyOperators{
-		"federation_entity":          m.FederationMetadata,
-		"openid_relying_party":       m.OpenIDRelyingPartyMetadata,
-		"openid_provider":            m.OpenIDConnectOpenIDProviderMetadata,
-		"oauth_authorization_server": m.OAuthAuthorizationServerMetadata,
-		"oauth_client":               m.OAuthClientMetadata,
-		"oauth_resource":             m.OAuthResourceMetadata,
-		"openid_wallet_provider":     m.OpenIDWalletProviderMetadata,
-		"openid_credential_issuer":   m.OpenIDCredentialIssuerMetadata,
-		"openid_credential_verifier": m.OpenIDCredentialVerifierMetadata,
+		"federation_entity":                   m.FederationMetadata,
+		"openid_relying_party":                m.OpenIDRelyingPartyMetadata,
+		"openid_provider":                     m.OpenIDConnectOpenIDProviderMetadata,
+		"oauth_authorization_server":          m.OAuthAuthorizationServerMetadata,
+		"oauth_client":                        m.OAuthClientMetadata,
+		"oauth_resource":                      m.OAuthResourceMetadata,
+		"openid_wallet_provider":              m.OpenIDWalletProviderMetadata,
+		"openid_credential_issuer":            m.OpenIDCredentialIssuerMetadata,
+		"openid_credential_verifier":          m.OpenIDCredentialVerifierMetadata,
+		"openid_credential_verifier_provider": m.OpenIDCredentialVerifierProviderMetadata,
 	}
 	for entityType, operators := range m.Extensions {
 		entries[entityType] = operators
@@ -1443,6 +1476,8 @@ func (m *Metadata) setEntityType(entityType string, parameters map[string]any) {
 		m.OpenIDCredentialIssuerMetadata = (*OpenIDCredentialIssuerMetadata)(&parameters)
 	case "openid_credential_verifier":
 		m.OpenIDCredentialVerifierMetadata = (*OpenIDCredentialVerifierMetadata)(&parameters)
+	case "openid_credential_verifier_provider":
+		m.OpenIDCredentialVerifierProviderMetadata = (*OpenIDCredentialVerifierProviderMetadata)(&parameters)
 	default:
 		if m.Extensions == nil {
 			m.Extensions = map[string]map[string]any{}
@@ -1501,6 +1536,8 @@ func (m *MetadataPolicy) setEntityType(entityType string, operators map[string]P
 		m.OpenIDCredentialIssuerMetadata = operators
 	case "openid_credential_verifier":
 		m.OpenIDCredentialVerifierMetadata = operators
+	case "openid_credential_verifier_provider":
+		m.OpenIDCredentialVerifierProviderMetadata = operators
 	default:
 		if m.Extensions == nil {
 			m.Extensions = map[string]map[string]PolicyOperators{}
@@ -1539,6 +1576,9 @@ func (m *Metadata) FilterByEntityTypes(entityTypes []string) {
 	}
 	if !slices.Contains(entityTypes, "openid_credential_verifier") {
 		m.OpenIDCredentialVerifierMetadata = nil
+	}
+	if !slices.Contains(entityTypes, "openid_credential_verifier_provider") {
+		m.OpenIDCredentialVerifierProviderMetadata = nil
 	}
 	for entityType := range m.Extensions {
 		if !slices.Contains(entityTypes, entityType) {

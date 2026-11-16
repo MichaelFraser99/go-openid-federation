@@ -92,6 +92,13 @@ var builtInEntityTypeDefinitions = map[string]EntityType{
 		verify:         func(m map[string]any) error { return OpenIDCredentialVerifierMetadata(m).VerifyMetadata() },
 		verifyResolved: func(m map[string]any) error { return OpenIDCredentialVerifierMetadata(m).VerifyResolvedMetadata() },
 	},
+	"openid_credential_verifier_provider": builtInEntityType{
+		identifier: "openid_credential_verifier_provider",
+		verify:     func(m map[string]any) error { return OpenIDCredentialVerifierProviderMetadata(m).VerifyMetadata() },
+		verifyResolved: func(m map[string]any) error {
+			return OpenIDCredentialVerifierProviderMetadata(m).VerifyResolvedMetadata()
+		},
+	},
 }
 
 // DefaultEntityTypeRegistry returns the Entity Types defined by the OpenID Federation

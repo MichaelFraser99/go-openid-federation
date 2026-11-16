@@ -43,16 +43,11 @@ func (s *Server) List(w http.ResponseWriter, r *http.Request) ResponseFunc {
 		return s.RespondWithError(ctx, w, model.NewUnsupportedParameterError("subordinate listing filters are not supported"))
 	}
 
-	subordinates, err := s.cfg.GetSubordinates(ctx)
+	identifiers, err := s.cfg.SubordinateIdentifiers(ctx)
 	if err != nil {
 		classified := s.retrieverError(err, listingUnavailableError)
 		s.logFailure(ctx, "error retrieving subordinates", classified, slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, classified)
-	}
-
-	identifiers := make([]model.EntityIdentifier, 0, len(subordinates))
-	for identifier := range subordinates {
-		identifiers = append(identifiers, identifier)
 	}
 	return s.respondWithEntities(ctx, w, identifiers)
 }

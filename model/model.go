@@ -295,9 +295,23 @@ func (cfg *ServerConfiguration) GetSubordinates(ctx context.Context) (map[Entity
 	defer i.mu.RUnlock()
 	subordinates := make(map[EntityIdentifier]*SubordinateConfiguration, len(i.subordinates))
 	for identifier, subordinate := range i.subordinates {
-		subordinates[identifier] = subordinate
+		subordinates[identifier] = subordinate.clone()
 	}
 	return subordinates, nil
+}
+
+func (cfg *ServerConfiguration) SubordinateIdentifiers(ctx context.Context) ([]EntityIdentifier, error) {
+	if cfg.MetadataRetriever != nil {
+		subordinates, err := cfg.MetadataRetriever.GetSubordinates(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return slices.Sorted(maps.Keys(subordinates)), nil
+	}
+	i := cfg.IntermediateConfiguration
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	return slices.Sorted(maps.Keys(i.subordinates)), nil
 }
 
 func (cfg *ServerConfiguration) GetSubordinateJWKs(ctx context.Context) ([]SignerConfiguration, error) {
@@ -307,13 +321,12 @@ func (cfg *ServerConfiguration) GetSubordinateJWKs(ctx context.Context) ([]Signe
 
 	var signers []SignerConfiguration
 
-	subordinates, err := cfg.GetSubordinates(ctx)
-	if err != nil {
-		return nil, err
-	}
-	identifiers := slices.Sorted(maps.Keys(subordinates))
+	i := cfg.IntermediateConfiguration
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	identifiers := slices.Sorted(maps.Keys(i.subordinates))
 	for _, identifier := range identifiers {
-		subordinateConfiguration := subordinates[identifier]
+		subordinateConfiguration := i.subordinates[identifier]
 		if subordinateConfiguration == nil {
 			continue
 		}
@@ -333,13 +346,13 @@ func (cfg *ServerConfiguration) GetSubordinate(ctx context.Context, identifier E
 
 	if cfg.MetadataRetriever == nil {
 		if cached != nil {
-			return cached, nil
+			return cached.clone(), nil
 		}
 		return nil, NewNotFoundError(fmt.Sprintf("subordinate entity %s not found", identifier))
 	}
 
 	if cached != nil && time.Now().UTC().Before(time.Unix(cached.CachedAt, 0).Add(i.SubordinateCacheTime).UTC()) {
-		return cached, nil
+		return cached.clone(), nil
 	}
 
 	entity, err := cfg.MetadataRetriever.GetSubordinate(ctx, identifier)
@@ -350,20 +363,20 @@ func (cfg *ServerConfiguration) GetSubordinate(ctx context.Context, identifier E
 		return nil, NewNotFoundError(fmt.Sprintf("subordinate entity %s not found", identifier))
 	}
 
-	stored := *entity
+	stored := entity.clone()
 	stored.CachedAt = time.Now().UTC().Unix()
 	if i.SubordinateCacheTime < time.Second {
-		return &stored, nil
+		return stored, nil
 	}
 
 	i.mu.Lock()
 	if i.subordinates == nil {
 		i.subordinates = map[EntityIdentifier]*SubordinateConfiguration{}
 	}
-	i.subordinates[identifier] = &stored
+	i.subordinates[identifier] = stored
 	i.mu.Unlock()
 
-	return &stored, nil
+	return stored.clone(), nil
 }
 
 type Retriever interface {
@@ -453,7 +466,7 @@ func (i *IntermediateConfiguration) AddSubordinate(identifier EntityIdentifier, 
 	if subordinateConfiguration == nil {
 		return
 	}
-	stored := *subordinateConfiguration
+	stored := subordinateConfiguration.clone()
 	stored.JWKs.Opts.EnforceUniqueKIDs = true
 	stored.CachedAt = time.Now().UTC().Unix()
 
@@ -462,7 +475,18 @@ func (i *IntermediateConfiguration) AddSubordinate(identifier EntityIdentifier, 
 	if i.subordinates == nil {
 		i.subordinates = map[EntityIdentifier]*SubordinateConfiguration{}
 	}
-	i.subordinates[identifier] = &stored
+	i.subordinates[identifier] = stored
+}
+
+func (s *SubordinateConfiguration) clone() *SubordinateConfiguration {
+	copied := *s
+	copied.Policies = *s.Policies.deepClone()
+	copied.JWKs.Keys = cloneValue(s.JWKs.Keys).([]map[string]any)
+	if s.SignerConfiguration != nil {
+		signer := *s.SignerConfiguration
+		copied.SignerConfiguration = &signer
+	}
+	return &copied
 }
 
 type SubordinateConfiguration struct {
@@ -1506,6 +1530,56 @@ func clonePolicyParameters(parameters map[string]PolicyOperators) map[string]Pol
 
 func (p PolicyOperators) clone() PolicyOperators {
 	return PolicyOperators{Metadata: slices.Clone(p.Metadata), Unrecognised: slices.Clone(p.Unrecognised)}
+}
+
+func (m *MetadataPolicy) deepClone() *MetadataPolicy {
+	typed := *m
+	typed.Extensions = nil
+	copied := &MetadataPolicy{}
+	for entityType, parameters := range typed.byEntityType() {
+		if parameters != nil {
+			copied.setEntityType(entityType, deepClonePolicyParameters(parameters))
+		}
+	}
+	if m.Extensions != nil {
+		copied.Extensions = make(map[string]map[string]PolicyOperators, len(m.Extensions))
+		for entityType, parameters := range m.Extensions {
+			copied.Extensions[entityType] = deepClonePolicyParameters(parameters)
+		}
+	}
+	return copied
+}
+
+func deepClonePolicyParameters(parameters map[string]PolicyOperators) map[string]PolicyOperators {
+	if parameters == nil {
+		return nil
+	}
+	copied := make(map[string]PolicyOperators, len(parameters))
+	for parameter, operators := range parameters {
+		copied[parameter] = operators.deepClone()
+	}
+	return copied
+}
+
+func (p PolicyOperators) deepClone() PolicyOperators {
+	copied := PolicyOperators{Unrecognised: slices.Clone(p.Unrecognised)}
+	if p.Metadata != nil {
+		copied.Metadata = make([]MetadataPolicyOperator, len(p.Metadata))
+		for i, operator := range p.Metadata {
+			copied.Metadata[i] = cloneOperator(operator)
+		}
+	}
+	return copied
+}
+
+func cloneOperator(operator MetadataPolicyOperator) MetadataPolicyOperator {
+	switch operator.(type) {
+	case Value, Default, Add, Essential, OneOf, SubsetOf, SupersetOf:
+		if copied, err := parsePolicyOperator(operator.String(), operator.OperatorValue()); err == nil {
+			return copied
+		}
+	}
+	return operator
 }
 
 func (m *Metadata) clone() *Metadata {

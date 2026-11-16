@@ -165,6 +165,9 @@ func processAndExtractPolicy(trustChain []EntityStatement, operandLimit int) (*M
 
 		if finalisedPolicy == nil {
 			finalisedPolicy = metadataPolicy.clone()
+			if err := verifyMergedPolicyOperandCount(finalisedPolicy, operandLimit); err != nil {
+				return nil, err
+			}
 			continue
 		}
 
@@ -179,8 +182,36 @@ func processAndExtractPolicy(trustChain []EntityStatement, operandLimit int) (*M
 			}
 			finalisedPolicy.setEntityType(entityType, merged)
 		}
+		if err := verifyMergedPolicyOperandCount(finalisedPolicy, operandLimit); err != nil {
+			return nil, err
+		}
 	}
 	return finalisedPolicy, nil
+}
+
+func verifyMergedPolicyOperandCount(policy *MetadataPolicy, operandLimit int) error {
+	var operands int
+	for _, parameters := range policy.byEntityType() {
+		for _, operators := range parameters {
+			for _, operator := range operators.Metadata {
+				operands += unionOperandCount(operator)
+			}
+		}
+	}
+	if operands > operandLimit {
+		return fmt.Errorf("%wthe merged 'add' and 'superset_of' operators hold more than %d operands in total, the most one statement may hold", ErrLimitReached, operandLimit)
+	}
+	return nil
+}
+
+func unionOperandCount(operator MetadataPolicyOperator) int {
+	switch typed := operator.(type) {
+	case Add:
+		return len(typed.operatorValue)
+	case SupersetOf:
+		return len(typed.operatorValue)
+	}
+	return 0
 }
 
 func applyPolicy(existing, policy map[string]PolicyOperators, operandLimit int) (map[string]PolicyOperators, error) {
@@ -269,16 +300,7 @@ func mergePolicyOperators(claimName string, policySetA, policySetB PolicyOperato
 }
 
 func verifyMergedOperandCount(merged MetadataPolicyOperator, operandLimit int) error {
-	var operands int
-	switch typed := merged.(type) {
-	case Add:
-		operands = len(typed.operatorValue)
-	case SupersetOf:
-		operands = len(typed.operatorValue)
-	default:
-		return nil
-	}
-	if operands > operandLimit {
+	if unionOperandCount(merged) > operandLimit {
 		return fmt.Errorf("%wa merged '%s' operator holds more than %d operands, the most one statement may hold", ErrLimitReached, merged.String(), operandLimit)
 	}
 	return nil

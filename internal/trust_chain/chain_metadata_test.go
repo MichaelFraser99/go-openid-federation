@@ -603,3 +603,26 @@ func TestResolveMetadata_RefusesAMergedPolicyThatHoldsMoreOperandsThanOneStateme
 		t.Errorf("expected a raised MaxStatementValues to raise the bound for the merged policy too, got %v", err)
 	}
 }
+
+func TestResolveMetadata_RefusesAMergedPolicySpreadOverManyParameters(t *testing.T) {
+	spread := func(prefix string) map[string]any {
+		parameters := map[string]any{}
+		for p := range 90 {
+			values := make([]any, 100)
+			for i := range values {
+				values[i] = prefix + "-" + strconv.Itoa(p) + "-" + strconv.Itoa(i) + "@example.com"
+			}
+			parameters["parameter"+strconv.Itoa(p)] = map[string]any{"add": values}
+		}
+		return map[string]any{"metadata_policy": map[string]any{"federation_entity": parameters}}
+	}
+	chain := chainThroughIntermediate(t, spread("intermediate"), spread("anchor"))
+
+	_, err := resolveTrustingSuppliedAnchor(t, t.Context(), model.Configuration{}, chainAnchor, chainAnchor, chain, nil)
+	if !errors.Is(err, model.ErrLimitReached) || !errors.Is(err, model.ErrInvalidMetadata) {
+		t.Fatalf("[#153] expected 18,000 operands spread over 90 parameters to be refused as a limit, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "more than 10000 operands in total") {
+		t.Errorf("expected the description to name the total bound, got %v", err)
+	}
+}

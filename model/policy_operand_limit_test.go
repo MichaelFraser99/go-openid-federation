@@ -147,3 +147,128 @@ func TestMergePolicyOperators_BoundsTheMergedOperandsByDefault(t *testing.T) {
 		t.Fatalf("expected a limit error, got %v", err)
 	}
 }
+
+type spreadLevel struct {
+	entityTypes []string
+	parameters  int
+	operands    int
+	prefix      string
+	operator    string
+}
+
+func chainWithSpreadLevels(t *testing.T, levels ...spreadLevel) []EntityStatement {
+	t.Helper()
+	chain := []EntityStatement{{Iss: "https://leaf.example.com", Sub: "https://leaf.example.com"}}
+	for i, level := range levels {
+		operator := level.operator
+		if operator == "" {
+			operator = "add"
+		}
+		policy := &MetadataPolicy{}
+		for _, entityType := range level.entityTypes {
+			parameters := map[string]PolicyOperators{}
+			for p := range level.parameters {
+				built, err := parsePolicyOperator(operator, operandsNamed(fmt.Sprintf("%s-%s-%d-", level.prefix, entityType, p), level.operands))
+				if err != nil {
+					t.Fatalf("failed to build the %s operator: %v", operator, err)
+				}
+				parameters[fmt.Sprintf("parameter%d", p)] = PolicyOperators{Metadata: []MetadataPolicyOperator{built}}
+			}
+			policy.setEntityType(entityType, parameters)
+		}
+		sub := EntityIdentifier("https://leaf.example.com")
+		if i > 0 {
+			sub = EntityIdentifier(fmt.Sprintf("https://superior%d.example.com", i))
+		}
+		chain = append(chain, EntityStatement{Iss: EntityIdentifier(fmt.Sprintf("https://superior%d.example.com", i+1)), Sub: sub, MetadataPolicy: policy})
+	}
+	return chain
+}
+
+func TestConfiguration_ProcessAndExtractPolicy_BoundsTheOperandsTheWholeMergedPolicyHolds(t *testing.T) {
+	cfg := Configuration{MaxStatementValues: 10}
+	relyingParty := []string{"openid_relying_party"}
+
+	tests := map[string]struct {
+		levels  []spreadLevel
+		refused bool
+	}{
+		"many parameters, each under the bound, over it in total": {
+			levels: []spreadLevel{
+				{entityTypes: relyingParty, parameters: 4, operands: 2, prefix: "first"},
+				{entityTypes: relyingParty, parameters: 4, operands: 2, prefix: "second"},
+			},
+			refused: true,
+		},
+		"parameters spread across entity types, an extension type included": {
+			levels: []spreadLevel{
+				{entityTypes: []string{"openid_relying_party", "federation_entity", "x_custom"}, parameters: 1, operands: 2, prefix: "first"},
+				{entityTypes: []string{"openid_relying_party", "federation_entity", "x_custom"}, parameters: 1, operands: 2, prefix: "second"},
+			},
+			refused: true,
+		},
+		"an extension type that alone passes the bound in total": {
+			levels: []spreadLevel{
+				{entityTypes: []string{"x_custom"}, parameters: 3, operands: 2, prefix: "first"},
+				{entityTypes: []string{"x_custom"}, parameters: 3, operands: 2, prefix: "second"},
+			},
+			refused: true,
+		},
+		"superset_of spread over many parameters": {
+			levels: []spreadLevel{
+				{entityTypes: relyingParty, parameters: 4, operands: 2, prefix: "first", operator: "superset_of"},
+				{entityTypes: relyingParty, parameters: 4, operands: 2, prefix: "second", operator: "superset_of"},
+			},
+			refused: true,
+		},
+		"repeated operands that keep the total at the bound": {
+			levels: []spreadLevel{
+				{entityTypes: relyingParty, parameters: 2, operands: 5, prefix: "same"},
+				{entityTypes: relyingParty, parameters: 2, operands: 5, prefix: "same"},
+				{entityTypes: relyingParty, parameters: 2, operands: 5, prefix: "same"},
+			},
+		},
+		"a total one over the bound": {
+			levels: []spreadLevel{
+				{entityTypes: relyingParty, parameters: 1, operands: 5, prefix: "first"},
+				{entityTypes: relyingParty, parameters: 1, operands: 6, prefix: "second"},
+			},
+			refused: true,
+		},
+		"a single level over the bound on its own": {
+			levels: []spreadLevel{
+				{entityTypes: relyingParty, parameters: 1, operands: 11, prefix: "first"},
+			},
+			refused: true,
+		},
+		"narrowing operators do not count towards the total": {
+			levels: []spreadLevel{
+				{entityTypes: relyingParty, parameters: 3, operands: 20, prefix: "same", operator: "subset_of"},
+				{entityTypes: relyingParty, parameters: 3, operands: 20, prefix: "same", operator: "subset_of"},
+			},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := cfg.ProcessAndExtractPolicy(chainWithSpreadLevels(t, tc.levels...))
+			if !tc.refused {
+				if err != nil {
+					t.Fatalf("expected the policy to merge, got %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, ErrLimitReached) {
+				t.Fatalf("[#153] expected the total to be refused as a limit, got %v", err)
+			}
+			if !strings.Contains(err.Error(), "more than 10 operands") {
+				t.Errorf("expected the error to name the bound, got %v", err)
+			}
+			for _, chosen := range []string{"parameter0", "openid_relying_party", "x_custom"} {
+				if strings.Contains(err.Error(), chosen) {
+					t.Errorf("expected the error to name nothing a peer chose, got %v", err)
+				}
+			}
+		})
+	}
+}

@@ -134,6 +134,14 @@ func sortAndValidatePolicy(policy *MetadataPolicy) error {
 }
 
 func ProcessAndExtractPolicy(trustChain []EntityStatement) (*MetadataPolicy, error) {
+	return processAndExtractPolicy(trustChain, DefaultMaxStatementValues)
+}
+
+func (cfg *Configuration) ProcessAndExtractPolicy(trustChain []EntityStatement) (*MetadataPolicy, error) {
+	return processAndExtractPolicy(trustChain, cfg.StatementValuesLimit())
+}
+
+func processAndExtractPolicy(trustChain []EntityStatement, operandLimit int) (*MetadataPolicy, error) {
 	for i := range trustChain {
 		if err := sortAndValidatePolicy(trustChain[i].MetadataPolicy); err != nil {
 			return nil, err
@@ -157,6 +165,9 @@ func ProcessAndExtractPolicy(trustChain []EntityStatement) (*MetadataPolicy, err
 
 		if finalisedPolicy == nil {
 			finalisedPolicy = metadataPolicy.clone()
+			if err := verifyMergedPolicyOperandCount(finalisedPolicy, operandLimit); err != nil {
+				return nil, err
+			}
 			continue
 		}
 
@@ -165,24 +176,52 @@ func ProcessAndExtractPolicy(trustChain []EntityStatement) (*MetadataPolicy, err
 			if incoming == nil {
 				continue
 			}
-			merged, err := applyPolicy(destination[entityType], incoming)
+			merged, err := applyPolicy(destination[entityType], incoming, operandLimit)
 			if err != nil {
 				return nil, err
 			}
 			finalisedPolicy.setEntityType(entityType, merged)
 		}
+		if err := verifyMergedPolicyOperandCount(finalisedPolicy, operandLimit); err != nil {
+			return nil, err
+		}
 	}
 	return finalisedPolicy, nil
 }
 
-func applyPolicy(existing, policy map[string]PolicyOperators) (map[string]PolicyOperators, error) {
+func verifyMergedPolicyOperandCount(policy *MetadataPolicy, operandLimit int) error {
+	var operands int
+	for _, parameters := range policy.byEntityType() {
+		for _, operators := range parameters {
+			for _, operator := range operators.Metadata {
+				operands += unionOperandCount(operator)
+			}
+		}
+	}
+	if operands > operandLimit {
+		return fmt.Errorf("%wthe merged 'add' and 'superset_of' operators hold more than %d operands in total, the most one statement may hold", ErrLimitReached, operandLimit)
+	}
+	return nil
+}
+
+func unionOperandCount(operator MetadataPolicyOperator) int {
+	switch typed := operator.(type) {
+	case Add:
+		return len(typed.operatorValue)
+	case SupersetOf:
+		return len(typed.operatorValue)
+	}
+	return 0
+}
+
+func applyPolicy(existing, policy map[string]PolicyOperators, operandLimit int) (map[string]PolicyOperators, error) {
 	if policy != nil {
 		if existing == nil {
 			existing = clonePolicyParameters(policy)
 		} else {
 			for k, policies := range existing {
 				if policyOp, found := policy[k]; found {
-					mergedPolicies, err := MergePolicyOperators(k, policyOp, policies)
+					mergedPolicies, err := mergePolicyOperators(k, policyOp, policies, operandLimit)
 					if err != nil {
 						return nil, err
 					}
@@ -202,6 +241,10 @@ func applyPolicy(existing, policy map[string]PolicyOperators) (map[string]Policy
 
 // MergePolicyOperators takes in two PolicyOperator values and returns the result of merging the two
 func MergePolicyOperators(claimName string, policySetA, policySetB PolicyOperators) ([]MetadataPolicyOperator, error) {
+	return mergePolicyOperators(claimName, policySetA, policySetB, DefaultMaxStatementValues)
+}
+
+func mergePolicyOperators(claimName string, policySetA, policySetB PolicyOperators, operandLimit int) ([]MetadataPolicyOperator, error) {
 	if len(policySetA.Metadata) == 0 && len(policySetB.Metadata) == 0 {
 		return nil, nil
 	} else if len(policySetA.Metadata) == 0 {
@@ -239,6 +282,9 @@ func MergePolicyOperators(claimName string, policySetA, policySetB PolicyOperato
 				if err != nil {
 					return nil, err
 				}
+				if err := verifyMergedOperandCount(m, operandLimit); err != nil {
+					return nil, err
+				}
 				mergedPolicies = append(mergedPolicies, m)
 			}
 		}
@@ -251,6 +297,13 @@ func MergePolicyOperators(claimName string, policySetA, policySetB PolicyOperato
 
 		return sortedPolicies, nil
 	}
+}
+
+func verifyMergedOperandCount(merged MetadataPolicyOperator, operandLimit int) error {
+	if unionOperandCount(merged) > operandLimit {
+		return fmt.Errorf("%wa merged '%s' operator holds more than %d operands, the most one statement may hold", ErrLimitReached, merged.String(), operandLimit)
+	}
+	return nil
 }
 
 func validatePoliciesCanCombine(policies []MetadataPolicyOperator) error {

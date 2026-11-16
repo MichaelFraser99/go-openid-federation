@@ -820,10 +820,14 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 	}
 
 	cfg.LogInfo(ctx, "processing and extracting metadata policy from chain", slog.Int("chain_length", len(processedChain)))
-	finalisedPolicy, err := model.ProcessAndExtractPolicy(processedChain)
+	finalisedPolicy, err := cfg.ProcessAndExtractPolicy(processedChain)
 	if err != nil {
 		cfg.LogInfo(ctx, "failed to process and extract policy", slog.String("error", model.TruncateForResponse(err.Error())))
-		return nil, model.NewInvalidMetadataError(fmt.Sprintf("metadata policy for %s is unresolvable: %s", subject.Sub, err.Error()))
+		described := model.NewInvalidMetadataError(fmt.Sprintf("metadata policy for %s is unresolvable: %s", subject.Sub, err.Error()))
+		if errors.Is(err, model.ErrLimitReached) {
+			return nil, fmt.Errorf("%w%w", model.ErrLimitReached, described)
+		}
+		return nil, described
 	}
 
 	if finalisedPolicy == nil {

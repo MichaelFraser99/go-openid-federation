@@ -54,6 +54,7 @@ Each change you may have to act on is marked **Breaking change** in the section 
 - [Entity statements and metadata](#entity-statements-and-metadata): resolved `oauth_authorization_server` metadata must hold the endpoints and signing algorithm lists that RFC 8414 section 2 makes conditional.
 - [Entity statements and metadata](#entity-statements-and-metadata): `openid_credential_verifier_provider` is a built-in entity type with its own field, and its resolved metadata must hold `jwks`.
 - [Entity statements and metadata](#entity-statements-and-metadata): `openid_credential_verifier` metadata must follow Wallet Architectures draft 06 section 6.4.1.
+- [Retriever interfaces](#retriever-interfaces): `AddSubordinate`, `GetSubordinate` and `GetSubordinates` copy the configuration, so a write to it no longer changes what `/fetch` signs.
 
 ### From v0.11.0-rc.2
 
@@ -528,6 +529,12 @@ With no `Retriever`, the subordinates you add with `AddSubordinate` are the stor
 With a `Retriever`, `AddSubordinate` only seeds the cache. `/fetch` serves the entry until `SubordinateCacheTime` passes, and then asks the `Retriever`, whose answer replaces it. `/list` never shows it, because `/list` asks the `Retriever`.
 
 > **Breaking change.** In v0.11.0-rc.2, a subordinate added with `AddSubordinate` and no `Retriever` stopped being served by `/fetch` once `SubordinateCacheTime` had passed, and at once with the zero value, although `/list` still listed it. It is now served for as long as it is held. If you relied on `SubordinateCacheTime` to expire such entries, remove them with `FlushCache` instead.
+
+`AddSubordinate` keeps its own copy of the configuration. `GetSubordinate` and `GetSubordinates` return a copy of what is stored. A write to a configuration after you add it, or to a configuration that these methods return, does not change what `/fetch` signs. A `Retriever` result is copied the same way before it is cached. The copy includes the keys and the policy operands. Two parts are shared and not copied: the `crypto.Signer` in `SignerConfiguration`, and a policy operator of a type that your own code defines. The copy has the same bound as the policy engine, so a Go value with more than 100,000 nodes is shared after that point.
+
+`SubordinateIdentifiers` returns the identifiers that `/list` serves, in sorted order, and does not copy the configurations. With a `Retriever`, it returns the keys of the map from your `GetSubordinates`.
+
+> **Breaking change.** In v0.11.1, `AddSubordinate` kept the maps of the configuration that you passed, and `GetSubordinate` returned the stored configuration itself. A write to either one changed what `/fetch` signed, and a write during a request was a data race. To change a stored subordinate now, call `AddSubordinate` again with the new configuration. `/list` now serves its identifiers in sorted order.
 
 #### What to return when the subject is unknown
 

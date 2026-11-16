@@ -112,6 +112,11 @@ func TestOpenIDCredentialVerifierMetadata_VerifyMetadata(t *testing.T) {
 			metadata:  with(map[string]any{"redirect_uris": []any{"https:///cb"}}),
 			says:      "'redirect_uris' must hold only https URLs",
 		},
+		"a redirect_uris entry with a port and no host": {
+			reference: "RFC 9110 4.2.2",
+			metadata:  with(map[string]any{"redirect_uris": []any{"https://:443/cb"}}),
+			says:      "'redirect_uris' must hold only https URLs",
+		},
 		"a redirect_uris entry that does not parse": {
 			reference: "Wallet draft 06 6.4.1",
 			metadata:  with(map[string]any{"redirect_uris": []any{"https://verifier.example.com/%zz"}}),

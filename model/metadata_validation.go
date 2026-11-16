@@ -193,7 +193,7 @@ func verifyNonEmptyHTTPSURLArrayClaim(m map[string]any, key string) error {
 	}
 	for _, value := range values {
 		parsedURL, err := url.Parse(value)
-		if err != nil || parsedURL.Scheme != "https" || parsedURL.Host == "" {
+		if err != nil || parsedURL.Scheme != "https" || parsedURL.Hostname() == "" {
 			return fmt.Errorf("'%s' must hold only https URLs", key)
 		}
 	}

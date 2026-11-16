@@ -57,7 +57,7 @@ Each change you may have to act on is marked **Breaking change** in the section 
 - [Retriever interfaces](#retriever-interfaces): `AddSubordinate`, `GetSubordinate` and `GetSubordinates` copy the configuration, so a write to it no longer changes what `/fetch` signs.
 - [Entity statements and metadata](#entity-statements-and-metadata): an entity identifier must be an RFC 3986 URI, so a raw space, a raw non-ASCII character or a port above 65535 is refused.
 - [Entity statements and metadata](#entity-statements-and-metadata): a credential issuer's `authorization_servers` must be a non-empty array of entity identifiers.
-- [Metadata policy](#metadata-policy): a merged `add` or `superset_of` that holds more operands than `MaxStatementValues` is refused.
+- [Metadata policy](#metadata-policy): a merged policy whose `add` and `superset_of` operators hold more operands in total than `MaxStatementValues` is refused.
 
 ### From v0.11.0-rc.2
 
@@ -443,7 +443,7 @@ The library refuses a redirect to a URL that does not use `https` on every fetch
 | `Configuration.MaxTrustMarkIssuers` | `model.DefaultMaxTrustMarkIssuers`, 64 | Distinct trust mark issuers resolved for one subject |
 | `Configuration.MaxTrustMarks` | `model.DefaultMaxTrustMarks`, 64 | Trust marks one resolve verifies for its subject, in the order the subject lists them. Only a mark whose type the trust anchor lists in `trust_mark_issuers` counts, whether or not it then verifies. A mark of any other type is left out without any cost, for example a mark from another federation. Trusted marks past the limit are left out of the response without being verified. If you raise it above `MaxTrustMarkIssuers`, a subject whose marks name more issuers than that is refused with 404 `invalid_subject` |
 | `Configuration.MaxResolveTime` | `model.DefaultMaxResolveTime`, 30s | How long one `/resolve` request, or one `Client.BuildTrustChain` or `Client.ResolveMetadata` call, may take, trust mark issuer walks included |
-| `Configuration.MaxStatementValues` | `model.DefaultMaxStatementValues`, 10,000 | JSON values in the header or body of one peer statement, trust mark or delegation, or of one entry in a chain passed to `Client.ResolveMetadata`. Separately, JSON values in the headers and bodies of all the trust marks one statement carries, and of their delegations. Also the operands that one `add` or `superset_of` holds after the policies of a chain are merged |
+| `Configuration.MaxStatementValues` | `model.DefaultMaxStatementValues`, 10,000 | JSON values in the header or body of one peer statement, trust mark or delegation, or of one entry in a chain passed to `Client.ResolveMetadata`. Separately, JSON values in the headers and bodies of all the trust marks one statement carries, and of their delegations. Also the operands that the `add` and `superset_of` operators of a merged policy hold in total |
 | `Configuration.MaxAuthorityHints` | `model.DefaultMaxAuthorityHints`, 64 | `authority_hints` an entity configuration may list when the walk is to follow them |
 
 > **Breaking change.** These bounds now apply by default, to both `Server` and `Client`.
@@ -829,9 +829,13 @@ Section 6.1.2 gives a metadata policy three levels: entity types, then metadata 
 
 All seven operators from the specification are implemented: `value`, `add`, `default`, `one_of`, `subset_of`, `superset_of` and `essential`.
 
-When the policies of a chain are merged, `add` and `superset_of` take the union of their operands at each level. The union can hold no more operands than `MaxStatementValues`, which is 10,000 by default and is the most that one statement can hold. If the union is larger, the resolve answers 400 `invalid_metadata`, and the error carries `model.ErrLimitReached`. Without this bound, each merge processed the whole union again. A chain of statements that a peer built, at the default depth of 10, cost about 170 ms and 172 MB for each resolve, and the cost grew with the square of the depth. Now each merge is bounded, and the cost grows in proportion to the depth. `subset_of` and `one_of` take the intersection, which cannot grow, so the bound does not apply to them. `ProcessAndExtractPolicy` and `MergePolicyOperators` apply the default bound. `Configuration.ProcessAndExtractPolicy` applies the configured one.
+When the policies of a chain are merged, `add` and `superset_of` take the union of their operands at each level. After each level, the library counts the operands that these operators hold, across every entity type and every parameter of the merged policy. The total can be no more than `MaxStatementValues`, which is 10,000 by default and is the most that one statement can hold. If the total is larger, the resolve answers 400 `invalid_metadata`, and the error carries `model.ErrLimitReached`.
 
-> **Breaking change.** In v0.11.1, a merged `add` or `superset_of` could hold any number of operands. A chain whose merged union holds more than `MaxStatementValues` operands is now refused. To accept a larger union, raise `MaxStatementValues`.
+Without this bound, each merge processed every union again. A chain of statements that a peer built, at the default depth of 10, cost about 160 ms and 175 MB for each resolve, and the cost grew with the square of the depth. A bound on each parameter alone was not enough, because a peer can spread the values of one statement over many parameters. Now each level starts from a bounded total, and the cost grows in proportion to the depth. `subset_of` and `one_of` take the intersection, which cannot grow, so they do not count towards the total.
+
+`ProcessAndExtractPolicy` applies the default bound, and `Configuration.ProcessAndExtractPolicy` applies the configured one. `MergePolicyOperators` merges one parameter, so it bounds that parameter's union by the default.
+
+> **Breaking change.** In v0.11.1, a merged policy could hold any number of `add` and `superset_of` operands. A chain whose merged policy holds more than `MaxStatementValues` of them in total is now refused. To accept more, raise `MaxStatementValues`.
 
 > **Breaking change.** `essential` takes a boolean only, which section 6.1.3.1.7 lists as its one operand type. `"essential": null` was read as `false`, and it now produces a policy error, as section 6.1.3 requires for an operand type the operator does not support. Omitting `essential` is still the same as `false`.
 

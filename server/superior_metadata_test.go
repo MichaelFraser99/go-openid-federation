@@ -97,7 +97,7 @@ func (f superiorMetadataFederation) fetch(t *testing.T) (int, map[string]any) {
 	if err != nil {
 		t.Fatalf("fetch failed: %v", err)
 	}
-	defer response.Body.Close() //nolint:errcheck
+	defer func() { _ = response.Body.Close() }()
 	raw, err := io.ReadAll(response.Body)
 	if err != nil {
 		t.Fatalf("failed to read the fetch response: %v", err)

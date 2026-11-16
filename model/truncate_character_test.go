@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"math"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -67,5 +68,29 @@ func TestTruncateForResponse_AnErrorDescriptionMarshalsWithoutAReplacementCharac
 	}
 	if strings.Contains(string(body), "�") || strings.Contains(string(body), `�`) {
 		t.Errorf("the response carries U+FFFD, so the cut split a character: %s", body[len(body)-16:])
+	}
+}
+
+func TestTruncateAtCharacter_ALimitBelowOneKeepsNothing(t *testing.T) {
+	tests := map[string]struct {
+		value string
+		limit int
+		want  string
+	}{
+		"a zero limit":                         {value: "abc", limit: 0, want: "..."},
+		"a limit of minus one":                 {value: "abc", limit: -1, want: "..."},
+		"a large negative limit":               {value: "abc", limit: -100, want: "..."},
+		"the lowest int":                       {value: "abc", limit: math.MinInt, want: "..."},
+		"an empty value with a negative limit": {value: "", limit: -1, want: ""},
+		"a value that starts mid-character":    {value: "\x80abc", limit: -1, want: "..."},
+		"a multi-byte value":                   {value: "\u00e9t\u00e9", limit: -1, want: "..."},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := TruncateAtCharacter(tc.value, tc.limit); got != tc.want {
+				t.Errorf("expected %q, got %q", tc.want, got)
+			}
+		})
 	}
 }

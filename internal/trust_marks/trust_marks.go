@@ -314,10 +314,6 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 		cfg.LogInfo(ctx, "failed to unmarshal JWT header", slog.String("error", err.Error()))
 		return nil, fmt.Errorf("failed to unmarshal JWT header: %v", err)
 	}
-	if err := model.VerifyUniqueHeaderParameters(headBytes); err != nil {
-		cfg.LogInfo(ctx, "trust mark header repeats a member name")
-		return nil, err
-	}
 
 	kid, ok := headMap["kid"].(string)
 	if !ok || kid == "" {

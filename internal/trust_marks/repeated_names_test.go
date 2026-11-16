@@ -132,3 +132,22 @@ func TestIssuedBy_ATrustMarkRepeatingItsIssuerIsNotThisServers(t *testing.T) {
 		t.Errorf("[RFC 7519 4] expected a mark repeating iss not to be taken as this server's")
 	}
 }
+
+func TestVerifyIssued_RefusesAHeaderRepeatingAName(t *testing.T) {
+	const (
+		issuer   = model.EntityIdentifier("https://server.example.com")
+		subject  = model.EntityIdentifier("https://leaf.example.com")
+		markType = "https://tm.example.com/a"
+	)
+	encode := func(s string) string { return base64.RawURLEncoding.EncodeToString([]byte(s)) }
+	body := encode(`{"iss":"https://server.example.com","sub":"https://leaf.example.com","trust_mark_type":"https://tm.example.com/a","iat":1}`)
+	mark := func(head string) string { return encode(head) + "." + body + "." + encode("signature") }
+
+	if err := verifyIssued(mark(`{"kid":"k","typ":"trust-mark+jwt","alg":"ES256"}`), issuer, markType, subject); err != nil {
+		t.Fatalf("expected a well formed mark to pass, got %v", err)
+	}
+	err := verifyIssued(mark(`{"kid":"k","typ":"trust-mark+jwt","alg":"ES256","kid":"k"}`), issuer, markType, subject)
+	if err == nil || !strings.Contains(err.Error(), "the JWT header repeats a member name") {
+		t.Fatalf("[RFC 7515 4] expected a repeated header parameter to be refused, got %v", err)
+	}
+}

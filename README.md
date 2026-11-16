@@ -147,6 +147,8 @@ func main() {
 
 `Configure` registers the handlers on the mux supplied to it. The federation endpoints can share a mux with an application's other routes.
 
+Call `Configure` once for each mux. A second call on the same mux, from the same `Server` or from another one, makes `http.ServeMux` panic, because each path is already registered. The panic names the duplicate pattern. To serve two entities from one process, give each `Server` its own mux. A handler of your own on one of these paths has the same effect, as [Endpoints](#endpoints) describes.
+
 ### An intermediate or trust anchor
 
 Setting `IntermediateConfiguration` marks an entity as an authority and enables `/fetch`, `/list` and `/resolve`. Subordinates can be held in memory or loaded on demand.

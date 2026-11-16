@@ -44,6 +44,10 @@ func newOwnedSubordinate(t *testing.T) ownedSubordinate {
 				{"kty": "EC", "crv": "P-256", "kid": "registered", "x5c": []any{"certificate"}},
 			}},
 			SignerConfiguration: &SignerConfiguration{KeyID: "signer", Algorithm: "ES256"},
+			Metadata: &Metadata{
+				OAuthResourceMetadata: &OAuthResourceMetadata{"api_resources": []any{"https://api.example.com/a"}},
+				Extensions:            map[string]map[string]any{"x_type": {"x_param": []any{"x"}}},
+			},
 		},
 		jwksOperand: jwksOperand,
 		addOperand:  addOperand,
@@ -60,6 +64,11 @@ func snapshot(t *testing.T, subordinate *SubordinateConfiguration) string {
 	if err != nil {
 		t.Fatalf("expected the keys to marshal, got %v", err)
 	}
+	metadata, err := json.Marshal(subordinate.Metadata)
+	if err != nil {
+		t.Fatalf("expected the metadata to marshal, got %v", err)
+	}
+	keys = append(keys, metadata...)
 	signer := "<none>"
 	if subordinate.SignerConfiguration != nil {
 		signer = subordinate.SignerConfiguration.KeyID + "/" + subordinate.SignerConfiguration.Algorithm
@@ -105,6 +114,12 @@ func writeThrough(owned ownedSubordinate) []struct {
 			s.Policies.Extensions["x_type"]["x_added"] = PolicyOperators{}
 		}},
 		{name: "the signer", write: func(s *SubordinateConfiguration) { s.SignerConfiguration.KeyID = "other" }},
+		{name: "a metadata parameter", write: func(s *SubordinateConfiguration) {
+			(*s.Metadata.OAuthResourceMetadata)["api_resources"].([]any)[0] = "https://attacker.example.com"
+		}},
+		{name: "an extension type's metadata", write: func(s *SubordinateConfiguration) {
+			s.Metadata.Extensions["x_type"]["x_added"] = "forged"
+		}},
 	}
 }
 
@@ -283,6 +298,7 @@ func TestSubordinateStore_TheCopyKeepsTheShapeItWasGiven(t *testing.T) {
 	owned := newOwnedSubordinate(t)
 	misplaced := map[string]PolicyOperators{"organization_name": {Metadata: []MetadataPolicyOperator{Value{operatorValue: "Pinned"}}}}
 	owned.configuration.Policies.Extensions["federation_entity"] = misplaced
+	owned.configuration.Metadata.Extensions["federation_entity"] = map[string]any{"organization_name": "Pinned"}
 	original := owned.configuration
 
 	copied := original.clone()
@@ -290,8 +306,11 @@ func TestSubordinateStore_TheCopyKeepsTheShapeItWasGiven(t *testing.T) {
 	if !reflect.DeepEqual(copied, original) {
 		t.Errorf("expected the copy to equal the original:\nwant %#v\ngot  %#v", original, copied)
 	}
-	if copied.Policies.FederationMetadata != nil {
+	if copied.Policies.FederationMetadata != nil || copied.Metadata.FederationMetadata != nil {
 		t.Errorf("expected an Extensions entry under a built-in name to stay in Extensions, so MarshalJSON still refuses it")
+	}
+	if copied.Metadata == original.Metadata {
+		t.Errorf("expected the copy to hold its own Metadata")
 	}
 	if copied.SignerConfiguration == original.SignerConfiguration {
 		t.Errorf("expected the copy to hold its own SignerConfiguration")

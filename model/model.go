@@ -819,6 +819,9 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 		if metadataPolicy == nil {
 			return NewInvalidMetadataError("malformed 'metadata_policy' claim: must not be null")
 		}
+		if duplicate, err := statementPolicyHasDuplicateMember(data); err != nil || duplicate {
+			return NewInvalidMetadataError(errDuplicatePolicyMember.Error())
+		}
 		bytes, err := json.Marshal(metadataPolicy)
 		if err != nil {
 			return fmt.Errorf("malformed 'metadata_policy' claim: invalid JSON")
@@ -1266,6 +1269,9 @@ func (m *MetadataPolicy) UnmarshalJSON(data []byte) error {
 	err := json.Unmarshal(data, &bytesMap)
 	if err != nil {
 		return err
+	}
+	if duplicate, err := policyHasDuplicateMember(data); err != nil || duplicate {
+		return NewInvalidMetadataError(errDuplicatePolicyMember.Error())
 	}
 	for _, entityType := range slices.Sorted(maps.Keys(bytesMap)) {
 		if bytesMap[entityType] == nil {

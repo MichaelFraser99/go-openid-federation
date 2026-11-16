@@ -60,7 +60,6 @@ Each change you may have to act on is marked **Breaking change** in the section 
 - [Metadata policy](#metadata-policy): a merged policy whose `add` and `superset_of` operators hold more operands in total than `MaxStatementValues` is refused.
 - [Metadata policy](#metadata-policy): a `metadata_policy` that repeats a member name at any of its three levels is refused.
 - [Entity statements and metadata](#entity-statements-and-metadata): a statement, trust mark or delegation that repeats a name in its header or its claims is refused.
-- [Entity statements and metadata](#entity-statements-and-metadata): `SubordinateConfiguration` decodes members by their exact name only, and reads its key set through `ParseJWKSet`.
 
 ### From v0.11.0-rc.2
 
@@ -593,11 +592,9 @@ A name must not occur twice at the top level of the header or of the claims of a
 
 > **Breaking change.** In v0.11.1, a repeated name in the header or the claims was accepted, and the last copy was used. A statement, trust mark or delegation that repeats a name is now refused, so a chain through it does not resolve.
 
-`model.SubordinateConfiguration` has its own `UnmarshalJSON` for a consumer who stores it as JSON. It reads each member by its exact Go field name: `CachedAt`, `Policies`, `JWKs` and `SignerConfiguration`, which holds `KeyID` and `Algorithm`. It refuses a repeated name, and it reads `JWKs` through `model.ParseJWKSet`. A member whose name only matches when case is ignored, such as `jwks` or `cachedat`, sets nothing. A `Signer` cannot be decoded from JSON, so a `SignerConfiguration` that holds one is refused; set the signer in code.
-
 `model.ResolveResponse`, `model.TrustMarkStatusResponse`, `model.ExtendedListingResponse`, `model.SubordinateStatusResponse` and `model.SubordinateStatusEvent` are for producing responses. The library never decodes them. If you decode a peer's response into one of them with `encoding/json`, member names match when case is ignored and a repeated name keeps the last copy. To read a peer's response, decode it into a map and take each member by its exact name.
 
-> **Breaking change.** In v0.11.1, `SubordinateConfiguration` decoded with the rules of `encoding/json`, so a member whose name only matched when case was ignored set a field, and its key set skipped `ParseJWKSet`. Such a member now sets nothing, and a key set holds only the keys that `ParseJWKSet` accepts.
+`model.SubordinateConfiguration` has no `UnmarshalJSON` of its own either. Decoded with `encoding/json`, its member names also match when case is ignored, and its `JWKs` does not pass through `model.ParseJWKSet`. Build it in Go, or decode it only from a store that you control.
 
 > **Breaking change.** Three `EntityStatement` fields changed type or were removed between v0.10.0 and v0.11.0-rc.2, so code that uses them no longer compiles:
 >

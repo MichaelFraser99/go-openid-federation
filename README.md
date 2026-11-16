@@ -1130,7 +1130,7 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | Duplicate member names in `metadata_policy` | Accepted, and the last one wins (section 6.1.2) | [#168](https://github.com/MichaelFraser99/go-openid-federation/issues/168) |
 | Duplicate and folded member names in exported types | Types a consumer decodes still match member names case-insensitively, and resolve duplicates last-wins | [#178](https://github.com/MichaelFraser99/go-openid-federation/issues/178) |
 | One broken entity type in a resolution | Refuses the whole resolution, including for a caller that asked for a different entity type | [#158](https://github.com/MichaelFraser99/go-openid-federation/issues/158) |
-| An entity type registered under a built-in identifier | Does not replace the built-in check | [#74](https://github.com/MichaelFraser99/go-openid-federation/issues/74) |
+| An entity type registered under a built-in identifier | Decided: the registration adds to the built-in check, so it can tighten a built-in type but not loosen it | [#74](https://github.com/MichaelFraser99/go-openid-federation/issues/74) |
 | Custom policy operators | Decided: not supported. They cannot be registered, parsed from JSON or merged | [#96](https://github.com/MichaelFraser99/go-openid-federation/issues/96) |
 | `value` against a parameter of a different JSON type | Refused, rather than replacing the parameter | [#103](https://github.com/MichaelFraser99/go-openid-federation/issues/103) |
 | Deduplication of operands | Rewrites values `value`, `default` and `add` must preserve: `value` and `default` deduplicate their own operand, and `add` deduplicates the metadata it adds to | [#154](https://github.com/MichaelFraser99/go-openid-federation/issues/154) |
@@ -1139,7 +1139,7 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | A resolve response and the delegations behind it | A resolve response can outlive the delegation that authorises one of its trust marks | [#204](https://github.com/MichaelFraser99/go-openid-federation/issues/204) |
 | Issuing a superior's `metadata` claim | The claim is consumed, but a superior cannot be configured to issue it | [#155](https://github.com/MichaelFraser99/go-openid-federation/issues/155) |
 | Issuing `constraints` | Every subordinate statement read is held to its `constraints`, but `SubordinateConfiguration` has no field for them, so this library's own `/fetch` cannot issue the claim | [#268](https://github.com/MichaelFraser99/go-openid-federation/issues/268) |
-| `aud` and `trust_anchor` in an entity statement | Ignored, as section 13.4 of OpenID Federation 1.1 requires for a claim it does not define. Section 3.2 of OpenID Federation for OpenID Connect 1.1 asks a validator to refuse them outside explicit registration, which this library does not implement | [#172](https://github.com/MichaelFraser99/go-openid-federation/issues/172) |
+| `aud` and `trust_anchor` in an entity statement | Decided: ignored, as section 13.4 of OpenID Federation 1.1 requires for a claim it does not define. Section 3.2 of OpenID Federation for OpenID Connect 1.1 asks a validator to refuse them outside explicit registration, which this library does not implement | [#172](https://github.com/MichaelFraser99/go-openid-federation/issues/172) |
 
 ## License
 

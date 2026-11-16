@@ -172,14 +172,6 @@ func headerAlgorithm(token string) (string, error) {
 	return header, nil
 }
 
-func VerifyKeyAlgorithm(token string, key map[string]any) error {
-	header, err := headerAlgorithm(token)
-	if err != nil {
-		return err
-	}
-	return verifyKeyAlgorithm(header, key)
-}
-
 func verifyKeyAlgorithm(header string, key map[string]any) error {
 	declared, present := key["alg"]
 	if !present || declared == nil {

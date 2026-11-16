@@ -163,13 +163,6 @@ func (c *Cache) RecordDeadEnd(key DeadEnd) {
 	delete(c.entries, key.Subject)
 }
 
-func (c *Cache) DeadEnds() int {
-	if c == nil {
-		return 0
-	}
-	return len(c.deadEnds)
-}
-
 func (c *Cache) Traversed() int {
 	if c == nil {
 		return 0

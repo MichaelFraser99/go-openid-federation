@@ -2,6 +2,7 @@ package server
 
 import (
 	"crypto"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -50,6 +51,30 @@ func TestServer_Resolve_DoesNotReflectPeerStatementContent(t *testing.T) {
 				return map[string]any{
 					"authority_hints": []any{"http://" + strings.Repeat(marker, 200) + ".example.com"},
 				}
+			},
+		},
+		{
+			name: "a crit name the peer controls",
+			claims: func(identifier string) map[string]any {
+				return map[string]any{"crit": []any{strings.Repeat(marker, 200)}}
+			},
+		},
+		{
+			name: "a metadata entity type the peer controls",
+			claims: func(identifier string) map[string]any {
+				return map[string]any{"metadata": map[string]any{strings.Repeat(marker, 200): "not-an-object"}}
+			},
+		},
+		{
+			name: "a metadata key the peer controls, holding a number too large for a float64",
+			claims: func(identifier string) map[string]any {
+				return map[string]any{"metadata": map[string]any{"federation_entity": map[string]any{strings.Repeat(marker, 200): json.Number("1e999")}}}
+			},
+		},
+		{
+			name: "a metadata parameter the peer controls",
+			claims: func(identifier string) map[string]any {
+				return map[string]any{"metadata": map[string]any{"federation_entity": map[string]any{strings.Repeat(marker, 200): nil}}}
 			},
 		},
 	}
@@ -317,6 +342,48 @@ func TestServer_Resolve_DoesNotReflectSubordinateStatementFetchDetail(t *testing
 				}
 			},
 			forbidden: []string{peerFetchMarker, "'sub' claim does not match"},
+		},
+		{
+			name:      "a subordinate statement whose metadata_policy names an entity type the peer controls",
+			reference: "8.9 invalid_trust_chain",
+			metadata: func(base string) map[string]any {
+				return federationFetchEndpointMetadata(base + "/fetch")
+			},
+			fetch: func(signer crypto.Signer, publicJWK map[string]any) http.HandlerFunc {
+				return func(w http.ResponseWriter, r *http.Request) {
+					base := "https://" + r.Host
+					writePeerStatement(w, signer, map[string]any{
+						"iss":             base + "/anchor",
+						"sub":             base + "/leaf",
+						"iat":             time.Now().Add(-time.Minute).UTC().Unix(),
+						"exp":             time.Now().Add(10 * time.Minute).UTC().Unix(),
+						"jwks":            map[string]any{"keys": []any{publicJWK}},
+						"metadata_policy": map[string]any{strings.Repeat(peerFetchMarker, 20): nil},
+					})
+				}
+			},
+			forbidden: []string{peerFetchMarker, "metadata policy"},
+		},
+		{
+			name:      "a subordinate statement whose metadata_policy has a malformed extension type the peer names",
+			reference: "8.9 invalid_trust_chain",
+			metadata: func(base string) map[string]any {
+				return federationFetchEndpointMetadata(base + "/fetch")
+			},
+			fetch: func(signer crypto.Signer, publicJWK map[string]any) http.HandlerFunc {
+				return func(w http.ResponseWriter, r *http.Request) {
+					base := "https://" + r.Host
+					writePeerStatement(w, signer, map[string]any{
+						"iss":             base + "/anchor",
+						"sub":             base + "/leaf",
+						"iat":             time.Now().Add(-time.Minute).UTC().Unix(),
+						"exp":             time.Now().Add(10 * time.Minute).UTC().Unix(),
+						"jwks":            map[string]any{"keys": []any{publicJWK}},
+						"metadata_policy": map[string]any{strings.Repeat(peerFetchMarker, 20): map[string]any{"contacts": "not-an-object"}},
+					})
+				}
+			},
+			forbidden: []string{peerFetchMarker, "metadata policy"},
 		},
 	}
 

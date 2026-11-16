@@ -73,6 +73,18 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			expectErr: "'iss' claim is not a valid entity identifier",
 		},
 		{
+			name:      "iss with a raw space, which RFC 7519 StringOrURI requires to be a URI",
+			step:      "RFC 7519 2",
+			claims:    `"iss":"https://leaf.example.com/lea f","sub":"https://leaf.example.com/lea f"`,
+			expectErr: "'iss' claim is not a valid entity identifier",
+		},
+		{
+			name:      "sub with a raw non-ASCII host",
+			step:      "RFC 7519 2",
+			claims:    `"sub":"https://\u00e4.example.com"`,
+			expectErr: "'sub' claim is not a valid entity identifier",
+		},
+		{
 			name:      "sub with a query component",
 			step:      "1.2",
 			claims:    `"sub":"https://leaf.example.com/?x=1"`,

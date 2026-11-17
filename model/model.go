@@ -485,6 +485,9 @@ func (s *SubordinateConfiguration) clone() *SubordinateConfiguration {
 	if s.Metadata != nil {
 		copied.Metadata = s.Metadata.deepClone()
 	}
+	if s.Constraints != nil {
+		copied.Constraints = s.Constraints.clone()
+	}
 	if s.SignerConfiguration != nil {
 		signer := *s.SignerConfiguration
 		copied.SignerConfiguration = &signer
@@ -496,6 +499,7 @@ type SubordinateConfiguration struct {
 	CachedAt            int64
 	Policies            MetadataPolicy
 	Metadata            *Metadata
+	Constraints         *Constraints
 	JWKs                josemodel.Jwks
 	SignerConfiguration *SignerConfiguration // SignerConfiguration allows consumers to specify override private key material for a given subordinate entity
 }

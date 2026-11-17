@@ -50,7 +50,7 @@ func (s SubsetOf) Resolve(metadataParameterValue any) (any, error) {
 	operatorSlice := reflect.ValueOf(s.operatorValue)
 	metadataSlice := reflect.ValueOf(metadataParameterValue)
 
-	var intersection []any
+	intersection := []any{}
 
 	// Compute intersection
 	allowed := newOperandSetFromReflect(operatorSlice)

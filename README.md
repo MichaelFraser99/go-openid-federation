@@ -235,6 +235,20 @@ Each endpoint accepts the one method in the table. Any other method answers `405
 
 `Configure` therefore registers each of the nine standard HTTP methods on each of these paths: the method in the table reaches the handler, and the other eight answer 405. A request carrying a method outside that set gets `http.ServeMux`'s own plain-text 405 instead, which is the one case the JSON guarantee does not cover. So the library owns those paths outright, and registering any handler of your own on one of them, with or without a method, makes `http.ServeMux` panic on the duplicate whichever order you register in. Broader patterns are unaffected: a catch-all such as `GET /`, `/{path...}` or a prefix like `/api/fetch` coexists, and keeps receiving everything the federation paths do not match.
 
+### An entity identifier with a path
+
+`Configure` registers the paths in the table at the root of the mux. The entity configuration advertises each endpoint as the entity identifier followed by the path, for example `https://host/tenant/fetch`, and section 9 puts the entity configuration at the identifier followed by `/.well-known/openid-federation`. If your entity identifier has a path, mount the mux under that path and remove the prefix before the handlers see the request:
+
+```go
+federation := http.NewServeMux()
+s.Configure(federation)
+
+mux := http.NewServeMux()
+mux.Handle("/tenant/", http.StripPrefix("/tenant", federation))
+```
+
+Without the mount, `https://host/tenant/.well-known/openid-federation` answers 404, and the entity configuration is served at `https://host/.well-known/openid-federation`, which is the configuration URL of the entity `https://host`. If a reverse proxy already removes the path before the request reaches your server, mount the mux at the root.
+
 ### Query parameters
 
 **`/fetch`**
@@ -1187,18 +1201,14 @@ Entity statements and configurations, subordinate statements, trust chain constr
 |---|---|---|
 | Internationalised hosts under `naming_constraints` | Decided: refused by default, and matched only when `Configuration.HostToASCII` is set | [#50](https://github.com/MichaelFraser99/go-openid-federation/issues/50) |
 | Clock skew tolerance | `model.ClockSkewLeeway` is a constant and cannot be configured | [#141](https://github.com/MichaelFraser99/go-openid-federation/issues/141) |
-| Server configuration validation | A bad `ServerConfiguration` is reported when a peer first fetches, not at startup | [#145](https://github.com/MichaelFraser99/go-openid-federation/issues/145) |
 | Extension claims | Dropped on parse and cannot be issued | [#132](https://github.com/MichaelFraser99/go-openid-federation/issues/132) |
 | `trust_chain` and `peer_trust_chain` JOSE headers | Not read or written. An entity configuration or subordinate statement that carries either header is refused, as sections 4.3 and 4.4 require | [#139](https://github.com/MichaelFraser99/go-openid-federation/issues/139) |
 | Trust mark type identifiers as object member names | Decided, not planned: member names in `trust_mark_issuers` and `trust_mark_owners` are not checked against a syntax, because §7.1 makes a URL RECOMMENDED rather than required and the one MUST, collision resistance, is not checkable | [#140](https://github.com/MichaelFraser99/go-openid-federation/issues/140) |
 | `subordinate_statement` on an unlistable entity | Decided: a deliberate deviation. Table 4 of the extended listing draft makes the attribute a MUST when requested, and an entity the subordinate store does not hold is returned without it. See [Retriever interfaces](#retriever-interfaces) | [#126](https://github.com/MichaelFraser99/go-openid-federation/issues/126) |
-| Entity identifiers with a path | `Configure` serves the endpoints at the server root, so an entity whose identifier has a path is not served at its advertised URL | [#128](https://github.com/MichaelFraser99/go-openid-federation/issues/128) |
 | One broken entity type in a resolution | Refuses the whole resolution, including for a caller that asked for a different entity type | [#158](https://github.com/MichaelFraser99/go-openid-federation/issues/158) |
 | An entity type registered under a built-in identifier | Decided: the registration adds to the built-in check, so it can tighten a built-in type but not loosen it | [#74](https://github.com/MichaelFraser99/go-openid-federation/issues/74) |
 | Custom policy operators | Decided: not supported. They cannot be registered, parsed from JSON or merged | [#96](https://github.com/MichaelFraser99/go-openid-federation/issues/96) |
-| `value` against a parameter of a different JSON type | Refused, rather than replacing the parameter | [#103](https://github.com/MichaelFraser99/go-openid-federation/issues/103) |
 | Deduplication of operands | Rewrites values `value`, `default` and `add` must preserve: `value` and `default` deduplicate their own operand, and `add` deduplicates the metadata it adds to | [#154](https://github.com/MichaelFraser99/go-openid-federation/issues/154) |
-| `subset_of` with an empty intersection | Stores a nil slice, which marshals as `null` | [#102](https://github.com/MichaelFraser99/go-openid-federation/issues/102) |
 | `scope` operators | `one_of` on `scope` can never be satisfied, a scope array operand is tokenised by some operators and not others, and a resolved `scope` of `""` passes verification | [#197](https://github.com/MichaelFraser99/go-openid-federation/issues/197), [#198](https://github.com/MichaelFraser99/go-openid-federation/issues/198), [#200](https://github.com/MichaelFraser99/go-openid-federation/issues/200) |
 | A resolve response and the delegations behind it | A resolve response can outlive the delegation that authorises one of its trust marks | [#204](https://github.com/MichaelFraser99/go-openid-federation/issues/204) |
 | `aud` and `trust_anchor` in an entity statement | Decided: ignored, as section 13.4 of OpenID Federation 1.1 requires for a claim it does not define. Section 3.2 of OpenID Federation for OpenID Connect 1.1 asks a validator to refuse them outside explicit registration, which this library does not implement | [#172](https://github.com/MichaelFraser99/go-openid-federation/issues/172) |

@@ -37,6 +37,7 @@ func newOwnedSubordinate(t *testing.T) ownedSubordinate {
 	}
 	parsed.OpenIDRelyingPartyMetadata["jwks"] = PolicyOperators{Metadata: []MetadataPolicyOperator{*pinned}}
 	parsed.OpenIDRelyingPartyMetadata["contacts"] = PolicyOperators{Metadata: []MetadataPolicyOperator{*added}}
+	pathLength := 2
 	return ownedSubordinate{
 		configuration: &SubordinateConfiguration{
 			Policies: parsed,
@@ -44,6 +45,11 @@ func newOwnedSubordinate(t *testing.T) ownedSubordinate {
 				{"kty": "EC", "crv": "P-256", "kid": "registered", "x5c": []any{"certificate"}},
 			}},
 			SignerConfiguration: &SignerConfiguration{KeyID: "signer", Algorithm: "ES256"},
+			Constraints: &Constraints{
+				MaxPathLength:      &pathLength,
+				NamingConstraints:  &NamingConstraints{Permitted: []string{"example.com"}, Excluded: []string{"bad.example.com"}},
+				AllowedEntityTypes: []string{"openid_relying_party"},
+			},
 			Metadata: &Metadata{
 				OAuthResourceMetadata: &OAuthResourceMetadata{"api_resources": []any{"https://api.example.com/a"}},
 				Extensions:            map[string]map[string]any{"x_type": {"x_param": []any{"x"}}},
@@ -64,6 +70,11 @@ func snapshot(t *testing.T, subordinate *SubordinateConfiguration) string {
 	if err != nil {
 		t.Fatalf("expected the keys to marshal, got %v", err)
 	}
+	constraints, err := json.Marshal(subordinate.Constraints)
+	if err != nil {
+		t.Fatalf("expected the constraints to marshal, got %v", err)
+	}
+	keys = append(keys, constraints...)
 	metadata, err := json.Marshal(subordinate.Metadata)
 	if err != nil {
 		t.Fatalf("expected the metadata to marshal, got %v", err)
@@ -117,6 +128,12 @@ func writeThrough(owned ownedSubordinate) []struct {
 		{name: "a metadata parameter", write: func(s *SubordinateConfiguration) {
 			(*s.Metadata.OAuthResourceMetadata)["api_resources"].([]any)[0] = "https://attacker.example.com"
 		}},
+		{name: "an allowed entity type", write: func(s *SubordinateConfiguration) { s.Constraints.AllowedEntityTypes[0] = "openid_provider" }},
+		{name: "a permitted name", write: func(s *SubordinateConfiguration) {
+			s.Constraints.NamingConstraints.Permitted[0] = "attacker.example.com"
+		}},
+		{name: "an excluded name", write: func(s *SubordinateConfiguration) { s.Constraints.NamingConstraints.Excluded[0] = "nothing.example.com" }},
+		{name: "the max path length", write: func(s *SubordinateConfiguration) { *s.Constraints.MaxPathLength = 99 }},
 		{name: "an extension type's metadata", write: func(s *SubordinateConfiguration) {
 			s.Metadata.Extensions["x_type"]["x_added"] = "forged"
 		}},

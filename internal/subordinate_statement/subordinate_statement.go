@@ -317,6 +317,7 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		subordinateStatement.MetadataPolicy = &policy
 	}
 	subordinateStatement.Metadata = subjectSubordinateConfiguration.Metadata
+	subordinateStatement.Constraints = subjectSubordinateConfiguration.Constraints
 
 	signerFault := func(err error) error {
 		if subjectSubordinateConfiguration.SignerConfiguration != nil {

@@ -60,7 +60,7 @@ Each change you may have to act on is marked **Breaking change** in the section 
 - [Metadata policy](#metadata-policy): a merged policy whose `add` and `superset_of` operators hold more operands in total than `MaxStatementValues` is refused.
 - [Metadata policy](#metadata-policy): a `metadata_policy` that repeats a member name at any of its three levels is refused.
 - [Entity statements and metadata](#entity-statements-and-metadata): a statement, trust mark or delegation that repeats a name in its header or its claims is refused.
-- [Metadata policy](#metadata-policy): `SubordinateConfiguration` has a new `Metadata` field, so a literal that sets its fields by position no longer compiles.
+- [Metadata policy](#metadata-policy): `SubordinateConfiguration` has new `Metadata` and `Constraints` fields, so a literal that sets its fields by position no longer compiles.
 
 ### From v0.11.0-rc.2
 
@@ -883,7 +883,9 @@ intermediate.AddSubordinate("https://rs.example.com", &model.SubordinateConfigur
 })
 ```
 
-> **Breaking change.** `SubordinateConfiguration` has a new field, `Metadata`, after `Policies`. A literal that sets the fields by position, such as `SubordinateConfiguration{0, policy, keys, signer}`, no longer compiles. Name the fields instead.
+To issue a `constraints` claim, set `SubordinateConfiguration.Constraints` to a `model.Constraints`. With no value set, the statement carries no claim. Section 6.2 makes the constraints apply to the subject and to every entity below it, and this library enforces them when it resolves a chain that holds the statement. A value that this library would refuse when it reads a statement, such as a negative `MaxPathLength` or an `AllowedEntityTypes` that lists `federation_entity`, makes `/fetch` answer 500 for that subordinate.
+
+> **Breaking change.** `SubordinateConfiguration` has two new fields, `Metadata` and `Constraints`, after `Policies`. A literal that sets the fields by position, such as `SubordinateConfiguration{0, policy, keys, signer}`, no longer compiles. Name the fields instead.
 
 Resolving by hand, rather than through `ResolveMetadata`, means four steps in this order: `model.ApplySuperiorMetadata` to apply the immediate superior's `metadata` claim over the subject's own, `model.ProcessAndExtractPolicy` to merge the chain's policy, `model.ApplyPolicy` to apply it, and `Metadata.VerifyResolved` to judge the result. Skipping the first drops a superior's pinned parameters; skipping the last accepts resolved metadata that no entity type would.
 
@@ -1169,7 +1171,6 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | `subset_of` with an empty intersection | Stores a nil slice, which marshals as `null` | [#102](https://github.com/MichaelFraser99/go-openid-federation/issues/102) |
 | `scope` operators | `one_of` on `scope` can never be satisfied, a scope array operand is tokenised by some operators and not others, and a resolved `scope` of `""` passes verification | [#197](https://github.com/MichaelFraser99/go-openid-federation/issues/197), [#198](https://github.com/MichaelFraser99/go-openid-federation/issues/198), [#200](https://github.com/MichaelFraser99/go-openid-federation/issues/200) |
 | A resolve response and the delegations behind it | A resolve response can outlive the delegation that authorises one of its trust marks | [#204](https://github.com/MichaelFraser99/go-openid-federation/issues/204) |
-| Issuing `constraints` | Every subordinate statement read is held to its `constraints`, but `SubordinateConfiguration` has no field for them, so this library's own `/fetch` cannot issue the claim | [#268](https://github.com/MichaelFraser99/go-openid-federation/issues/268) |
 | `aud` and `trust_anchor` in an entity statement | Decided: ignored, as section 13.4 of OpenID Federation 1.1 requires for a claim it does not define. Section 3.2 of OpenID Federation for OpenID Connect 1.1 asks a validator to refuse them outside explicit registration, which this library does not implement | [#172](https://github.com/MichaelFraser99/go-openid-federation/issues/172) |
 
 ## License

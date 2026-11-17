@@ -21,6 +21,21 @@ type Constraints struct {
 
 const maxPathLengthLimit = float64(1 << 31)
 
+func (c *Constraints) clone() *Constraints {
+	copied := &Constraints{AllowedEntityTypes: slices.Clone(c.AllowedEntityTypes)}
+	if c.MaxPathLength != nil {
+		length := *c.MaxPathLength
+		copied.MaxPathLength = &length
+	}
+	if c.NamingConstraints != nil {
+		copied.NamingConstraints = &NamingConstraints{
+			Permitted: slices.Clone(c.NamingConstraints.Permitted),
+			Excluded:  slices.Clone(c.NamingConstraints.Excluded),
+		}
+	}
+	return copied
+}
+
 func (c Constraints) MarshalJSON() ([]byte, error) {
 	members := map[string]any{}
 	if c.MaxPathLength != nil {

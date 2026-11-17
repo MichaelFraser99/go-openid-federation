@@ -60,7 +60,7 @@ func selfReferenceServer(t *testing.T, own model.EntityIdentifier, setLegacyIss,
 		}
 	}
 
-	srv := NewServer(cfg)
+	srv := mustNewServer(t, cfg)
 	mux := http.NewServeMux()
 	srv.Configure(mux)
 	server := httptest.NewServer(mux)
@@ -156,7 +156,7 @@ func TestExtendedList_OmitsTheServersOwnEntryRatherThanFailingTheListing(t *test
 	intermediate.AddSubordinate(own, &model.SubordinateConfiguration{JWKs: josemodel.Jwks{Keys: []map[string]any{*public}}})
 	intermediate.AddSubordinate("https://genuine.example.com", &model.SubordinateConfiguration{JWKs: josemodel.Jwks{Keys: []map[string]any{*public}}})
 
-	srv := NewServer(model.ServerConfiguration{
+	srv := mustNewServer(t, model.ServerConfiguration{
 		SignerConfiguration: model.SignerConfiguration{
 			Algorithm: "ES256",
 			Signer:    signer,
@@ -251,7 +251,7 @@ func TestFetch_RefusesEverySpellingOfItsOwnIdentifier(t *testing.T) {
 				JWKs: josemodel.Jwks{Keys: []map[string]any{*public}},
 			})
 
-			srv := NewServer(model.ServerConfiguration{
+			srv := mustNewServer(t, model.ServerConfiguration{
 				SignerConfiguration: model.SignerConfiguration{
 					Algorithm: "ES256",
 					Signer:    signer,
@@ -312,7 +312,7 @@ func TestExtendedList_OmitsTheServersOwnEntryUnderAnyEquivalentSpelling(t *testi
 			intermediate.AddSubordinate(model.EntityIdentifier(tc.respelled), &model.SubordinateConfiguration{JWKs: josemodel.Jwks{Keys: []map[string]any{*public}}})
 			intermediate.AddSubordinate("https://genuine.example.com", &model.SubordinateConfiguration{JWKs: josemodel.Jwks{Keys: []map[string]any{*public}}})
 
-			srv := NewServer(model.ServerConfiguration{
+			srv := mustNewServer(t, model.ServerConfiguration{
 				SignerConfiguration: model.SignerConfiguration{
 					Algorithm: "ES256",
 					Signer:    signer,

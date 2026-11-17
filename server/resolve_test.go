@@ -113,7 +113,7 @@ func TestServer_Resolve(t *testing.T) {
 		t.Fatalf("expected no error creating invalid metadata public JWK, got %q", err.Error())
 	}
 
-	trustAnchorServer := NewServer(model.ServerConfiguration{
+	trustAnchorServer := mustNewServer(t, model.ServerConfiguration{
 		SignerConfiguration: model.SignerConfiguration{
 			Algorithm: "ES256",
 			Signer:    trustAnchorSigner,
@@ -139,7 +139,7 @@ func TestServer_Resolve(t *testing.T) {
 		tas.Close()
 	})
 
-	directChildEntityServer := NewServer(model.ServerConfiguration{
+	directChildEntityServer := mustNewServer(t, model.ServerConfiguration{
 		SignerConfiguration: model.SignerConfiguration{
 			Algorithm: "ES256",
 			Signer:    directChildSigner,
@@ -166,7 +166,7 @@ func TestServer_Resolve(t *testing.T) {
 		dcs.Close()
 	})
 
-	walletEntityServer := NewServer(model.ServerConfiguration{
+	walletEntityServer := mustNewServer(t, model.ServerConfiguration{
 		SignerConfiguration: model.SignerConfiguration{
 			Algorithm: "ES256",
 			Signer:    walletSigner,
@@ -450,7 +450,7 @@ func TestServer_Resolve(t *testing.T) {
 					Logger: slog.New(slog.NewJSONHandler(os.Stdout, nil)),
 				},
 			}
-			server := NewServer(serverConfig)
+			server := mustNewServer(t, serverConfig)
 			m := http.NewServeMux()
 			server.Configure(m)
 			s := httptest.NewTLSServer(m)

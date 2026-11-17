@@ -117,7 +117,7 @@ func TestServer_AStoreOutageBehindThePublishedKeySetKeepsItsClassButNotItsText(t
 			if tc.issuersErr != nil {
 				cfg.TrustMarkIssuerRetriever = publicationIssuerStore{err: tc.issuersErr}
 			}
-			server := NewServer(cfg)
+			server := mustNewServer(t, cfg)
 			mux := http.NewServeMux()
 			server.Configure(mux)
 			ts := httptest.NewServer(mux)

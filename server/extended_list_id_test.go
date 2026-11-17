@@ -115,7 +115,7 @@ func TestServer_ExtendedList_OmitsEntriesWhoseIdIsNotAnEntityIdentifier(t *testi
 					t.Fatalf("failed to build the signer: %v", err)
 				}
 				var logs bytes.Buffer
-				server := NewServer(model.ServerConfiguration{
+				server := mustNewServer(t, model.ServerConfiguration{
 					SignerConfiguration:         model.SignerConfiguration{Algorithm: "ES256", Signer: signer, KeyID: "server"},
 					EntityConfigurationLifetime: time.Hour,
 					IntermediateConfiguration:   &model.IntermediateConfiguration{SubordinateStatementLifetime: time.Hour},

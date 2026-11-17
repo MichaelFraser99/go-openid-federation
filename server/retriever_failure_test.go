@@ -57,7 +57,7 @@ func TestServer_Fetch_DistinguishesAStoreFailureFromAnUnknownSubject(t *testing.
 				t.Fatalf("failed to build the signer: %v", err)
 			}
 
-			server := NewServer(model.ServerConfiguration{
+			server := mustNewServer(t, model.ServerConfiguration{
 				SignerConfiguration:         model.SignerConfiguration{Algorithm: "ES256", Signer: signer, KeyID: "server"},
 				EntityConfigurationLifetime: time.Hour,
 				MetadataRetriever:           failingSubordinateRetriever{err: tc.err},

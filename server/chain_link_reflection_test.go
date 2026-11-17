@@ -58,7 +58,7 @@ func TestServer_Resolve_RefusesASuperiorsUnusableRegisteredKeyWithoutReflectingI
 				t.Fatalf("failed to build anchor signer: %v", err)
 			}
 
-			anchor := NewServer(model.ServerConfiguration{
+			anchor := mustNewServer(t, model.ServerConfiguration{
 				SignerConfiguration: model.SignerConfiguration{
 					Algorithm: "ES256", Signer: anchorSigner, KeyID: "anchor",
 				},

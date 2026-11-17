@@ -265,7 +265,7 @@ func TestServer_OneSubordinatesRecordDoesNotTakeDownWhatServesTheOthers(t *testi
 			authoritySigner, _ := newKey(t, "ta")
 			_, goodKey := newKey(t, "good")
 			logs := &lockedBuffer{}
-			server := NewServer(model.ServerConfiguration{
+			server := mustNewServer(t, model.ServerConfiguration{
 				EntityIdentifier:            "https://ta.example.com",
 				SignerConfiguration:         model.SignerConfiguration{Algorithm: "ES256", Signer: authoritySigner, KeyID: "ta"},
 				EntityConfigurationLifetime: time.Hour,

@@ -557,6 +557,12 @@ func TestEntityStatement_ClaimSyntax(t *testing.T) {
 			expectErr: "missing the required 'sub' member",
 		},
 		{
+			name:      "trust_mark_owners entry with an empty sub",
+			step:      "3.2 step 22",
+			claims:    `"trust_mark_owners":{"https://tm.example.com/a":{"sub":"","jwks":{"keys":[]}}}`,
+			expectErr: "has an empty 'sub' member",
+		},
+		{
 			name:      "trust_mark_owners entry missing jwks",
 			step:      "3.2 step 22",
 			claims:    `"trust_mark_owners":{"https://tm.example.com/a":{"sub":"https://o.example.com"}}`,

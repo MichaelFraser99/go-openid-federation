@@ -27,7 +27,7 @@ func (r *testListingRetriever) ListSubordinates(_ context.Context, filter model.
 
 func startListServer(t *testing.T, cfg model.ServerConfiguration) *httptest.Server {
 	t.Helper()
-	server := NewServer(cfg)
+	server := mustNewServer(t, cfg)
 	m := http.NewServeMux()
 	server.Configure(m)
 	s := httptest.NewServer(m)

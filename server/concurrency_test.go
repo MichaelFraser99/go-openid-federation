@@ -54,7 +54,7 @@ func concurrencyServer(t *testing.T) *Server {
 	}
 	(*subjectJWK)["alg"] = "ES256"
 
-	return NewServer(model.ServerConfiguration{
+	return mustNewServer(t, model.ServerConfiguration{
 		EntityIdentifier:            "https://ta.example.com",
 		EntityConfigurationLifetime: time.Hour,
 		SignerConfiguration: model.SignerConfiguration{

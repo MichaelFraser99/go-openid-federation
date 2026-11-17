@@ -74,7 +74,7 @@ func TestServer_PageNotFoundOutsideTheExtendedListingIsAnUnclassifiedFault(t *te
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			s := NewServer(model.ServerConfiguration{
+			s := mustNewServer(t, model.ServerConfiguration{
 				EntityIdentifier:            "https://ta.example.com",
 				SignerConfiguration:         model.SignerConfiguration{Algorithm: "ES256", Signer: signer, KeyID: "ta"},
 				EntityConfigurationLifetime: 10 * time.Minute,

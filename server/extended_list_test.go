@@ -29,7 +29,7 @@ func (r *testExtendedListingRetriever) GetExtendedSubordinates(_ context.Context
 
 func startExtendedListServerWithSizeLimit(t *testing.T, retriever model.ExtendedListingRetriever, sizeLimit int) *httptest.Server {
 	t.Helper()
-	server := NewServer(model.ServerConfiguration{
+	server := mustNewServer(t, model.ServerConfiguration{
 		EntityIdentifier:          "https://some-trust-source.com",
 		IntermediateConfiguration: &model.IntermediateConfiguration{},
 		Extensions: model.Extensions{

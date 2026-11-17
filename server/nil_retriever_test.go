@@ -62,7 +62,7 @@ func nilRetrieverServer(t *testing.T) (*httptest.Server, *Server) {
 	}
 	(*publicJWK)["kid"] = "server"
 
-	server := NewServer(model.ServerConfiguration{
+	server := mustNewServer(t, model.ServerConfiguration{
 		SignerConfiguration:         model.SignerConfiguration{Algorithm: "ES256", Signer: signer, KeyID: "server"},
 		EntityConfigurationLifetime: time.Hour,
 		MetadataRetriever:           nilSubordinateRetriever{},

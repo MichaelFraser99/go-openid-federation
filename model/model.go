@@ -658,6 +658,9 @@ func parseTrustMarkOwners(value any) (map[string]TrustMarkOwner, error) {
 		if !ok {
 			return nil, fmt.Errorf("'trust_mark_owners' entry for %q has a malformed 'sub' member", trustMarkType)
 		}
+		if sSub == "" {
+			return nil, fmt.Errorf("'trust_mark_owners' entry for %q has an empty 'sub' member", trustMarkType)
+		}
 		parsedSub, err := ValidateEntityIdentifier(sSub)
 		if err != nil {
 			return nil, fmt.Errorf("'trust_mark_owners' entry for %q has a 'sub' member that is not a valid entity identifier: %s", trustMarkType, err.Error())

@@ -49,7 +49,7 @@ func TestServer_Resolve_ATransportErrorDoesNotCarryAPeersURLIntoTheResponse(t *t
 				t.Fatalf("failed to build the leaf signer: %v", err)
 			}
 			hint := model.EntityIdentifier("https://superior.example.com/" + marker)
-			leaf := NewServer(model.ServerConfiguration{
+			leaf := mustNewServer(t, model.ServerConfiguration{
 				SignerConfiguration:         model.SignerConfiguration{Algorithm: "ES256", Signer: leafSigner, KeyID: "leaf"},
 				EntityConfigurationLifetime: 10 * time.Minute,
 				AuthorityHints:              []model.EntityIdentifier{hint},
@@ -64,7 +64,7 @@ func TestServer_Resolve_ATransportErrorDoesNotCarryAPeersURLIntoTheResponse(t *t
 			if err != nil {
 				t.Fatalf("failed to build the resolver signer: %v", err)
 			}
-			resolver := NewServer(model.ServerConfiguration{
+			resolver := mustNewServer(t, model.ServerConfiguration{
 				SignerConfiguration:         model.SignerConfiguration{Algorithm: "ES256", Signer: resolverSigner, KeyID: "resolver"},
 				EntityConfigurationLifetime: 10 * time.Minute,
 				IntermediateConfiguration:   &model.IntermediateConfiguration{},

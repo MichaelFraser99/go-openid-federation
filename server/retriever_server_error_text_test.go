@@ -111,7 +111,7 @@ func TestServer_ARetrieversFiveHundredClassAnswersTheEndpointsFixedDescription(t
 		for _, failure := range failures {
 			t.Run(endpoint.name+" with "+failure.name, func(t *testing.T) {
 				logs := &lockedBuffer{}
-				server := NewServer(model.ServerConfiguration{
+				server := mustNewServer(t, model.ServerConfiguration{
 					Configuration:               model.Configuration{Logger: slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelInfo}))},
 					EntityIdentifier:            "https://ta.example.com",
 					SignerConfiguration:         model.SignerConfiguration{Algorithm: "ES256", Signer: signer, KeyID: "ta"},
@@ -195,7 +195,7 @@ func TestServer_List_AListingRetrieversFiveHundredClassAnswersTheFixedDescriptio
 	} {
 		t.Run(name, func(t *testing.T) {
 			logs := &lockedBuffer{}
-			server := NewServer(model.ServerConfiguration{
+			server := mustNewServer(t, model.ServerConfiguration{
 				Configuration:               model.Configuration{Logger: slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelInfo}))},
 				EntityIdentifier:            "https://ta.example.com",
 				SignerConfiguration:         model.SignerConfiguration{Algorithm: "ES256", Signer: signer, KeyID: "ta"},

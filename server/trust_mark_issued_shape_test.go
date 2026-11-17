@@ -174,7 +174,7 @@ func TestServer_TrustMark_ServesOnlyATrustMarkForTheRequestedSubjectAndType(t *t
 			if err != nil {
 				t.Fatalf("failed to build a signer: %v", err)
 			}
-			server := NewServer(model.ServerConfiguration{
+			server := mustNewServer(t, model.ServerConfiguration{
 				EntityIdentifier:    issuedMarkIssuer,
 				SignerConfiguration: model.SignerConfiguration{Algorithm: "ES256", Signer: signer, KeyID: "server"},
 				TrustMarkRetriever:  fixedTrustMarkRetriever{issued: mark},

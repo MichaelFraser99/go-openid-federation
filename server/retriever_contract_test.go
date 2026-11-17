@@ -30,6 +30,16 @@ func (r sharedStatusRetriever) GetSubordinateStatus(context.Context, model.Entit
 
 func contractServer(t *testing.T, apply func(cfg *model.ServerConfiguration)) *httptest.Server {
 	t.Helper()
+	return serveContract(t, apply, true)
+}
+
+func uncheckedContractServer(t *testing.T, apply func(cfg *model.ServerConfiguration)) *httptest.Server {
+	t.Helper()
+	return serveContract(t, apply, false)
+}
+
+func serveContract(t *testing.T, apply func(cfg *model.ServerConfiguration), checked bool) *httptest.Server {
+	t.Helper()
 	signer, err := jws.GetSigner(jwa.ES256, nil)
 	if err != nil {
 		t.Fatalf("failed to build the signer: %v", err)
@@ -41,7 +51,10 @@ func contractServer(t *testing.T, apply func(cfg *model.ServerConfiguration)) *h
 	}
 	apply(&cfg)
 
-	server := NewServer(cfg)
+	server := newServer(cfg)
+	if checked {
+		server = mustNewServer(t, cfg)
+	}
 	mux := http.NewServeMux()
 	server.Configure(mux)
 	ts := httptest.NewTLSServer(mux)
@@ -492,7 +505,7 @@ func (panickingStatusRetriever) GetSubordinateStatus(context.Context, model.Enti
 
 func TestServer_RecoveryAbortsWhenAskedTo(t *testing.T) {
 	mux := http.NewServeMux()
-	server := NewServer(model.ServerConfiguration{})
+	server := mustNewServer(t, model.ServerConfiguration{})
 	mux.HandleFunc("GET /abort", server.handle(func(http.ResponseWriter, *http.Request) ResponseFunc {
 		panic(http.ErrAbortHandler)
 	}))

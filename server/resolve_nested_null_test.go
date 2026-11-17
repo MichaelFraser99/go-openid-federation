@@ -21,7 +21,7 @@ func TestServer_Resolve_RelaysANestedNullTheSubjectPublished(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to build the anchor signer: %v", err)
 	}
-	s := NewServer(model.ServerConfiguration{
+	s := mustNewServer(t, model.ServerConfiguration{
 		SignerConfiguration:         model.SignerConfiguration{Algorithm: "ES256", Signer: signer, KeyID: "ta"},
 		EntityConfigurationLifetime: 10 * time.Minute,
 		IntermediateConfiguration:   &model.IntermediateConfiguration{SubordinateStatementLifetime: time.Minute},

@@ -116,7 +116,7 @@ func TestServer_Resolve_ExtensionEntityTypes(t *testing.T) {
 		t.Fatalf("expected no error creating verifier public JWK, got %q", err.Error())
 	}
 
-	trustAnchorServer := NewServer(model.ServerConfiguration{
+	trustAnchorServer := mustNewServer(t, model.ServerConfiguration{
 		SignerConfiguration: model.SignerConfiguration{
 			Algorithm: "ES256",
 			Signer:    trustAnchorSigner,
@@ -139,7 +139,7 @@ func TestServer_Resolve_ExtensionEntityTypes(t *testing.T) {
 	trustAnchorServer.SetEntityIdentifier(model.EntityIdentifier(tas.URL))
 	t.Cleanup(func() { tas.Close() })
 
-	verifierEntityServer := NewServer(model.ServerConfiguration{
+	verifierEntityServer := mustNewServer(t, model.ServerConfiguration{
 		SignerConfiguration: model.SignerConfiguration{
 			Algorithm: "ES256",
 			Signer:    verifierSigner,
@@ -322,7 +322,7 @@ func TestServer_Resolve_ExtensionEntityTypes(t *testing.T) {
 				},
 			})
 
-			server := NewServer(model.ServerConfiguration{
+			server := mustNewServer(t, model.ServerConfiguration{
 				AuthorityHints:      []model.EntityIdentifier{model.EntityIdentifier(tas.URL)},
 				SignerConfiguration: model.SignerConfiguration{Algorithm: "ES256", Signer: signer, KeyID: (*signerPublicJWK)["kid"].(string)},
 
@@ -408,7 +408,7 @@ func TestServer_HandleWellKnown_PublishesExtensionEntityTypes(t *testing.T) {
 		t.Fatalf("expected no error creating public JWK, got %q", err.Error())
 	}
 
-	server := NewServer(model.ServerConfiguration{
+	server := mustNewServer(t, model.ServerConfiguration{
 		SignerConfiguration: model.SignerConfiguration{
 			Algorithm: "ES256",
 			Signer:    signer,
@@ -481,7 +481,7 @@ func TestServer_Fetch_PublishesExtensionEntityTypePolicy(t *testing.T) {
 		},
 	})
 
-	server := NewServer(model.ServerConfiguration{
+	server := mustNewServer(t, model.ServerConfiguration{
 		EntityIdentifier: "https://intermediate.example.com",
 		SignerConfiguration: model.SignerConfiguration{
 			Algorithm: "ES256",

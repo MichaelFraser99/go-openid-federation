@@ -51,7 +51,7 @@ func startFetchServer(t *testing.T, cfg model.ServerConfiguration) *httptest.Ser
 	if cfg.EntityConfigurationLifetime == 0 {
 		cfg.EntityConfigurationLifetime = time.Hour
 	}
-	server := NewServer(cfg)
+	server := newServer(cfg)
 	mux := http.NewServeMux()
 	server.Configure(mux)
 	fetchServer := httptest.NewServer(mux)

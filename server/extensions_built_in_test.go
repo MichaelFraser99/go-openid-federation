@@ -41,7 +41,7 @@ func TestServer_AnEntityConfigurationThatSetsABuiltInTypeThroughExtensionsIsNotP
 				cfg.IntermediateConfiguration = &model.IntermediateConfiguration{SubordinateStatementLifetime: time.Hour}
 			}
 			mux := http.NewServeMux()
-			NewServer(cfg).Configure(mux)
+			newServer(cfg).Configure(mux)
 			ts := httptest.NewServer(mux)
 			t.Cleanup(ts.Close)
 

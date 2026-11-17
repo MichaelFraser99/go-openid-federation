@@ -72,7 +72,7 @@ func TestServer_Resolve_MalformedPeerKeyDoesNotPanic(t *testing.T) {
 				t.Fatalf("failed to build the anchor signer: %v", err)
 			}
 
-			anchor := NewServer(model.ServerConfiguration{
+			anchor := mustNewServer(t, model.ServerConfiguration{
 				SignerConfiguration:         model.SignerConfiguration{Algorithm: "ES256", Signer: anchorSigner, KeyID: "anchor"},
 				EntityConfigurationLifetime: 10 * time.Minute,
 				IntermediateConfiguration:   &model.IntermediateConfiguration{SubordinateStatementLifetime: 10 * time.Minute},

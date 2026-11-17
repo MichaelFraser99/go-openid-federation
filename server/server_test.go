@@ -271,7 +271,7 @@ func TestServer_HandleWellKnown(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			server := NewServer(model.ServerConfiguration{
+			server := mustNewServer(t, model.ServerConfiguration{
 				SignerConfiguration: model.SignerConfiguration{
 					Signer:    signer,
 					KeyID:     (*signerPublicJWK)["kid"].(string),
@@ -358,7 +358,7 @@ func TestServer_List(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			server := NewServer(model.ServerConfiguration{
+			server := mustNewServer(t, model.ServerConfiguration{
 				IntermediateConfiguration: tt.configuration(),
 			})
 			m := http.NewServeMux()
@@ -533,7 +533,7 @@ func TestServer_ExtendedList(t *testing.T) {
 					},
 				},
 			})
-			server := NewServer(model.ServerConfiguration{
+			server := mustNewServer(t, model.ServerConfiguration{
 				EntityIdentifier:          "https://some-trust-source.com",
 				IntermediateConfiguration: testIntermediateConfiguration,
 				Extensions: model.Extensions{
@@ -676,7 +676,7 @@ func TestServer_SubordinateStatus(t *testing.T) {
 			t.Fatalf("expected no error creating public JWK, got %q", err.Error())
 		}
 		t.Run(name, func(t *testing.T) {
-			server := NewServer(model.ServerConfiguration{
+			server := mustNewServer(t, model.ServerConfiguration{
 				EntityIdentifier:          "https://some-trust-source.com",
 				IntermediateConfiguration: &model.IntermediateConfiguration{},
 				Extensions: model.Extensions{

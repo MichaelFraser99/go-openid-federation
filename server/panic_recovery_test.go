@@ -48,7 +48,7 @@ func TestServer_APanickingRetrieverAnswersWithAServerError(t *testing.T) {
 		t.Fatalf("failed to build the signer: %v", err)
 	}
 
-	server := NewServer(model.ServerConfiguration{
+	server := mustNewServer(t, model.ServerConfiguration{
 		SignerConfiguration:         model.SignerConfiguration{Algorithm: "ES256", Signer: signer, KeyID: "server"},
 		EntityConfigurationLifetime: time.Hour,
 		MetadataRetriever:           panickingRetriever{},

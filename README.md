@@ -62,6 +62,7 @@ Each change you may have to act on is marked **Breaking change** in the section 
 - [Entity statements and metadata](#entity-statements-and-metadata): a statement, trust mark or delegation that repeats a name in its header or its claims is refused.
 - [Metadata policy](#metadata-policy): `SubordinateConfiguration` has new `Metadata` and `Constraints` fields, so a literal that sets its fields by position no longer compiles.
 - [ServerConfiguration](#serverconfiguration): `server.NewServer` returns an error, and refuses a configuration that would fail every request.
+- [Metadata policy](#metadata-policy): a `value` operator replaces a parameter of another JSON type, so a resolved parameter can have a type the subject did not publish. Check the types in a custom entity type's `VerifyResolvedMetadata`, and in any `Extensions` type before you use it.
 
 ### From v0.11.0-rc.2
 
@@ -837,6 +838,14 @@ The private-member check is a denylist of the member names the JOSE specificatio
 `MetadataStringSlice(v)` returns a `[]string` from either a `[]string` or a `[]any`. JSON unmarshalling produces the latter and Go-constructed metadata the former, so a validator handling only one will reject valid input.
 
 ## Metadata policy
+
+The `value` operator assigns its operand whatever the type of the parameter it replaces, because section 6.1.3.1.1 says the parameter MUST be assigned the operator's value. A superior can therefore change a parameter's JSON type, for example from a string to an array. Section 6.1 does not make policy check value types. It leaves that check to the application, after the trust chain resolves.
+
+- For a built-in entity type, the library does that check. A resolved parameter of the wrong type is refused as `invalid_metadata`.
+- For an entity type that you register, the library calls your `VerifyResolvedMetadata` on the resolved metadata. Check each parameter's type there. Do not assume a parameter has the type the subject published.
+- For a type that is not registered, which is kept in `Extensions`, the library checks nothing. Check each value's type before you use it. A bare type assertion such as `meta["x"].(string)` panics on a changed type.
+
+> **Breaking change.** A `value` whose operand had a different JSON type from the parameter was refused, and the whole resolution failed with it. That resolution now succeeds, and the parameter has the operand's type.
 
 ### How operand values are compared
 

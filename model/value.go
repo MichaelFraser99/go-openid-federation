@@ -56,9 +56,6 @@ func (v Value) String() string {
 	return "value"
 }
 
-// Resolve takes in two values and resolves the 'value' operation.
-// Input 'metadataParameterValue' is the value to which the operator is to be applied.
-// Input 'operatorValue' is the value the operator will apply to the 'metadataParameterValue' value.
 func (v Value) Resolve(any) (any, error) {
 	return v.operatorValue, nil
 }

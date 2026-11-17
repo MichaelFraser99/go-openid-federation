@@ -51,8 +51,7 @@ func TestDefault_Resolve(t *testing.T) {
 				if result == nil {
 					t.Fatal("expected result to be non-nil")
 				}
-				// After deduplication, []bool{true, false, true} becomes []any{true, false}
-				expected := []any{true, false}
+				expected := []any{true, false, true}
 				if !reflect.DeepEqual(result, expected) {
 					t.Errorf("expected result to be %v, got %v", expected, result)
 				}

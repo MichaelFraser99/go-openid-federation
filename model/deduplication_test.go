@@ -205,18 +205,18 @@ func TestNewSupersetOf_Deduplication(t *testing.T) {
 	}
 }
 
-func TestNewValue_Deduplication(t *testing.T) {
+func TestNewValue_KeepsItsOperandAsWritten(t *testing.T) {
 	tests := map[string]struct {
 		input    any
 		expected any
 	}{
 		"string slice with duplicates": {
 			input:    []string{"a", "b", "a", "c"},
-			expected: []any{"a", "b", "c"},
+			expected: []any{"a", "b", "a", "c"},
 		},
 		"int slice with duplicates": {
 			input:    []int{1, 2, 1, 3},
-			expected: []any{1, 2, 3},
+			expected: []any{1, 2, 1, 3},
 		},
 		"non-slice value": {
 			input:    "single_value",
@@ -245,18 +245,18 @@ func TestNewValue_Deduplication(t *testing.T) {
 	}
 }
 
-func TestNewDefault_Deduplication(t *testing.T) {
+func TestNewDefault_KeepsItsOperandAsWritten(t *testing.T) {
 	tests := map[string]struct {
 		input    any
 		expected any
 	}{
 		"string slice with duplicates": {
 			input:    []string{"default1", "default2", "default1"},
-			expected: []any{"default1", "default2"},
+			expected: []any{"default1", "default2", "default1"},
 		},
 		"int slice with duplicates": {
 			input:    []int{100, 200, 100, 300},
-			expected: []any{100, 200, 300},
+			expected: []any{100, 200, 100, 300},
 		},
 		"non-slice value": {
 			input:    "default_value",

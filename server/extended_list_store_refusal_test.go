@@ -67,7 +67,7 @@ func TestServer_ExtendedList_OneSubordinateTheStoreRefusesLosesOnlyItsOwnStateme
 			}
 			(*public)["kid"] = "good"
 			logs := &lockedBuffer{}
-			server := NewServer(model.ServerConfiguration{
+			server := mustNewServer(t, model.ServerConfiguration{
 				EntityIdentifier:            "https://ta.example.com",
 				SignerConfiguration:         model.SignerConfiguration{Algorithm: "ES256", Signer: signer, KeyID: "ta"},
 				EntityConfigurationLifetime: time.Hour,

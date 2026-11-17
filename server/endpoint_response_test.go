@@ -528,7 +528,7 @@ func TestServer_ConfigureCoexistsWithConsumerRoutes(t *testing.T) {
 							t.Fatalf("mounting the federation routes beside %q panicked (consumer first: %v): %v", pattern, consumerFirst, recovered)
 						}
 					}()
-					server := NewServer(model.ServerConfiguration{
+					server := mustNewServer(t, model.ServerConfiguration{
 						IntermediateConfiguration: &model.IntermediateConfiguration{},
 						TrustMarkRetriever:        nilListingTrustMarkRetriever{},
 						Extensions: model.Extensions{
@@ -551,7 +551,7 @@ func TestServer_ConfigureCoexistsWithConsumerRoutes(t *testing.T) {
 }
 
 func TestServer_RouteNamesEveryMethodItServes(t *testing.T) {
-	server := NewServer(model.ServerConfiguration{})
+	server := mustNewServer(t, model.ServerConfiguration{})
 	mux := http.NewServeMux()
 	server.route(mux, "/two", func(w http.ResponseWriter, _ *http.Request) ResponseFunc {
 		return func() { w.WriteHeader(http.StatusNoContent) }

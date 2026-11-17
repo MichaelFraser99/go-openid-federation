@@ -53,7 +53,7 @@ func TestServer_AddAuthorityHint_PublishesEachSuperiorOnce(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			server := NewServer(model.ServerConfiguration{
+			server := mustNewServer(t, model.ServerConfiguration{
 				EntityIdentifier:            "https://leaf.example.com",
 				SignerConfiguration:         model.SignerConfiguration{Algorithm: "ES256", Signer: signer, KeyID: "leaf"},
 				EntityConfiguration:         model.EntityStatement{Iss: "https://leaf.example.com"},

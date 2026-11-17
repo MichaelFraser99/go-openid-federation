@@ -32,7 +32,7 @@ func TestServer_Resolve_AnOwnSignerFaultIsLoggedAtItsClassesLevelAndOnlyTwice(t 
 				t.Fatalf("failed to build a signer: %v", err)
 			}
 			logs := &lockedBuffer{}
-			s := NewServer(model.ServerConfiguration{
+			s := mustNewServer(t, model.ServerConfiguration{
 				Configuration:               model.Configuration{Logger: slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelInfo}))},
 				SignerConfiguration:         model.SignerConfiguration{Algorithm: "ES256", Signer: refusingSigner{public: real.Public(), err: tc.signerErr}, KeyID: "ta"},
 				EntityConfigurationLifetime: 10 * time.Minute,

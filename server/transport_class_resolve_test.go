@@ -60,7 +60,7 @@ func TestServer_Resolve_HonoursAConsumerTransportsClassInTheResponse(t *testing.
 			if err != nil {
 				t.Fatalf("failed to build the resolver signer: %v", err)
 			}
-			resolver := NewServer(model.ServerConfiguration{
+			resolver := mustNewServer(t, model.ServerConfiguration{
 				SignerConfiguration:         model.SignerConfiguration{Algorithm: "ES256", Signer: signer, KeyID: "resolver"},
 				EntityConfigurationLifetime: 10 * time.Minute,
 				IntermediateConfiguration:   &model.IntermediateConfiguration{SubordinateStatementLifetime: 10 * time.Minute},

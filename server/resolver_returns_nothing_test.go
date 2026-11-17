@@ -49,7 +49,7 @@ func TestServer_AResolverThatReturnsNoIdentifierAndNoErrorAnswersTheEndpointsFix
 	for _, endpoint := range endpoints {
 		t.Run(strings.SplitN(endpoint.path, "?", 2)[0]+" refusing "+string(endpoint.failOn), func(t *testing.T) {
 			logs := &lockedBuffer{}
-			s := NewServer(model.ServerConfiguration{
+			s := mustNewServer(t, model.ServerConfiguration{
 				Configuration:               model.Configuration{Logger: slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelInfo}))},
 				EntityIdentifier:            "https://ta.example.com",
 				SignerConfiguration:         model.SignerConfiguration{Algorithm: "ES256", Signer: signer, KeyID: "ta"},

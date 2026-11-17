@@ -118,7 +118,7 @@ func TestServer_Resolve_DoesNotReflectPeerStatementContent(t *testing.T) {
 			}
 			(*anchorJWK)["kid"] = "anchor"
 
-			anchor := NewServer(model.ServerConfiguration{
+			anchor := mustNewServer(t, model.ServerConfiguration{
 				SignerConfiguration: model.SignerConfiguration{
 					Algorithm: "ES256", Signer: anchorSigner, KeyID: "anchor",
 				},
@@ -236,7 +236,7 @@ func startResolverFor(t *testing.T, peer *peerFederation, cfg model.Configuratio
 	if err != nil {
 		t.Fatalf("failed to build the resolver signer: %v", err)
 	}
-	resolver := NewServer(model.ServerConfiguration{
+	resolver := mustNewServer(t, model.ServerConfiguration{
 		SignerConfiguration:         model.SignerConfiguration{Algorithm: "ES256", Signer: signer, KeyID: "resolver"},
 		EntityConfigurationLifetime: 10 * time.Minute,
 		IntermediateConfiguration:   &model.IntermediateConfiguration{SubordinateStatementLifetime: 10 * time.Minute},

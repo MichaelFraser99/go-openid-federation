@@ -84,7 +84,7 @@ func TestServer_Resolve_ThisServersOwnFaultAnswersTheFixedDescription(t *testing
 			logs := &lockedBuffer{}
 			configuration := model.Configuration{Logger: slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelInfo}))}
 			tc.configure(&configuration)
-			s := NewServer(model.ServerConfiguration{
+			s := newServer(model.ServerConfiguration{
 				Configuration:               configuration,
 				EntityIdentifier:            anchor,
 				SignerConfiguration:         model.SignerConfiguration{Algorithm: "ES256", Signer: signer, KeyID: "ta"},

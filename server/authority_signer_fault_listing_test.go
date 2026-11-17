@@ -50,7 +50,7 @@ func TestServer_ExtendedList_TheAuthoritysOwnSignerFaultFailsThePage(t *testing.
 				t.Fatalf("failed to read a public key: %v", err)
 			}
 			(*public)["kid"] = "good"
-			server := NewServer(model.ServerConfiguration{
+			server := mustNewServer(t, model.ServerConfiguration{
 				EntityIdentifier:            "https://ta.example.com",
 				SignerConfiguration:         authoritySigner,
 				EntityConfigurationLifetime: time.Hour,
@@ -110,7 +110,7 @@ func TestServer_ExtendedList_AThrottledSignerFailsThePageEvenWhenTheRecordSuppli
 	}
 	(*public)["kid"] = "good"
 	throttled := &model.SignerConfiguration{Algorithm: "ES256", KeyID: "own-signer", Signer: refusingSigner{public: subordinateSigner.Public(), err: model.NewTemporarilyUnavailableError("the key store is throttling requests")}}
-	server := NewServer(model.ServerConfiguration{
+	server := mustNewServer(t, model.ServerConfiguration{
 		EntityIdentifier:            "https://ta.example.com",
 		SignerConfiguration:         model.SignerConfiguration{Algorithm: "ES256", KeyID: "ta", Signer: signer},
 		EntityConfigurationLifetime: time.Hour,

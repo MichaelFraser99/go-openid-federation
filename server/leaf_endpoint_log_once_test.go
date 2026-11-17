@@ -19,7 +19,7 @@ func TestNewServer_ALeafsUnpublishedEndpointsAreLoggedOnceNotPerRequest(t *testi
 		t.Fatalf("failed to build the signer: %v", err)
 	}
 	logs := &lockedBuffer{}
-	server := NewServer(model.ServerConfiguration{
+	server := mustNewServer(t, model.ServerConfiguration{
 		Configuration:               model.Configuration{Logger: slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelInfo}))},
 		EntityIdentifier:            "https://leaf.example.com",
 		SignerConfiguration:         model.SignerConfiguration{Algorithm: "ES256", Signer: signer, KeyID: "leaf"},

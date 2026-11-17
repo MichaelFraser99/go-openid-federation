@@ -19,7 +19,7 @@ func TestConfigure_SuppliesNoHttpClientOfItsOwn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := NewServer(model.ServerConfiguration{
+	srv := mustNewServer(t, model.ServerConfiguration{
 		EntityIdentifier:            "https://ta.example.com",
 		SignerConfiguration:         model.SignerConfiguration{Algorithm: "ES256", Signer: signer, KeyID: "ta"},
 		EntityConfigurationLifetime: time.Hour,

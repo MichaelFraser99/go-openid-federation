@@ -31,7 +31,7 @@ func cacheTestSigner(t *testing.T) (model.SignerConfiguration, map[string]any) {
 func cacheTestServer(t *testing.T, ic *model.IntermediateConfiguration, retriever model.Retriever) *Server {
 	t.Helper()
 	signer, _ := cacheTestSigner(t)
-	return NewServer(model.ServerConfiguration{
+	return mustNewServer(t, model.ServerConfiguration{
 		SignerConfiguration:         signer,
 		EntityIdentifier:            "https://ta.example.com",
 		EntityConfigurationLifetime: time.Hour,

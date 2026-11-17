@@ -78,7 +78,7 @@ func TestServer_Resolve_ATrustAnchorResolvesAsItsOwnSubject(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			s := NewServer(model.ServerConfiguration{
+			s := mustNewServer(t, model.ServerConfiguration{
 				SignerConfiguration:         model.SignerConfiguration{Algorithm: "ES256", Signer: anchorSigner, KeyID: "ta"},
 				EntityConfigurationLifetime: 10 * time.Minute,
 				IntermediateConfiguration:   &model.IntermediateConfiguration{SubordinateStatementLifetime: time.Minute},

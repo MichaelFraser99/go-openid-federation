@@ -61,6 +61,7 @@ Each change you may have to act on is marked **Breaking change** in the section 
 - [Metadata policy](#metadata-policy): a `metadata_policy` that repeats a member name at any of its three levels is refused.
 - [Entity statements and metadata](#entity-statements-and-metadata): a statement, trust mark or delegation that repeats a name in its header or its claims is refused.
 - [Metadata policy](#metadata-policy): `SubordinateConfiguration` has new `Metadata` and `Constraints` fields, so a literal that sets its fields by position no longer compiles.
+- [ServerConfiguration](#serverconfiguration): `server.NewServer` returns an error, and refuses a configuration that would fail every request.
 
 ### From v0.11.0-rc.2
 
@@ -142,8 +143,12 @@ func main() {
 		},
 	}
 
+	s, err := server.NewServer(cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
 	mux := http.NewServeMux()
-	server.NewServer(cfg).Configure(mux)
+	s.Configure(mux)
 
 	log.Fatal(http.ListenAndServe(":8080", mux))
 }
@@ -367,7 +372,10 @@ Takes `sub` as a required query parameter.
 Handlers do not write to the `http.ResponseWriter` directly. Each returns a `server.ResponseFunc`, a closure that performs the write when called:
 
 ```go
-s := server.NewServer(cfg)
+s, err := server.NewServer(cfg)
+if err != nil {
+	return err
+}
 
 mux := http.NewServeMux()
 s.Configure(mux)
@@ -389,6 +397,19 @@ Use `Configure` to mount the endpoints. It wraps every route it registers, so a 
 ## Configuration
 
 ### ServerConfiguration
+
+`server.NewServer` checks the configuration before it returns a server, and returns an error that names each field at fault. A configuration that it refuses would make every request fail, so the error appears at startup and not when a peer first asks for `/.well-known/openid-federation`. It refuses:
+
+- A missing `SignerConfiguration.Signer`, an empty `KeyID`, or an `Algorithm` that this library cannot sign with.
+- An empty `SigningAlgorithms`, or an `EntityConfigurationLifetime` or `IntermediateConfiguration.SubordinateStatementLifetime` under one second.
+- An `EntityIdentifier` that is not an entity identifier. If the identifier is empty, it is not checked, because a test server can set it later with `SetEntityIdentifier`.
+- An `AuthorityHints` entry, or an issuer in `EntityConfiguration.TrustMarkIssuers`, that is not an entity identifier.
+- An `EntityConfiguration.TrustMarkOwners` entry with an empty or malformed `Sub`, or with no usable key in `JWKs`.
+- `EntityConfiguration.Metadata` that cannot be written or that fails the checks applied when a statement is read.
+
+A trust anchor has no `AuthorityHints`, so no superior can complete its metadata. If the metadata of a trust anchor does not pass the checks that resolved metadata must pass, `NewServer` logs this at error level and still returns the server. The anchor is still usable as a trust anchor, but a resolve with the anchor as its subject answers `invalid_metadata`. An entity with a superior is not checked for completeness, because a superior's `metadata` claim or policy can complete it.
+
+> **Breaking change.** `server.NewServer` returns `(*Server, error)`, not `*Server`. Handle the error, and fix each field that it names. A configuration that it now refuses would have failed on each request.
 
 | Field | Purpose |
 | --- | --- |

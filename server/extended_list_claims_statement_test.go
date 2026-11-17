@@ -54,7 +54,7 @@ func TestServer_ExtendedList_ASubordinateStatementIsReturnedOnlyWhenClaimsAllows
 				statement = func() {}
 			}
 			entities := []map[string]any{{"id": tc.subject, "subordinate_statement": statement, "registered": 1}}
-			server := NewServer(model.ServerConfiguration{
+			server := mustNewServer(t, model.ServerConfiguration{
 				SignerConfiguration:         model.SignerConfiguration{Algorithm: "ES256", Signer: signer, KeyID: "server"},
 				EntityConfigurationLifetime: time.Hour,
 				IntermediateConfiguration:   &model.IntermediateConfiguration{SubordinateStatementLifetime: time.Hour},

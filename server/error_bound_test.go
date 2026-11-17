@@ -9,7 +9,7 @@ import (
 )
 
 func TestParseError_BoundsTheDescription(t *testing.T) {
-	server := NewServer(model.ServerConfiguration{})
+	server := mustNewServer(t, model.ServerConfiguration{})
 
 	tests := []struct {
 		name  string

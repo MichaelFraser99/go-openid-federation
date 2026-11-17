@@ -300,7 +300,7 @@ func TestServer_Resolve_ATrustAnchorBuildsItsOwnEntityConfigurationRatherThanFet
 			if tc.padOwn > 0 {
 				own.Metadata = &model.Metadata{FederationMetadata: &model.FederationMetadata{"organization_name": strings.Repeat("a", tc.padOwn)}}
 			}
-			anchor := NewServer(model.ServerConfiguration{
+			anchor := mustNewServer(t, model.ServerConfiguration{
 				EntityConfiguration:         own,
 				SignerConfiguration:         model.SignerConfiguration{Algorithm: "ES256", Signer: signer, KeyID: "ta"},
 				EntityConfigurationLifetime: 10 * time.Minute,
@@ -428,7 +428,7 @@ func TestServer_Resolve_AnIntermediateBuildsItsOwnEntityConfigurationWithItsAuth
 		return *public
 	}
 	newAuthority := func(t *testing.T, signer crypto.Signer, kid string) (*Server, *httptest.Server, *ownRequestCounter) {
-		authority := NewServer(model.ServerConfiguration{
+		authority := mustNewServer(t, model.ServerConfiguration{
 			SignerConfiguration:         model.SignerConfiguration{Algorithm: "ES256", Signer: signer, KeyID: kid},
 			EntityConfigurationLifetime: 10 * time.Minute,
 			IntermediateConfiguration:   &model.IntermediateConfiguration{SubordinateStatementLifetime: 10 * time.Minute},

@@ -54,7 +54,7 @@ func TestServer_ASignedResponseIsNotIssuedUnderAnAlgorithmThisLibraryCannotSignW
 	}
 	endpoints := map[string]endpoint{
 		"/subordinate-status": {description: subordinateStatusUnavailableError, request: func(t *testing.T, algorithm string, logs *bytes.Buffer) *http.Response {
-			ts := contractServer(t, func(cfg *model.ServerConfiguration) {
+			ts := uncheckedContractServer(t, func(cfg *model.ServerConfiguration) {
 				cfg.SignerConfiguration.Algorithm = algorithm
 				cfg.Logger = slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 				cfg.Extensions = model.Extensions{SubordinateStatus: model.SubordinateStatusConfiguration{Enabled: true, MetadataRetriever: sharedStatusRetriever{shared: &model.SubordinateStatusResponse{}}}}
@@ -62,7 +62,7 @@ func TestServer_ASignedResponseIsNotIssuedUnderAnAlgorithmThisLibraryCannotSignW
 			return get(t, ts, "/subordinate-status?sub="+url.QueryEscape("https://leaf.example.com"))
 		}},
 		"/trust-mark-status": {description: trustMarkStatusUnavailableError, request: func(t *testing.T, algorithm string, logs *bytes.Buffer) *http.Response {
-			ts := contractServer(t, func(cfg *model.ServerConfiguration) {
+			ts := uncheckedContractServer(t, func(cfg *model.ServerConfiguration) {
 				cfg.SignerConfiguration.Algorithm = algorithm
 				cfg.Logger = slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 				cfg.TrustMarkRetriever = testTrustMarkRetriever{status: model.Pointer("active")}
@@ -89,7 +89,7 @@ func TestServer_ASignedResponseIsNotIssuedUnderAnAlgorithmThisLibraryCannotSignW
 			if err != nil {
 				t.Fatalf("failed to build the signer: %v", err)
 			}
-			resolver := NewServer(model.ServerConfiguration{
+			resolver := newServer(model.ServerConfiguration{
 				SignerConfiguration:         model.SignerConfiguration{Algorithm: algorithm, Signer: signer, KeyID: "resolver"},
 				EntityConfigurationLifetime: 10 * time.Minute,
 				IntermediateConfiguration:   &model.IntermediateConfiguration{SubordinateStatementLifetime: 10 * time.Minute},

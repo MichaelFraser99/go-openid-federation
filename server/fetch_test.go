@@ -157,7 +157,7 @@ func TestServer_Fetch(t *testing.T) {
 					Logger: slog.New(slog.NewJSONHandler(os.Stdout, nil)),
 				},
 			}
-			server := NewServer(serverConfig)
+			server := mustNewServer(t, serverConfig)
 			m := http.NewServeMux()
 			server.Configure(m)
 			s := httptest.NewServer(m)

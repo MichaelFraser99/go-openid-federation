@@ -46,7 +46,7 @@ func startTrustMarkStatusServer(t *testing.T, retriever model.TrustMarkRetriever
 		t.Fatalf("expected no error creating public JWK, got %q", err.Error())
 	}
 
-	server := NewServer(model.ServerConfiguration{
+	server := mustNewServer(t, model.ServerConfiguration{
 		EntityIdentifier: "https://issuer.example.com",
 		SignerConfiguration: model.SignerConfiguration{
 			Algorithm: "ES256",

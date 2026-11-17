@@ -44,7 +44,7 @@ func TestServer_Resolve_ATrustMarkIssuerWalkReusesTheSubordinateStatementThisSer
 		t.Run(tc.name, func(t *testing.T) {
 			anchorSigner := newSigner(t)
 			signatures := &atomic.Int64{}
-			anchor := NewServer(model.ServerConfiguration{
+			anchor := mustNewServer(t, model.ServerConfiguration{
 				SignerConfiguration:         model.SignerConfiguration{Algorithm: "ES256", Signer: countingSigner{Signer: anchorSigner, signed: signatures}, KeyID: "ta"},
 				EntityConfigurationLifetime: 10 * time.Minute,
 				IntermediateConfiguration:   &model.IntermediateConfiguration{SubordinateStatementLifetime: 10 * time.Minute},

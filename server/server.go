@@ -24,7 +24,15 @@ type Server struct {
 	authorityHints []model.EntityIdentifier
 }
 
-func NewServer(configuration model.ServerConfiguration) *Server {
+func NewServer(configuration model.ServerConfiguration) (*Server, error) {
+	if err := validateConfiguration(configuration); err != nil {
+		return nil, fmt.Errorf("the server configuration is not valid: %w", err)
+	}
+	reportIncompleteTrustAnchorMetadata(configuration)
+	return newServer(configuration), nil
+}
+
+func newServer(configuration model.ServerConfiguration) *Server {
 	configuration.EntityConfiguration.JWKs.Opts.EnforceUniqueKIDs = true
 	hints := make([]model.EntityIdentifier, len(configuration.AuthorityHints))
 	copy(hints, configuration.AuthorityHints)

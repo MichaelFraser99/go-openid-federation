@@ -91,7 +91,7 @@ func TestServer_TrustMarkStatus_AnswersNotFoundForATrustMarkThisServerDidNotIssu
 			}
 			asked := &atomic.Int64{}
 			var logs bytes.Buffer
-			server := NewServer(model.ServerConfiguration{
+			server := mustNewServer(t, model.ServerConfiguration{
 				EntityIdentifier:    issuer,
 				SignerConfiguration: model.SignerConfiguration{Algorithm: "ES256", Signer: signer, KeyID: "server"},
 				TrustMarkRetriever:  countingStatusRetriever{asked: asked},

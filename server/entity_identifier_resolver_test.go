@@ -110,7 +110,7 @@ func TestServer_Fetch_EntityIdentifierResolver(t *testing.T) {
 				},
 			}
 
-			server := NewServer(serverConfig)
+			server := mustNewServer(t, serverConfig)
 			m := http.NewServeMux()
 			server.Configure(m)
 			s := httptest.NewServer(m)

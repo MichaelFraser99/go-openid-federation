@@ -27,13 +27,13 @@ func TestOperands_FallbackResolvesSubsetOf(t *testing.T) {
 			name:     "an invalid byte sequence the metadata does not hold",
 			operands: []any{invalidByte()},
 			metadata: []any{"b"},
-			expect:   nil,
+			expect:   []any{},
 		},
 		{
 			name:     "an invalid byte sequence against a different one",
 			operands: []any{invalidByte()},
 			metadata: []any{otherInvalidByte()},
-			expect:   nil,
+			expect:   []any{},
 		},
 		{
 			name:     "an infinity the metadata also holds",
@@ -45,7 +45,7 @@ func TestOperands_FallbackResolvesSubsetOf(t *testing.T) {
 			name:     "an infinity against the opposite sign",
 			operands: []any{math.Inf(1)},
 			metadata: []any{math.Inf(-1)},
-			expect:   nil,
+			expect:   []any{},
 		},
 	}
 

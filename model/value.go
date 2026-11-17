@@ -59,18 +59,7 @@ func (v Value) String() string {
 // Resolve takes in two values and resolves the 'value' operation.
 // Input 'metadataParameterValue' is the value to which the operator is to be applied.
 // Input 'operatorValue' is the value the operator will apply to the 'metadataParameterValue' value.
-func (v Value) Resolve(metadataParameterValue any) (any, error) {
-	inputType := reflect.TypeOf(metadataParameterValue)
-	if v.operatorValue == nil { //when input is nil, value should be set to nil. This is not an error case
-		return nil, nil
-	}
-	if metadataParameterValue == nil {
-		return v.operatorValue, nil
-	}
-
-	if inputType.Kind() != reflect.TypeOf(v.operatorValue).Kind() {
-		return nil, fmt.Errorf("type mismatch: metadata parameter value is of type %T, but operator value is of type %T", metadataParameterValue, v.operatorValue)
-	}
+func (v Value) Resolve(any) (any, error) {
 	return v.operatorValue, nil
 }
 

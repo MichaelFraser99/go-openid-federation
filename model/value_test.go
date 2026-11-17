@@ -237,16 +237,15 @@ func TestValue_Resolve(t *testing.T) {
 				}
 			},
 		},
-		"resolve fails on type mismatch": {
+		"resolve replaces a parameter of another type": {
 			metadataParameterValue: 123,
 			operatorValue:          "foo-bar",
 			validate: func(t *testing.T, result any, err error) {
-				if err == nil {
-					t.Fatal("expected an error, got none")
+				if err != nil {
+					t.Fatalf("[6.1.3.1.1] expected the operator value to be assigned, got %v", err)
 				}
-				expectedError := "type mismatch: metadata parameter value is of type int, but operator value is of type string"
-				if err.Error() != expectedError {
-					t.Errorf("expected error %q, got %q", expectedError, err.Error())
+				if result != "foo-bar" {
+					t.Errorf("[6.1.3.1.1] expected %q, got %v", "foo-bar", result)
 				}
 			},
 		},

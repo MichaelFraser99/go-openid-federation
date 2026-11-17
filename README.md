@@ -60,6 +60,7 @@ Each change you may have to act on is marked **Breaking change** in the section 
 - [Metadata policy](#metadata-policy): a merged policy whose `add` and `superset_of` operators hold more operands in total than `MaxStatementValues` is refused.
 - [Metadata policy](#metadata-policy): a `metadata_policy` that repeats a member name at any of its three levels is refused.
 - [Entity statements and metadata](#entity-statements-and-metadata): a statement, trust mark or delegation that repeats a name in its header or its claims is refused.
+- [Metadata policy](#metadata-policy): `SubordinateConfiguration` has a new `Metadata` field, so a literal that sets its fields by position no longer compiles.
 
 ### From v0.11.0-rc.2
 
@@ -870,6 +871,20 @@ Before any policy runs, the metadata parameters the subject's immediate superior
 
 > **Breaking change.** The `metadata` claim of the subordinate statement about the subject was previously parsed and ignored. It is now applied. Any federation whose authorities populate that claim gets different resolved metadata after upgrading, because the superior's parameters override the subject's where they share a name.
 
+To issue the claim as a superior, set `SubordinateConfiguration.Metadata`. The subordinate statement then carries it as its `metadata` claim, and with no value set it carries no claim. The value is a `model.Metadata`, so it is written as the library writes any metadata: a parameter that is `nil` is left out, and an empty array is written as `[]`. An empty array replaces the subject's own values for that parameter, so a superior can clear a parameter that a subject publishes. The claim must pass the checks that this library applies when it reads a statement, or `/fetch` answers 500 for that subordinate.
+
+```go
+intermediate.AddSubordinate("https://rs.example.com", &model.SubordinateConfiguration{
+	JWKs: subordinateKeys,
+	Metadata: &model.Metadata{OAuthResourceMetadata: &model.OAuthResourceMetadata{
+		"api_resources":    []any{"https://api.example.com/accounts"},
+		"scopes_supported": []any{"accounts:read"},
+	}},
+})
+```
+
+> **Breaking change.** `SubordinateConfiguration` has a new field, `Metadata`, after `Policies`. A literal that sets the fields by position, such as `SubordinateConfiguration{0, policy, keys, signer}`, no longer compiles. Name the fields instead.
+
 Resolving by hand, rather than through `ResolveMetadata`, means four steps in this order: `model.ApplySuperiorMetadata` to apply the immediate superior's `metadata` claim over the subject's own, `model.ProcessAndExtractPolicy` to merge the chain's policy, `model.ApplyPolicy` to apply it, and `Metadata.VerifyResolved` to judge the result. Skipping the first drops a superior's pinned parameters; skipping the last accepts resolved metadata that no entity type would.
 
 **`model.ApplyPolicy` checks no operator *combination*.** It does judge an operator against the metadata it is applied to — a `superset_of` that is not met, a `one_of` that does not match, a `value` of the wrong type, a non-string `scope` — but nothing about whether the operators are permitted together. `model.ProcessAndExtractPolicy` is what enforces section 6.1.3.1's combination rules: that the values of `add` are a subset of the values of `value`, that `value` is a subset of `subset_of`, and the rest. It applies them to each statement's own policy as well as across a merge, so a chain of one statement is checked too.
@@ -1154,7 +1169,6 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | `subset_of` with an empty intersection | Stores a nil slice, which marshals as `null` | [#102](https://github.com/MichaelFraser99/go-openid-federation/issues/102) |
 | `scope` operators | `one_of` on `scope` can never be satisfied, a scope array operand is tokenised by some operators and not others, and a resolved `scope` of `""` passes verification | [#197](https://github.com/MichaelFraser99/go-openid-federation/issues/197), [#198](https://github.com/MichaelFraser99/go-openid-federation/issues/198), [#200](https://github.com/MichaelFraser99/go-openid-federation/issues/200) |
 | A resolve response and the delegations behind it | A resolve response can outlive the delegation that authorises one of its trust marks | [#204](https://github.com/MichaelFraser99/go-openid-federation/issues/204) |
-| Issuing a superior's `metadata` claim | The claim is consumed, but a superior cannot be configured to issue it | [#155](https://github.com/MichaelFraser99/go-openid-federation/issues/155) |
 | Issuing `constraints` | Every subordinate statement read is held to its `constraints`, but `SubordinateConfiguration` has no field for them, so this library's own `/fetch` cannot issue the claim | [#268](https://github.com/MichaelFraser99/go-openid-federation/issues/268) |
 | `aud` and `trust_anchor` in an entity statement | Decided: ignored, as section 13.4 of OpenID Federation 1.1 requires for a claim it does not define. Section 3.2 of OpenID Federation for OpenID Connect 1.1 asks a validator to refuse them outside explicit registration, which this library does not implement | [#172](https://github.com/MichaelFraser99/go-openid-federation/issues/172) |
 

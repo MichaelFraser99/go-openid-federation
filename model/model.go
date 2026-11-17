@@ -482,6 +482,9 @@ func (s *SubordinateConfiguration) clone() *SubordinateConfiguration {
 	copied := *s
 	copied.Policies = *s.Policies.deepClone()
 	copied.JWKs.Keys = cloneValue(s.JWKs.Keys).([]map[string]any)
+	if s.Metadata != nil {
+		copied.Metadata = s.Metadata.deepClone()
+	}
 	if s.SignerConfiguration != nil {
 		signer := *s.SignerConfiguration
 		copied.SignerConfiguration = &signer
@@ -492,6 +495,7 @@ func (s *SubordinateConfiguration) clone() *SubordinateConfiguration {
 type SubordinateConfiguration struct {
 	CachedAt            int64
 	Policies            MetadataPolicy
+	Metadata            *Metadata
 	JWKs                josemodel.Jwks
 	SignerConfiguration *SignerConfiguration // SignerConfiguration allows consumers to specify override private key material for a given subordinate entity
 }
@@ -1589,6 +1593,19 @@ func cloneOperator(operator MetadataPolicyOperator) MetadataPolicyOperator {
 		}
 	}
 	return operator
+}
+
+func (m *Metadata) deepClone() *Metadata {
+	typed := *m
+	typed.Extensions = nil
+	copied := &Metadata{}
+	for entityType, parameters := range typed.byEntityType() {
+		copied.setEntityType(entityType, cloneValue(parameters).(map[string]any))
+	}
+	if m.Extensions != nil {
+		copied.Extensions = cloneValue(m.Extensions).(map[string]map[string]any)
+	}
+	return copied
 }
 
 func (m *Metadata) clone() *Metadata {

@@ -32,7 +32,7 @@ func validServerConfiguration(t *testing.T) model.ServerConfiguration {
 
 func TestNewServer_RefusesAConfigurationThatCannotServe(t *testing.T) {
 	ownerKey := map[string]any{"kty": "EC", "crv": "P-256", "kid": "owner", "x": "x", "y": "y"}
-	privateKey := map[string]any{"kty": "EC", "crv": "P-256", "kid": "leaked", "x": "x", "y": "y", "d": "secret"}
+	privateKey := map[string]any{"kty": "EC", "crv": "P-256", "kid": "leaked", "x": "x", "y": "y", "d": "PRIVATE-MEMBER-VALUE"}
 
 	tests := map[string]struct {
 		change func(cfg *model.ServerConfiguration)
@@ -151,6 +151,9 @@ func TestNewServer_RefusesAConfigurationThatCannotServe(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tc.says) {
 				t.Errorf("[#145] expected the error to name %q, got %v", tc.says, err)
+			}
+			if strings.Contains(err.Error(), "PRIVATE-MEMBER-VALUE") {
+				t.Errorf("expected the refusal not to repeat a private key value, got %v", err)
 			}
 		})
 	}

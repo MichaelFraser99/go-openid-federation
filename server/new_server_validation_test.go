@@ -87,6 +87,18 @@ func TestNewServer_RefusesAConfigurationThatCannotServe(t *testing.T) {
 		"metadata with a malformed parameter": {change: func(cfg *model.ServerConfiguration) {
 			cfg.EntityConfiguration.Metadata = &model.Metadata{OAuthClientMetadata: &model.OAuthClientMetadata{"jwks_uri": "http://insecure.example.com"}}
 		}, says: "EntityConfiguration.Metadata is not valid"},
+		"metadata whose jwks is a josemodel.Jwks, which is published as a JWK Set": {change: func(cfg *model.ServerConfiguration) {
+			cfg.EntityConfiguration.Metadata = &model.Metadata{OpenIDRelyingPartyMetadata: &model.OpenIDRelyingPartyMetadata{"jwks": josemodel.Jwks{Keys: []map[string]any{ownerKey}}}}
+		}},
+		"metadata whose jwks holds its keys as a []map[string]any": {change: func(cfg *model.ServerConfiguration) {
+			cfg.EntityConfiguration.Metadata = &model.Metadata{OpenIDRelyingPartyMetadata: &model.OpenIDRelyingPartyMetadata{"jwks": map[string]any{"keys": []map[string]any{ownerKey}}}}
+		}},
+		"metadata whose array parameter is a []string": {change: func(cfg *model.ServerConfiguration) {
+			cfg.EntityConfiguration.Metadata = &model.Metadata{OpenIDRelyingPartyMetadata: &model.OpenIDRelyingPartyMetadata{"redirect_uris": []string{"https://entity.example.com/cb"}}}
+		}},
+		"metadata whose Go-typed value publishes as a malformed parameter": {change: func(cfg *model.ServerConfiguration) {
+			cfg.EntityConfiguration.Metadata = &model.Metadata{OAuthClientMetadata: &model.OAuthClientMetadata{"jwks_uri": model.EntityIdentifier("http://insecure.example.com")}}
+		}, says: "EntityConfiguration.Metadata is not valid"},
 		"incomplete metadata on an entity with a superior": {change: func(cfg *model.ServerConfiguration) {
 			cfg.EntityConfiguration.Metadata = &model.Metadata{OpenIDRelyingPartyMetadata: &model.OpenIDRelyingPartyMetadata{"client_name": "Leaf RP"}}
 		}},
@@ -145,6 +157,13 @@ func TestNewServer_ReportsAnIncompleteTrustAnchorWithoutRefusingIt(t *testing.T)
 		"a trust anchor with complete metadata": {change: func(cfg *model.ServerConfiguration) {
 			cfg.AuthorityHints = nil
 			cfg.EntityConfiguration.Metadata = &model.Metadata{OpenIDRelyingPartyMetadata: &model.OpenIDRelyingPartyMetadata{"redirect_uris": []any{"https://entity.example.com/cb"}}}
+		}},
+		"a trust anchor with complete metadata held in Go types": {change: func(cfg *model.ServerConfiguration) {
+			cfg.AuthorityHints = nil
+			cfg.EntityConfiguration.Metadata = &model.Metadata{OpenIDRelyingPartyMetadata: &model.OpenIDRelyingPartyMetadata{
+				"redirect_uris": []string{"https://entity.example.com/cb"},
+				"jwks":          josemodel.Jwks{Keys: []map[string]any{{"kty": "EC", "crv": "P-256", "kid": "rp", "x": "x", "y": "y"}}},
+			}}
 		}},
 		"a trust anchor whose identifier is not set yet": {change: func(cfg *model.ServerConfiguration) {
 			cfg.AuthorityHints = nil

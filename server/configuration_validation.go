@@ -70,20 +70,39 @@ func validateConfiguration(cfg model.ServerConfiguration) error {
 		}
 	}
 	if metadata := cfg.EntityConfiguration.Metadata; metadata != nil {
-		if _, err := json.Marshal(metadata); err != nil {
+		raw, err := json.Marshal(metadata)
+		if err != nil {
 			fault("EntityConfiguration.Metadata cannot be written: %s", err.Error())
-		} else if err := metadata.Verify(cfg.EntityTypes, false); err != nil {
+		} else if published, err := publishedMetadata(raw); err != nil {
+			fault("EntityConfiguration.Metadata is not valid: %s", err.Error())
+		} else if err := published.Verify(cfg.EntityTypes, false); err != nil {
 			fault("EntityConfiguration.Metadata is not valid: %s", err.Error())
 		}
 	}
 	return errors.Join(faults...)
 }
 
+func publishedMetadata(raw []byte) (*model.Metadata, error) {
+	var published model.Metadata
+	if err := json.Unmarshal(raw, &published); err != nil {
+		return nil, err
+	}
+	return &published, nil
+}
+
 func reportIncompleteTrustAnchorMetadata(cfg model.ServerConfiguration) {
 	if len(cfg.AuthorityHints) > 0 || cfg.EntityConfiguration.Metadata == nil || cfg.EntityIdentifier == "" {
 		return
 	}
-	if err := cfg.EntityConfiguration.Metadata.VerifyResolved(cfg.EntityTypes, cfg.EntityIdentifier); err != nil {
+	raw, err := json.Marshal(cfg.EntityConfiguration.Metadata)
+	if err != nil {
+		return
+	}
+	published, err := publishedMetadata(raw)
+	if err != nil {
+		return
+	}
+	if err := published.VerifyResolved(cfg.EntityTypes, cfg.EntityIdentifier); err != nil {
 		cfg.LogError(context.Background(), "this trust anchor's own metadata does not pass the checks applied to resolved metadata, so resolving it as a subject answers invalid_metadata", slog.String("error", err.Error()))
 	}
 }

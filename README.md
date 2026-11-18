@@ -95,15 +95,26 @@ Call `Configure` once for each mux. A second call on the same mux, from the same
 Setting `IntermediateConfiguration` marks an entity as an authority and enables `/fetch`, `/list` and `/resolve`. Subordinates can be held in memory or loaded on demand.
 
 ```go
+rpKey, err := jwk.PublicJwk(rpPublicKey)
+if err != nil {
+	return err
+}
+(*rpKey)["kid"] = "rp-key"
+
+addContact, err := model.NewAdd([]any{"federation-ops@intermediate.example.com"})
+if err != nil {
+	return err
+}
+
 intermediate := &model.IntermediateConfiguration{
 	SubordinateStatementLifetime: time.Hour,
 }
 
 intermediate.AddSubordinate("https://rp.example.com", &model.SubordinateConfiguration{
-	JWKs: subordinateJWKs,
+	JWKs: josemodel.Jwks{Keys: []map[string]any{*rpKey}},
 	Policies: model.MetadataPolicy{
 		OpenIDRelyingPartyMetadata: map[string]model.PolicyOperators{
-			"contacts": {Metadata: []model.MetadataPolicyOperator{addOperator}},
+			"contacts": {Metadata: []model.MetadataPolicyOperator{*addContact}},
 		},
 	},
 })
@@ -116,11 +127,154 @@ cfg := model.ServerConfiguration{
 }
 ```
 
+`rpPublicKey` is the public key the RP signs with, which it tells the intermediate when it registers. The key's `kid` must be the `KeyID` the RP signs with. `jwk` is `github.com/MichaelFraser99/go-jose/jwk` and `josemodel` is `github.com/MichaelFraser99/go-jose/model`. [A whole federation in one process](#a-whole-federation-in-one-process) puts a trust anchor, an intermediate and an RP together.
+
 When an authority's entity configuration is generated, the federation endpoint claims are derived from the entity identifier: `federation_fetch_endpoint`, `federation_list_endpoint`, `federation_resolve_endpoint`, and the extension and trust mark endpoints where those are enabled. They do not need to be declared in `EntityConfiguration`.
 
 An entity with no `IntermediateConfiguration` is a leaf. This server mounts no `/fetch` or `/list` for it, and section 5.1.1 says that a leaf MUST NOT publish `federation_fetch_endpoint` or `federation_list_endpoint`. If you type either claim into the `FederationMetadata` of such an entity, the library leaves it out of the entity configuration. `NewServer` logs each such claim at error level once, when the server is built, not on every request. Other endpoint claims, such as `federation_resolve_endpoint`, are published as you configure them.
 
 > **Breaking change.** In v0.11.1, a leaf published a `federation_fetch_endpoint` or `federation_list_endpoint` typed into its metadata. A resolver that followed it got a 404 and refused the chain as `invalid_trust_chain`. If another service serves fetch and list for this entity, publish the entity configuration from that service. Or set `IntermediateConfiguration`, so that this server serves them and publishes its own endpoints.
+
+### A whole federation in one process
+
+This program runs a trust anchor, an intermediate and an RP on one TLS test server, each mounted under its own path as [An entity identifier with a path](#an-entity-identifier-with-a-path) describes. The trust anchor's policy adds a contact to the RP's metadata, and the program prints the payload of the trust anchor's signed `/resolve` response.
+
+```go
+package main
+
+import (
+	"crypto"
+	"encoding/base64"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/MichaelFraser99/go-jose/jwa"
+	"github.com/MichaelFraser99/go-jose/jwk"
+	"github.com/MichaelFraser99/go-jose/jws"
+	josemodel "github.com/MichaelFraser99/go-jose/model"
+	"github.com/MichaelFraser99/go-openid-federation/model"
+	"github.com/MichaelFraser99/go-openid-federation/server"
+)
+
+type entity struct {
+	identifier model.EntityIdentifier
+	signer     model.SignerConfiguration
+	keys       josemodel.Jwks
+}
+
+func newEntity(identifier, keyID string) entity {
+	signer, err := jws.GetSigner(jwa.ES256, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return entity{
+		identifier: model.EntityIdentifier(identifier),
+		signer:     model.SignerConfiguration{Signer: signer, KeyID: keyID, Algorithm: "ES256"},
+		keys:       publicKeys(signer, keyID),
+	}
+}
+
+func publicKeys(signer crypto.Signer, keyID string) josemodel.Jwks {
+	key, err := jwk.PublicJwk(signer.Public())
+	if err != nil {
+		log.Fatal(err)
+	}
+	(*key)["kid"] = keyID
+	return josemodel.Jwks{Keys: []map[string]any{*key}}
+}
+
+func mount(root *http.ServeMux, path string, cfg model.ServerConfiguration) {
+	s, err := server.NewServer(cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	s.Configure(mux)
+	root.Handle(path+"/", http.StripPrefix(path, mux))
+}
+
+func main() {
+	root := http.NewServeMux()
+	host := httptest.NewTLSServer(root)
+	defer host.Close()
+
+	anchor := newEntity(host.URL+"/ta", "ta-key")
+	intermediate := newEntity(host.URL+"/intermediate", "intermediate-key")
+	leaf := newEntity(host.URL+"/rp", "rp-key")
+
+	addContact, err := model.NewAdd([]any{"federation-ops@ta.example.com"})
+	if err != nil {
+		log.Fatal(err)
+	}
+	anchorSubordinates := &model.IntermediateConfiguration{SubordinateStatementLifetime: time.Hour}
+	anchorSubordinates.AddSubordinate(intermediate.identifier, &model.SubordinateConfiguration{
+		JWKs: intermediate.keys,
+		Policies: model.MetadataPolicy{
+			OpenIDRelyingPartyMetadata: map[string]model.PolicyOperators{
+				"contacts": {Metadata: []model.MetadataPolicyOperator{*addContact}},
+			},
+		},
+	})
+	mount(root, "/ta", model.ServerConfiguration{
+		Configuration:               model.Configuration{HttpClient: host.Client()},
+		EntityIdentifier:            anchor.identifier,
+		SignerConfiguration:         anchor.signer,
+		EntityConfigurationLifetime: time.Hour,
+		IntermediateConfiguration:   anchorSubordinates,
+	})
+
+	intermediateSubordinates := &model.IntermediateConfiguration{SubordinateStatementLifetime: time.Hour}
+	intermediateSubordinates.AddSubordinate(leaf.identifier, &model.SubordinateConfiguration{JWKs: leaf.keys})
+	mount(root, "/intermediate", model.ServerConfiguration{
+		EntityIdentifier:            intermediate.identifier,
+		SignerConfiguration:         intermediate.signer,
+		AuthorityHints:              []model.EntityIdentifier{anchor.identifier},
+		EntityConfigurationLifetime: time.Hour,
+		IntermediateConfiguration:   intermediateSubordinates,
+	})
+
+	mount(root, "/rp", model.ServerConfiguration{
+		EntityIdentifier:            leaf.identifier,
+		SignerConfiguration:         leaf.signer,
+		AuthorityHints:              []model.EntityIdentifier{intermediate.identifier},
+		EntityConfigurationLifetime: time.Hour,
+		EntityConfiguration: model.EntityStatement{Metadata: &model.Metadata{
+			OpenIDRelyingPartyMetadata: &model.OpenIDRelyingPartyMetadata{
+				"client_name":   "Example RP",
+				"redirect_uris": []string{string(leaf.identifier) + "/callback"},
+				"contacts":      []string{"admin@rp.example.com"},
+			},
+		}},
+	})
+
+	query := url.Values{"sub": {string(leaf.identifier)}, "trust_anchor": {string(anchor.identifier)}}
+	response, err := host.Client().Get(string(anchor.identifier) + "/resolve?" + query.Encode())
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if response.StatusCode != http.StatusOK {
+		log.Fatalf("resolve answered %d: %s", response.StatusCode, body)
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(strings.Split(string(body), ".")[1])
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(string(payload))
+}
+```
+
+The resolved `contacts` holds the RP's own contact and the one the trust anchor's policy adds, and `trust_chain` has four entries: the RP's entity configuration, the intermediate's statement about the RP, the trust anchor's statement about the intermediate, and the trust anchor's entity configuration.
 
 ### A relying party resolving another entity
 
@@ -144,7 +298,42 @@ if err != nil {
 }
 ```
 
-Both calls refuse a malformed subject or trust anchor with `model.ErrInvalidRequest`. `HttpClient` is required, because both calls fetch from peers. It must enforce your network policy, as [ServerConfiguration](#serverconfiguration) describes. Set `TrustAnchors` to verify each anchor against keys you hold. See [Anchoring a chain a caller supplies](#anchoring-a-chain-a-caller-supplies).
+Both calls refuse a malformed subject or trust anchor with `model.ErrInvalidRequest`. `HttpClient` is required, because both calls fetch from peers. It must enforce your network policy, as [ServerConfiguration](#serverconfiguration) describes. A peer chooses every URL the library fetches after the first, so a client that can reach your internal network lets a peer make requests there. This client refuses to connect to any address that is not public:
+
+```go
+var errNotPublic = errors.New("refused to connect to an address that is not public")
+
+func federationHTTPClient() *http.Client {
+	dialer := &net.Dialer{
+		Timeout: 5 * time.Second,
+		Control: func(_, address string, _ syscall.RawConn) error {
+			host, _, err := net.SplitHostPort(address)
+			if err != nil {
+				return err
+			}
+			ip, err := netip.ParseAddr(host)
+			if err != nil {
+				return err
+			}
+			ip = ip.Unmap()
+			if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+				return errNotPublic
+			}
+			return nil
+		},
+	}
+	return &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			Proxy:               nil,
+			DialContext:         dialer.DialContext,
+			TLSHandshakeTimeout: 5 * time.Second,
+		},
+	}
+}
+```
+
+The check runs in the dialer's `Control` function, on the address the connection is about to use. A host name that resolves to a private address is therefore refused too, and so is a redirect to one. `Proxy: nil` stops an environment proxy setting from carrying requests past the check. The library refuses a redirect to a URL that does not use `https` itself. Set `TrustAnchors` to verify each anchor against keys you hold. See [Anchoring a chain a caller supplies](#anchoring-a-chain-a-caller-supplies).
 
 ## Endpoints
 
@@ -283,6 +472,38 @@ Your `IssueTrustMark` signs the trust mark, and the endpoint serves it under `ap
 - Its header `typ` is `trust-mark+jwt`, with or without the `application/` prefix, its `alg` is not `none`, and its `kid` is a non-empty string, as section 7 requires.
 - Its payload has `iss`, `sub`, `trust_mark_type` and `iat`.
 - Its `iss` is this server's entity identifier, its `sub` is the requested subject and its `trust_mark_type` is the requested type. Each is an exact string match.
+
+This `IssueTrustMark` signs a trust mark with the server's own federation key, for the subjects that hold it:
+
+```go
+type trustMarks struct {
+	issuer   model.EntityIdentifier
+	signer   crypto.Signer
+	keyID    string
+	lifetime time.Duration
+	holders  map[string][]model.EntityIdentifier
+}
+
+func (t trustMarks) IssueTrustMark(_ context.Context, trustMarkType string, subject model.EntityIdentifier) (*string, error) {
+	if !slices.Contains(t.holders[trustMarkType], subject) {
+		return nil, model.NewNotFoundError("this entity does not hold the requested trust mark")
+	}
+	now := time.Now().UTC()
+	return jwt.New(t.signer,
+		map[string]any{"typ": "trust-mark+jwt", "alg": "ES256", "kid": t.keyID},
+		map[string]any{
+			"iss":             string(t.issuer),
+			"sub":             string(subject),
+			"trust_mark_type": trustMarkType,
+			"iat":             now.Unix(),
+			"exp":             now.Add(t.lifetime).Unix(),
+		},
+		jwt.Opts{Algorithm: jwa.ES256},
+	)
+}
+```
+
+Sign with a key in this server's published `jwks`, with the `kid` of that key, or resolvers cannot verify the trust mark. Answer `model.NewNotFoundError` for a subject that does not hold the trust mark, and `/trust-mark` answers 404.
 
 The endpoint does not verify the signature. If the value fails one of these checks, the endpoint answers 500 `server_error` with its fixed description, and logs the check that failed at error level. The log line does not include the value.
 

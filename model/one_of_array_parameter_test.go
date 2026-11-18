@@ -23,6 +23,15 @@ func TestApplyPolicyToMetadata_OneOfOnAnArrayNamesTheCause(t *testing.T) {
 			parameter: "scope", policy: `{"one_of":["openid"]}`,
 			metadata: map[string]any{},
 		},
+		"scope supplied by default before one_of runs": {
+			parameter: "scope", policy: `{"default":"openid","one_of":["openid"]}`,
+			metadata: map[string]any{},
+			says:     "one_of cannot be applied to scope, because policy operators process scope as an array of scope values",
+		},
+		"scope removed by value before one_of runs": {
+			parameter: "scope", policy: `{"value":null,"one_of":["openid"]}`,
+			metadata: map[string]any{"scope": "openid"},
+		},
 		"another array parameter": {
 			parameter: "response_types", policy: `{"one_of":["code"]}`,
 			metadata: map[string]any{"response_types": []any{"code"}},

@@ -122,7 +122,7 @@ func (t TestSubordinateStatusRetriever) GetSubordinateStatus(ctx context.Context
 			{
 				Iat:              time.Now().Add(-6 * time.Hour).UTC().Unix(),
 				Event:            "suspension",
-				EventDescription: model.Pointer("suspicious activity detected"),
+				EventDescription: josemodel.Pointer("suspicious activity detected"),
 			},
 			{
 				Iat:   time.Now().Add(-1 * time.Hour).UTC().Unix(),
@@ -682,7 +682,7 @@ func TestServer_SubordinateStatus(t *testing.T) {
 				Extensions: model.Extensions{
 					SubordinateStatus: model.SubordinateStatusConfiguration{
 						Enabled:           true,
-						ResponseLifetime:  model.Pointer(1 * time.Hour),
+						ResponseLifetime:  josemodel.Pointer(1 * time.Hour),
 						MetadataRetriever: TestSubordinateStatusRetriever{},
 					},
 				},

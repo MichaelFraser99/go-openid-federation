@@ -5,7 +5,7 @@ import (
 )
 
 var (
-	_ EntityTypeIdentifier = OpenIDConnectOpenIDProviderMetadata{}
+	_ entityTypeIdentifier = OpenIDConnectOpenIDProviderMetadata{}
 )
 
 type OpenIDConnectOpenIDProviderMetadata map[string]any

@@ -1,7 +1,7 @@
 package model
 
 var (
-	_ EntityTypeIdentifier = OpenIDCredentialVerifierProviderMetadata{}
+	_ entityTypeIdentifier = OpenIDCredentialVerifierProviderMetadata{}
 )
 
 type OpenIDCredentialVerifierProviderMetadata map[string]any

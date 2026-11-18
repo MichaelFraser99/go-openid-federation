@@ -1,7 +1,7 @@
 package model
 
 var (
-	_ EntityTypeIdentifier = OAuthResourceMetadata{}
+	_ entityTypeIdentifier = OAuthResourceMetadata{}
 )
 
 type OAuthResourceMetadata map[string]any

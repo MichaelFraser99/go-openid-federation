@@ -1,7 +1,7 @@
 package model
 
 var (
-	_ EntityTypeIdentifier = OpenIDRelyingPartyMetadata{}
+	_ entityTypeIdentifier = OpenIDRelyingPartyMetadata{}
 )
 
 type OpenIDRelyingPartyMetadata map[string]any

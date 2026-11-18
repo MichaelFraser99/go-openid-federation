@@ -159,7 +159,7 @@ func signingEndpoints() []signingEndpoint {
 			description: trustMarkStatusUnavailableError,
 			request: func(t *testing.T, refuse error) *http.Response {
 				ts := signingServer(t, refuse, func(cfg *model.ServerConfiguration) {
-					cfg.TrustMarkRetriever = testTrustMarkRetriever{status: model.Pointer("active")}
+					cfg.TrustMarkRetriever = testTrustMarkRetriever{status: josemodel.Pointer("active")}
 				})
 				form := url.Values{"trust_mark": {markIssuedBy(t, ts.URL)}}
 				response, err := ts.Client().Post(ts.URL+"/trust-mark-status", "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))

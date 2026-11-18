@@ -1,7 +1,7 @@
 package model
 
 var (
-	_ EntityTypeIdentifier = OpenIDWalletProviderMetadata{}
+	_ entityTypeIdentifier = OpenIDWalletProviderMetadata{}
 )
 
 type OpenIDWalletProviderMetadata map[string]any

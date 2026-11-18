@@ -148,7 +148,7 @@ func TestDeduplicateSlice_KeepsValuesThatRenderAlike(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := DeduplicateSlice(tc.input)
+			got := deduplicateSlice(tc.input)
 			if len(got) != tc.expect {
 				raw, _ := json.Marshal(got)
 				t.Errorf("expected %d values, got %d: %s", tc.expect, len(got), raw)

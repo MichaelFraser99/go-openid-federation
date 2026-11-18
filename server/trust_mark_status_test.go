@@ -15,6 +15,7 @@ import (
 	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jws"
+	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -77,7 +78,7 @@ func markIssuedBy(t *testing.T, issuer string) string {
 }
 
 func TestServer_TrustMarkStatus(t *testing.T) {
-	s := startTrustMarkStatusServer(t, testTrustMarkRetriever{status: model.Pointer("active")})
+	s := startTrustMarkStatusServer(t, testTrustMarkRetriever{status: josemodel.Pointer("active")})
 
 	issued := markIssuedBy(t, "https://issuer.example.com")
 	form := url.Values{"trust_mark": {issued}}
@@ -107,7 +108,7 @@ func TestServer_TrustMarkStatus(t *testing.T) {
 }
 
 func TestServer_TrustMarkStatus_MissingTrustMark(t *testing.T) {
-	s := startTrustMarkStatusServer(t, testTrustMarkRetriever{status: model.Pointer("active")})
+	s := startTrustMarkStatusServer(t, testTrustMarkRetriever{status: josemodel.Pointer("active")})
 
 	resp, err := s.Client().Post(s.URL+"/trust-mark-status", "application/x-www-form-urlencoded", strings.NewReader(""))
 	if err != nil {
@@ -117,7 +118,7 @@ func TestServer_TrustMarkStatus_MissingTrustMark(t *testing.T) {
 }
 
 func TestServer_TrustMarkStatus_RejectsGet(t *testing.T) {
-	s := startTrustMarkStatusServer(t, testTrustMarkRetriever{status: model.Pointer("active")})
+	s := startTrustMarkStatusServer(t, testTrustMarkRetriever{status: josemodel.Pointer("active")})
 
 	resp, err := s.Client().Get(s.URL + "/trust-mark-status?trust_mark=a.b.c")
 	if err != nil {

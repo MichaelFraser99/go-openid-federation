@@ -8,7 +8,7 @@ import (
 )
 
 var (
-	_ EntityTypeIdentifier = OpenIDCredentialVerifierMetadata{}
+	_ entityTypeIdentifier = OpenIDCredentialVerifierMetadata{}
 )
 
 type OpenIDCredentialVerifierMetadata map[string]any

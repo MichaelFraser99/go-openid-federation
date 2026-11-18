@@ -12,7 +12,7 @@ func NewOneOf(operatorValue any) (*OneOf, error) {
 	}
 
 	return &OneOf{
-		operatorValue: DeduplicateSlice(anySlice),
+		operatorValue: deduplicateSlice(anySlice),
 	}, nil
 }
 

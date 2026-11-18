@@ -50,7 +50,7 @@ func TestParseConstraints_HoldsTheClaimToItsSyntax(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, err := ParseConstraints(tc.value)
+			_, err := parseConstraints(tc.value)
 			if tc.expectErr == "" {
 				if err != nil {
 					t.Fatalf("[6.2] expected the constraints to parse, got %v", err)
@@ -77,7 +77,7 @@ func TestParseConstraints_ALargeMaxPathLengthIsClamped(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			parsed, err := ParseConstraints(map[string]any{"max_path_length": tc.value})
+			parsed, err := parseConstraints(map[string]any{"max_path_length": tc.value})
 			if err != nil {
 				t.Fatalf("[6.2.1] any integer of zero or more is a valid max_path_length, got %v", err)
 			}
@@ -116,7 +116,7 @@ func TestConstraints_RoundTripKeepsEveryDistinction(t *testing.T) {
 
 	for name, original := range tests {
 		t.Run(name, func(t *testing.T) {
-			parsed, err := ParseConstraints(original)
+			parsed, err := parseConstraints(original)
 			if err != nil {
 				t.Fatal(err)
 			}

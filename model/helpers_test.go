@@ -963,7 +963,7 @@ func TestReMarshalJsonAsEntityMetadata(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			result, err := ReMarshalJsonAsEntityMetadata[TestStruct](tt.data)
+			result, err := reMarshalJsonAsEntityMetadata[TestStruct](tt.data)
 			tt.validate(t, result, err)
 		})
 	}
@@ -1114,7 +1114,7 @@ func TestVerifyFederationEndpoint(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			err := VerifyFederationEndpoint(tt.endpoint)
+			err := verifyFederationEndpoint(tt.endpoint)
 			tt.validate(t, err)
 		})
 	}
@@ -1203,7 +1203,7 @@ func TestConvertStringsToAnySlice(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			result := ConvertStringsToAnySlice(tt.input)
+			result := convertStringsToAnySlice(tt.input)
 			tt.validate(t, result)
 		})
 	}

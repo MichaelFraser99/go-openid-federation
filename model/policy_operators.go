@@ -33,7 +33,7 @@ func scopeTokenSlice(values []any) []any {
 
 func scopeOperatorSlice(value any) []any {
 	if s, ok := value.(string); ok {
-		return ConvertStringsToAnySlice(scopeTokens(s))
+		return convertStringsToAnySlice(scopeTokens(s))
 	}
 	return []any{value}
 }

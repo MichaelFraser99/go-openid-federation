@@ -104,7 +104,7 @@ func TestOperands_StringsWithNoJSONEncodingStayDistinct(t *testing.T) {
 	second := string([]byte{0xfe})
 	third := string([]byte{0xff, 'A'})
 
-	deduplicated := DeduplicateSlice([]any{first, second, third, first})
+	deduplicated := deduplicateSlice([]any{first, second, third, first})
 	if len(deduplicated) != 3 {
 		t.Errorf("expected three distinct byte sequences to survive, got %d", len(deduplicated))
 	}
@@ -164,7 +164,7 @@ func TestOperands_StringsWithNoJSONEncodingStayDistinct(t *testing.T) {
 
 	for _, container := range containers {
 		t.Run(container.name, func(t *testing.T) {
-			if got := DeduplicateSlice([]any{container.first, container.other}); len(got) != 2 {
+			if got := deduplicateSlice([]any{container.first, container.other}); len(got) != 2 {
 				t.Errorf("expected two distinct values to survive deduplication, got %d", len(got))
 			}
 		})
@@ -181,7 +181,7 @@ func TestOperands_ValuesThatCannotMatchDoNotAccumulate(t *testing.T) {
 	}
 
 	start := time.Now()
-	deduplicated := DeduplicateSlice(input)
+	deduplicated := deduplicateSlice(input)
 	elapsed := time.Since(start)
 
 	if len(deduplicated) != count {

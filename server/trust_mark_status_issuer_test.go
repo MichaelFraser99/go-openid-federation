@@ -17,6 +17,7 @@ import (
 
 	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jws"
+	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -27,7 +28,7 @@ type countingStatusRetriever struct {
 
 func (r countingStatusRetriever) GetTrustMarkStatus(context.Context, string) (*string, error) {
 	r.asked.Add(1)
-	return model.Pointer("active"), nil
+	return josemodel.Pointer("active"), nil
 }
 
 func TestServer_TrustMarkStatus_AnswersNotFoundForATrustMarkThisServerDidNotIssue(t *testing.T) {

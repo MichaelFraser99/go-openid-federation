@@ -288,7 +288,7 @@ func TestMetadata_FilterByEntityTypes_FiltersExtensions(t *testing.T) {
 		},
 	}
 
-	metadata.FilterByEntityTypes([]string{"openid_verifier_provider"})
+	metadata.filterByEntityTypes([]string{"openid_verifier_provider"})
 
 	if metadata.FederationMetadata != nil {
 		t.Error("expected federation_entity to be filtered out")

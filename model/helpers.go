@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-func ReMarshalJsonAsEntityMetadata[T any](data any) (*T, error) {
+func reMarshalJsonAsEntityMetadata[T any](data any) (*T, error) {
 	bytes, err := json.Marshal(data)
 	if err != nil {
 		return nil, err
@@ -24,7 +24,7 @@ func ReMarshalJsonAsEntityMetadata[T any](data any) (*T, error) {
 	return t, nil
 }
 
-func VerifyFederationEndpoint(endpoint any) error {
+func verifyFederationEndpoint(endpoint any) error {
 	if endpoint == nil {
 		return nil
 	}
@@ -486,7 +486,7 @@ func applyPolicyToMetadata(metadata map[string]any, policy map[string]PolicyOper
 					if !isString {
 						return fmt.Errorf("scope must be a string")
 					}
-					existing = ConvertStringsToAnySlice(scopeTokens(existingString))
+					existing = convertStringsToAnySlice(scopeTokens(existingString))
 				}
 				operator = operator.ToSlice(k)
 			}
@@ -608,7 +608,7 @@ func CalculateChainExpiration(chain []EntityStatement) int64 {
 	return exp
 }
 
-func ConvertStringsToAnySlice(input []string) []any {
+func convertStringsToAnySlice(input []string) []any {
 	result := make([]any, len(input))
 	for i, v := range input {
 		result[i] = v
@@ -616,9 +616,7 @@ func ConvertStringsToAnySlice(input []string) []any {
 	return result
 }
 
-// DeduplicateSlice removes duplicate values from a slice, preserving order.
-// Works with all data types including strings, numbers, booleans, and maps.
-func DeduplicateSlice(input []any) []any {
+func deduplicateSlice(input []any) []any {
 	if len(input) == 0 {
 		return input
 	}

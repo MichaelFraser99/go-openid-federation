@@ -28,7 +28,7 @@ func TestCountJSONValues_AgreesWithTheDecodedCount(t *testing.T) {
 			if err := json.Unmarshal([]byte(document), &decoded); err != nil {
 				t.Fatal(err)
 			}
-			expected := CountDecodedValues(decoded)
+			expected := countDecodedValues(decoded)
 			count, exceeded := CountJSONValues([]byte(document), expected)
 			if exceeded || count != expected {
 				t.Errorf("expected %d values within a limit of %d, got %d (exceeded %v)", expected, expected, count, exceeded)

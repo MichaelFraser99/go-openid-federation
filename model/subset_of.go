@@ -16,7 +16,7 @@ func NewSubsetOf(operatorValue any) (*SubsetOf, error) {
 	}
 
 	return &SubsetOf{
-		operatorValue: DeduplicateSlice(anySlice),
+		operatorValue: deduplicateSlice(anySlice),
 	}, nil
 }
 

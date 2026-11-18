@@ -90,35 +90,120 @@ func verifyScopeOperand(value any) error {
 	return nil
 }
 
-func sortAndValidatePolicy(policy *MetadataPolicy) error {
+func tokeniseAndValidatePolicy(policy *MetadataPolicy, operandLimit int) (*MetadataPolicy, error) {
 	if policy == nil {
-		return nil
+		return nil, nil
 	}
+	scopeValues := 0
+	scoped := false
 	for _, parameters := range policy.byEntityType() {
-		for parameter, operators := range parameters {
-			if parameter == "scope" {
-				for _, operator := range operators.Metadata {
-					if operator.String() == "essential" {
-						continue
-					}
-					if err := verifyScopeOperand(operator.OperatorValue()); err != nil {
-						return err
-					}
-				}
+		operators, ok := parameters["scope"]
+		if !ok {
+			continue
+		}
+		scoped = true
+		for _, operator := range operators.Metadata {
+			if operator.String() == "essential" {
+				continue
 			}
-			candidates := operators.Metadata
-			if parameter == "scope" {
-				candidates = make([]MetadataPolicyOperator, 0, len(operators.Metadata))
-				for _, operator := range operators.Metadata {
-					candidates = append(candidates, operator.ToSlice(parameter))
-				}
+			if err := verifyScopeOperand(operator.OperatorValue()); err != nil {
+				return nil, err
 			}
-			if err := validatePoliciesCanCombine(sortByPriority(slices.Clone(candidates))); err != nil {
-				return err
+		}
+		scopeValues += scopeValueCount(operators.Metadata)
+	}
+	if scopeValues > operandLimit {
+		return nil, scopeValueLimitError(operandLimit)
+	}
+	tokenised := policy
+	if scoped {
+		tokenised = policy.clone()
+		for _, parameters := range tokenised.byEntityType() {
+			if operators, ok := parameters["scope"]; ok {
+				parameters["scope"] = PolicyOperators{Metadata: tokeniseScope(operators.Metadata), Unrecognised: operators.Unrecognised}
 			}
 		}
 	}
-	return nil
+	for _, parameters := range tokenised.byEntityType() {
+		for _, operators := range parameters {
+			if err := validatePoliciesCanCombine(sortByPriority(slices.Clone(operators.Metadata))); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return tokenised, nil
+}
+
+func scopeValueLimitError(operandLimit int) error {
+	return fmt.Errorf("%wa statement's policy operands hold more than %d values once each scope string is read as its scope values, the most one statement may hold", ErrLimitReached, operandLimit)
+}
+
+func tokeniseScope(operators []MetadataPolicyOperator) []MetadataPolicyOperator {
+	tokenised := make([]MetadataPolicyOperator, 0, len(operators))
+	for _, operator := range operators {
+		tokenised = append(tokenised, operator.ToSlice("scope"))
+	}
+	return tokenised
+}
+
+func scopeValueCount(operators []MetadataPolicyOperator) int {
+	count := 0
+	for _, operator := range operators {
+		switch typed := operator.(type) {
+		case Essential:
+		case Value:
+			count += scopeOperandValueCount(typed.operatorValue)
+		case Default:
+			count += scopeOperandValueCount(typed.operatorValue)
+		case Add:
+			count += scopeOperandValueCount(typed.operatorValue)
+		case OneOf:
+			count += scopeOperandValueCount(typed.operatorValue)
+		case SubsetOf:
+			count += scopeOperandValueCount(typed.operatorValue)
+		case SupersetOf:
+			count += scopeOperandValueCount(typed.operatorValue)
+		default:
+			count += scopeOperandValueCount(operator.OperatorValue())
+		}
+	}
+	return count
+}
+
+func scopeOperandValueCount(operand any) int {
+	switch typed := operand.(type) {
+	case nil:
+		return 0
+	case string:
+		return scopeTokenCount(typed)
+	case []any:
+		count := 0
+		for _, element := range typed {
+			if s, ok := element.(string); ok {
+				count += scopeTokenCount(s)
+				continue
+			}
+			count++
+		}
+		return count
+	}
+	return 1
+}
+
+func scopeTokenCount(scope string) int {
+	count := 0
+	inToken := false
+	for i := range len(scope) {
+		if scope[i] == ' ' {
+			inToken = false
+			continue
+		}
+		if !inToken {
+			count++
+			inToken = true
+		}
+	}
+	return count
 }
 
 func ProcessAndExtractPolicy(trustChain []EntityStatement) (*MetadataPolicy, error) {
@@ -130,10 +215,13 @@ func (cfg *Configuration) ProcessAndExtractPolicy(trustChain []EntityStatement) 
 }
 
 func processAndExtractPolicy(trustChain []EntityStatement, operandLimit int) (*MetadataPolicy, error) {
+	tokenised := make([]*MetadataPolicy, len(trustChain))
 	for i := range trustChain {
-		if err := sortAndValidatePolicy(trustChain[i].MetadataPolicy); err != nil {
+		policy, err := tokeniseAndValidatePolicy(trustChain[i].MetadataPolicy, operandLimit)
+		if err != nil {
 			return nil, err
 		}
+		tokenised[i] = policy
 	}
 
 	if len(trustChain) == 0 {
@@ -146,7 +234,7 @@ func processAndExtractPolicy(trustChain []EntityStatement, operandLimit int) (*M
 		if trustChain[i].Iss == trustChain[i].Sub {
 			continue
 		}
-		metadataPolicy := trustChain[i].MetadataPolicy
+		metadataPolicy := tokenised[i]
 		if metadataPolicy == nil {
 			continue
 		}
@@ -187,7 +275,7 @@ func verifyMergedPolicyOperandCount(policy *MetadataPolicy, operandLimit int) er
 		}
 	}
 	if operands > operandLimit {
-		return fmt.Errorf("%wthe merged 'add' and 'superset_of' operators hold more than %d operands in total, the most one statement may hold", ErrLimitReached, operandLimit)
+		return fmt.Errorf("%wthe merged list operators hold more than %d operands in total, the most one statement may hold", ErrLimitReached, operandLimit)
 	}
 	return nil
 }
@@ -197,6 +285,10 @@ func unionOperandCount(operator MetadataPolicyOperator) int {
 	case Add:
 		return len(typed.operatorValue)
 	case SupersetOf:
+		return len(typed.operatorValue)
+	case SubsetOf:
+		return len(typed.operatorValue)
+	case OneOf:
 		return len(typed.operatorValue)
 	}
 	return 0
@@ -209,7 +301,7 @@ func applyPolicy(existing, policy map[string]PolicyOperators, operandLimit int) 
 		} else {
 			for k, policies := range existing {
 				if policyOp, found := policy[k]; found {
-					mergedPolicies, err := mergePolicyOperators(k, policyOp, policies, operandLimit)
+					mergedPolicies, err := mergeTokenisedPolicyOperators(policyOp, policies, operandLimit)
 					if err != nil {
 						return nil, err
 					}
@@ -233,6 +325,18 @@ func MergePolicyOperators(claimName string, policySetA, policySetB PolicyOperato
 }
 
 func mergePolicyOperators(claimName string, policySetA, policySetB PolicyOperators, operandLimit int) ([]MetadataPolicyOperator, error) {
+	if claimName == "scope" {
+		for _, policySet := range []*PolicyOperators{&policySetA, &policySetB} {
+			if scopeValueCount(policySet.Metadata) > operandLimit {
+				return nil, scopeValueLimitError(operandLimit)
+			}
+			policySet.Metadata = tokeniseScope(policySet.Metadata)
+		}
+	}
+	return mergeTokenisedPolicyOperators(policySetA, policySetB, operandLimit)
+}
+
+func mergeTokenisedPolicyOperators(policySetA, policySetB PolicyOperators, operandLimit int) ([]MetadataPolicyOperator, error) {
 	if len(policySetA.Metadata) == 0 && len(policySetB.Metadata) == 0 {
 		return nil, nil
 	} else if len(policySetA.Metadata) == 0 {
@@ -242,17 +346,6 @@ func mergePolicyOperators(claimName string, policySetA, policySetB PolicyOperato
 	} else {
 		structuredA := structureAsMap(policySetA.Metadata)
 		structuredB := structureAsMap(policySetB.Metadata)
-
-		if claimName == "scope" {
-			for _, structured := range []map[int]MetadataPolicyOperator{structuredA, structuredB} {
-				for hierarchy, operator := range structured {
-					if operator == nil {
-						continue
-					}
-					structured[hierarchy] = operator.ToSlice(claimName)
-				}
-			}
-		}
 
 		var mergedPolicies []MetadataPolicyOperator
 

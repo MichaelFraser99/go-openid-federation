@@ -398,18 +398,18 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 		return nil, fmt.Errorf("the trust mark 'kid' %q names a key published by issuer %s that cannot verify it: %s", truncate.TruncateForResponse(kid), *parsedIssuer, truncate.TruncateForResponse(err.Error()))
 	}
 
-	_, _, err = jwt.Validate(ctx, trustMark, func() ([]crypto.PublicKey, error) {
+	_, err = jwt.Validate(ctx, trustMark, func() ([]crypto.PublicKey, error) {
 		pubKey, err := jwk.PublicFromJwk(selectedKey)
 		if err != nil {
 			cfg.LogInfo(ctx, "the key published for the trust mark issuer cannot be read", slog.String("kid", kid), slog.String("issuer", string(*parsedIssuer)), slog.Any("members", slices.Sorted(maps.Keys(selectedKey))), slog.String("error", err.Error()))
 			return nil, fmt.Errorf("failed to parse JWK as a valid public key: %w", err)
 		}
 		return []crypto.PublicKey{pubKey}, nil
-	}, &josemodel.JoseOptions{
+	}, nil, &josemodel.JoseOptions{
 		UseTokenProvidedKeys:     false,
 		ClockSkewLeeway:          model.ClockSkewLeeway,
 		AllowedSigningAlgorithms: cfg.AcceptedSigningAlgorithms(),
-	})
+	}, nil)
 	if err != nil {
 		cfg.LogInfo(ctx, "failed to validate trust mark", slog.String("error", err.Error()), slog.String("trust_mark", truncate.TruncateForResponse(trustMark)))
 		return nil, fmt.Errorf("failed to validate trust mark: %v", err)

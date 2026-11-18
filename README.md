@@ -16,6 +16,8 @@ go get github.com/MichaelFraser99/go-openid-federation
 
 Requires Go 1.27 or later.
 
+This release requires `go-jose` v0.12.0. Minimal version selection lifts every consumer to v0.12.0, so if your own code imports `go-jose`, read its [Upgrading from 0.11.x to 0.12.0](https://github.com/MichaelFraser99/go-jose#upgrading-from-011x-to-0120) notes. Two changes reach most callers: `jwt.Validate` takes a `model.Retriever`, decrypters and JWE options and returns two values, and an Ed25519 key is an `ed25519.PublicKey` or `ed25519.PrivateKey` value rather than a pointer.
+
 ## Upgrading
 
 What changed in each release, and what you may have to do about it, is in [UPGRADING.md](UPGRADING.md). Each entry there links to the section of this README that describes the behaviour now.

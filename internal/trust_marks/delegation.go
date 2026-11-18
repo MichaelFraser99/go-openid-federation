@@ -223,13 +223,13 @@ func verifyDelegation(ctx context.Context, cfg model.Configuration, mark model.T
 			continue
 		}
 
-		if _, _, err := jwt.Validate(ctx, delegation, func() ([]crypto.PublicKey, error) {
+		if _, err := jwt.Validate(ctx, delegation, func() ([]crypto.PublicKey, error) {
 			publicKey, err := jwk.PublicFromJwk(selectedKey)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse the owner's JWK as a public key: %w", err)
 			}
 			return []crypto.PublicKey{publicKey}, nil
-		}, &josemodel.JoseOptions{UseTokenProvidedKeys: false, ClockSkewLeeway: model.ClockSkewLeeway, AllowedSigningAlgorithms: cfg.AcceptedSigningAlgorithms()}); err != nil {
+		}, nil, &josemodel.JoseOptions{UseTokenProvidedKeys: false, ClockSkewLeeway: model.ClockSkewLeeway, AllowedSigningAlgorithms: cfg.AcceptedSigningAlgorithms()}, nil); err != nil {
 			cfg.LogInfo(ctx, "the delegation signature does not verify against an owner key", slog.String("kid", truncate.TruncateForResponse(kid)), slog.String("owner", string(owner.Sub)), slog.String("error", truncate.TruncateForResponse(err.Error())))
 			continue
 		}

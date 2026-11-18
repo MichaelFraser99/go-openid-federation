@@ -70,8 +70,9 @@ var builtInEntityTypeDefinitions = map[string]EntityType{
 		verifyResolved: func(m map[string]any) error { return OAuthAuthorizationServerMetadata(m).VerifyResolvedMetadata() },
 	},
 	"oauth_client": builtInEntityType{
-		identifier: "oauth_client",
-		verify:     func(m map[string]any) error { return OAuthClientMetadata(m).VerifyMetadata() },
+		identifier:     "oauth_client",
+		verify:         func(m map[string]any) error { return OAuthClientMetadata(m).VerifyMetadata() },
+		verifyResolved: func(m map[string]any) error { return OAuthClientMetadata(m).VerifyResolvedMetadata() },
 	},
 	"oauth_resource": builtInEntityType{
 		identifier: "oauth_resource",

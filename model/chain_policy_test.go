@@ -507,7 +507,7 @@ func TestMetadata_SetEntityType_RoutesEveryBuiltInToItsOwnField(t *testing.T) {
 func TestBuiltInEntityTypes_ResolvedChecksAreWiredDeliberately(t *testing.T) {
 	withRequiredParameters := map[string]bool{
 		"federation_entity":                   false,
-		"oauth_client":                        false,
+		"oauth_client":                        true,
 		"oauth_resource":                      false,
 		"openid_relying_party":                true,
 		"openid_provider":                     true,

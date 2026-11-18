@@ -33,3 +33,7 @@ func (m OAuthClientMetadata) VerifyMetadata() error {
 	}
 	return VerifyJWKSetClaims(m)
 }
+
+func (m OAuthClientMetadata) VerifyResolvedMetadata() error {
+	return VerifyScopeClaim(m)
+}

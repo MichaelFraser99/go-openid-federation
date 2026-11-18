@@ -36,5 +36,8 @@ func (m OpenIDRelyingPartyMetadata) VerifyMetadata() error {
 }
 
 func (m OpenIDRelyingPartyMetadata) VerifyResolvedMetadata() error {
-	return VerifyRequiredClaims(m, "redirect_uris")
+	if err := VerifyRequiredClaims(m, "redirect_uris"); err != nil {
+		return err
+	}
+	return VerifyScopeClaim(m)
 }

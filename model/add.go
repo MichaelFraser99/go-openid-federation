@@ -32,7 +32,14 @@ func (a Add) OperatorValue() any {
 }
 
 func (a Add) ToSlice(key string) MetadataPolicyOperator {
-	return a
+	if key != "scope" {
+		return a
+	}
+	tokenised, err := NewAdd(scopeTokenSlice(a.operatorValue))
+	if err != nil {
+		return a
+	}
+	return *tokenised
 }
 
 func (a Add) String() string {

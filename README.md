@@ -63,7 +63,7 @@ Each change you may have to act on is marked **Breaking change** in the section 
 - [Metadata policy](#metadata-policy): `SubordinateConfiguration` has new `Metadata` and `Constraints` fields, so a literal that sets its fields by position no longer compiles.
 - [ServerConfiguration](#serverconfiguration): `server.NewServer` returns an error, and refuses a configuration that would fail every request.
 - [Metadata policy](#metadata-policy): a `value` operator replaces a parameter of another JSON type, so a resolved parameter can have a type the subject did not publish. Check the types in a custom entity type's `VerifyResolvedMetadata`, and in any `Extensions` type before you use it.
-- [Metadata policy](#metadata-policy): `value` and `default` assign their operand as written, repeats included, and refuse to merge with an operand that differs only by a repeat. `add` keeps a repeat the subject published.
+- [Metadata policy](#metadata-policy): `value` and `default` assign their operand as written, repeats included, and refuse to merge with an operand that differs only by a repeat. `add` keeps a repeat the subject published, and initialises an absent parameter with its operand as written.
 
 ### From v0.11.0-rc.2
 
@@ -862,11 +862,11 @@ The `value` operator assigns its operand whatever the type of the parameter it r
 
 > **Breaking change.** A `value` whose operand had a different JSON type from the parameter was refused, and the whole resolution failed with it. That resolution now succeeds, and the parameter has the operand's type.
 
-`value` and `default` keep their operand as written, repeated values included, because sections 6.1.3.1.1 and 6.1.3.1.3 assign the operator's value. `add` keeps every value the subject published, repeats included, and adds only the values that are not already present (section 6.1.3.1.2). `one_of`, `subset_of` and `superset_of` only test membership, so a repeat in their operand changes nothing.
+`value` and `default` keep their operand as written, repeated values included, because sections 6.1.3.1.1 and 6.1.3.1.3 assign the operator's value. `add` keeps every value the subject published, repeats included, and adds only the values that are not already present (section 6.1.3.1.2). If the parameter is absent, `add` initialises it with its operand as written, repeats included. `one_of`, `subset_of` and `superset_of` only test membership, so a repeat in their operand changes nothing.
 
 Two levels of a chain merge a `value`, or a `default`, only when their operands are equal as written. `["a","a"]` and `["a"]` are different arrays, so merging them is a policy error. Two `add` operators merge into the union of their values, which holds each value once.
 
-> **Breaking change.** A `value` or `default` operand that repeats a value was deduplicated, so `["a","a"]` assigned `["a"]`. It now assigns `["a","a"]`, and two levels whose operands differ only by a repeated value no longer merge.
+> **Breaking change.** A `value`, `default` or `add` operand that repeats a value was deduplicated, so `["a","a"]` assigned `["a"]`, and `add` dropped a repeat the subject published. `value` and `default` now assign `["a","a"]`, as does `add` on an absent parameter. Two levels whose `value` or `default` operands differ only by a repeated value no longer merge.
 
 ### How operand values are compared
 

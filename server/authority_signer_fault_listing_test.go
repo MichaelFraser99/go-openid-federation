@@ -50,7 +50,7 @@ func TestServer_ExtendedList_TheAuthoritysOwnSignerFaultFailsThePage(t *testing.
 				t.Fatalf("failed to read a public key: %v", err)
 			}
 			(*public)["kid"] = "good"
-			server := mustNewServer(t, model.ServerConfiguration{
+			server := newServer(model.ServerConfiguration{
 				EntityIdentifier:            "https://ta.example.com",
 				SignerConfiguration:         authoritySigner,
 				EntityConfigurationLifetime: time.Hour,

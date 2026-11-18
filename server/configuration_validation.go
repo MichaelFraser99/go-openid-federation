@@ -9,6 +9,8 @@ import (
 	"maps"
 	"slices"
 
+	"github.com/MichaelFraser99/go-jose/jwa"
+	"github.com/MichaelFraser99/go-jose/jws"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
@@ -32,6 +34,10 @@ func validateConfiguration(cfg model.ServerConfiguration) error {
 	}
 	if err := model.VerifyIssuanceAlgorithm(cfg.SignerConfiguration.Algorithm); err != nil {
 		fault("SignerConfiguration.Algorithm cannot be used: %s", err.Error())
+	} else if cfg.SignerConfiguration.Signer != nil {
+		if _, err := jws.GetValidator(jwa.GetAlgorithm(cfg.SignerConfiguration.Algorithm), cfg.SignerConfiguration.Signer.Public()); err != nil {
+			fault("SignerConfiguration.Signer holds a key that cannot sign with SignerConfiguration.Algorithm %s: %s", cfg.SignerConfiguration.Algorithm, err.Error())
+		}
 	}
 	if err := cfg.VerifySigningAlgorithms(); err != nil {
 		fault("Configuration.SigningAlgorithms cannot be used: %s", err.Error())

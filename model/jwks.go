@@ -83,14 +83,12 @@ func collectJWKSetEntries(value any, path string, depth int, into *[]locatedJWK)
 	}
 	switch typed := value.(type) {
 	case map[string]any:
-		if entries, ok := typed["keys"].([]any); ok {
-			for _, entry := range entries {
-				if key, ok := entry.(map[string]any); ok {
-					*into = append(*into, locatedJWK{key: key, path: path})
-				}
-			}
-		}
+		*into = append(*into, locatedJWK{key: typed, path: path})
 		for member, held := range typed {
+			if member == "keys" {
+				collectJWKSetEntries(held, path, depth+1, into)
+				continue
+			}
 			collectJWKSetEntries(held, path+"."+member, depth+1, into)
 		}
 	case []any:
@@ -120,61 +118,61 @@ func findPublishableKeySets(value any, path string, depth int, found *[]locatedJ
 	}
 }
 
-func stripJWKSetEntries(value any, depth int, dropped *[]string) any {
+func stripJWKSetEntries(value any, depth int, dropped *[]string) (any, bool) {
 	if depth > maxPublishableScanDepth {
-		return value
+		return value, true
 	}
 	switch typed := value.(type) {
 	case map[string]any:
-		if entries, ok := typed["keys"].([]any); ok {
-			kept := make([]any, 0, len(entries))
-			for _, entry := range entries {
-				key, ok := entry.(map[string]any)
-				if ok && VerifyPublishableJWK(key) != nil {
-					kid, _ := key["kid"].(string)
-					*dropped = append(*dropped, TruncateForResponse(kid))
-					continue
-				}
-				kept = append(kept, entry)
-			}
-			if len(kept) != len(entries) {
-				typed["keys"] = kept
-			}
+		if VerifyPublishableJWK(typed) != nil {
+			kid, _ := typed["kid"].(string)
+			*dropped = append(*dropped, TruncateForResponse(kid))
+			return nil, false
 		}
 		for member, held := range typed {
-			if member == "keys" {
-				continue
+			if kept, keep := stripJWKSetEntries(held, depth+1, dropped); keep {
+				typed[member] = kept
+			} else {
+				delete(typed, member)
 			}
-			typed[member] = stripJWKSetEntries(held, depth+1, dropped)
 		}
-		return typed
+		return typed, true
 	case []any:
-		for i, member := range typed {
-			typed[i] = stripJWKSetEntries(member, depth+1, dropped)
+		kept := make([]any, 0, len(typed))
+		for _, member := range typed {
+			if held, keep := stripJWKSetEntries(member, depth+1, dropped); keep {
+				kept = append(kept, held)
+			}
 		}
-		return typed
+		return kept, true
 	}
-	return value
+	return value, true
 }
 
 func StripUnpublishableKeys(statement map[string]any, depth int, dropped *[]string) {
+	stripKeySets(statement, depth, dropped)
+}
+
+func stripKeySets(value any, depth int, dropped *[]string) {
 	if depth > maxPublishableScanDepth {
 		return
 	}
-	for member, held := range statement {
-		if member == "jwks" {
-			statement[member] = stripJWKSetEntries(held, 0, dropped)
-			continue
-		}
-		switch typed := held.(type) {
-		case map[string]any:
-			StripUnpublishableKeys(typed, depth+1, dropped)
-		case []any:
-			for _, entry := range typed {
-				if nested, ok := entry.(map[string]any); ok {
-					StripUnpublishableKeys(nested, depth+1, dropped)
-				}
+	switch typed := value.(type) {
+	case map[string]any:
+		for member, held := range typed {
+			if member != "jwks" {
+				stripKeySets(held, depth+1, dropped)
+				continue
 			}
+			if kept, keep := stripJWKSetEntries(held, 0, dropped); keep {
+				typed[member] = kept
+			} else {
+				delete(typed, member)
+			}
+		}
+	case []any:
+		for _, entry := range typed {
+			stripKeySets(entry, depth+1, dropped)
 		}
 	}
 }

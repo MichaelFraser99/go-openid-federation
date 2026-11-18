@@ -63,7 +63,7 @@ func issuedBy(trustMark string, issuer model.EntityIdentifier, valueLimit int) b
 		return false
 	}
 	iss, _ := claims["iss"].(string)
-	return iss == string(issuer)
+	return iss != "" && iss == string(issuer)
 }
 
 func List(ctx context.Context, cfg model.ServerConfiguration, trustMarkIdentifier string, subjectEntityIdentifier *model.EntityIdentifier) ([]model.EntityIdentifier, error) {

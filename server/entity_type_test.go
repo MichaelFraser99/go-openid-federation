@@ -351,7 +351,9 @@ func TestServer_Resolve_ExtensionEntityTypes(t *testing.T) {
 				Policies: tt.trustAnchorPolicy,
 			})
 
-			verifierEntityServer.AddAuthorityHint(model.EntityIdentifier(s.URL))
+			if err := verifierEntityServer.AddAuthorityHint(model.EntityIdentifier(s.URL)); err != nil {
+				t.Fatalf("failed to add the authority hint: %v", err)
+			}
 
 			params := url.Values{}
 			params.Add("sub", vs.URL)

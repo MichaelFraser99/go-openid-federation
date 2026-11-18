@@ -100,7 +100,9 @@ func TestServer_ConcurrentRequestsDoNotRaceOnSharedState(t *testing.T) {
 			}
 
 			if i%4 == 0 {
-				s.AddAuthorityHint(model.EntityIdentifier("https://authority.example.com"))
+				if err := s.AddAuthorityHint(model.EntityIdentifier("https://authority.example.com")); err != nil {
+					t.Errorf("failed to add the authority hint: %v", err)
+				}
 			}
 		}(i)
 	}

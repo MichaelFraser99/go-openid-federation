@@ -59,7 +59,7 @@ func (a Add) Resolve(metadataParameterValue any) (any, error) {
 	if fault := listElementsFault(elements); fault != "" {
 		return nil, fmt.Errorf("the metadata parameter with the 'add' operand added must be an array of one of strings, numbers or objects, and %s", fault)
 	}
-	return combined, nil
+	return cloneValue(combined), nil
 }
 
 func (a Add) ResolutionHierarchy() int {

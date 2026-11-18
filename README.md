@@ -16,82 +16,9 @@ go get github.com/MichaelFraser99/go-openid-federation
 
 Requires Go 1.27 or later.
 
-> **Breaking change.** This release requires `go-jose` v0.11.0, which requires Go 1.27. Minimal version selection lifts every consumer to v0.11.0, so read its "Upgrading from 0.10.x" notes if your own code imports `go-jose`. The changes that reach a consumer of this library:
->
-> - **`kid` values.** `jwk.PublicJwk` now derives a `kid` as the key's RFC 7638 thumbprint. If you compute your signing key's `KeyID` that way at startup, it changes on upgrade, and every superior that registered your old `kid` must be given the new one, or your entity configuration no longer verifies against its subordinate statement.
-> - **`josemodel.Jwks`.** It appears in `SubordinateConfiguration.JWKs`, `TrustMarkOwner.JWKs` and `Configuration.TrustAnchors`. An empty set now serialises as `{"keys":[]}` rather than `{"keys":null}`, decoding JSON into one refuses a missing or `null` `keys`, and `RetrieveByKeyID` returns every key carrying the `kid`.
-> - **Stricter keys from peers.** An EC key whose `x` or `y` is not the full size of its curve, and an RSA key whose `n` or `e` carries a leading zero octet, are now refused, as RFC 7518 sections 6.2.1.2 and 2 require. A peer publishing one can no longer be verified.
-> - **Expiry is exclusive.** A statement, trust mark or delegation has expired once the current time reaches its `exp` plus `model.ClockSkewLeeway`, as RFC 7519 section 4.1.4 requires ("MUST be before"). Earlier releases accepted it for one more second.
-
 ## Upgrading
 
-Each change you may have to act on is marked **Breaking change** in the section it concerns. The lists below link to those sections.
-
-### From v0.11.1
-
-- [Errors](#errors): `/resolve` builds this server's own statements in process, and a fault in them answers 5xx.
-- [Trust chains](#trust-chains): a walk logs once for each entity, and several Info messages are replaced by one summary line.
-- [Retriever interfaces](#retriever-interfaces): a temporary outage in `GetSubordinateSigners` or `ListTrustMarkIssuers` answers 503, and `/extended-list` no longer drops a statement silently over it.
-- [Query parameters](#query-parameters): one subordinate's unusable record or signer no longer takes down `/extended-list` or `/.well-known/openid-federation`.
-- [ServerConfiguration](#serverconfiguration): a redirect from a peer to a URL that does not use `https` is refused, whatever client you supply.
-- [Entity statements and metadata](#entity-statements-and-metadata): resolved `openid_credential_issuer` metadata must name the subject as its `credential_issuer`.
-- [Entity statements and metadata](#entity-statements-and-metadata): a `nil` member below a metadata parameter is written as `null`, not left out.
-- [An intermediate or trust anchor](#an-intermediate-or-trust-anchor): a leaf no longer publishes a `federation_fetch_endpoint` or `federation_list_endpoint` typed into its metadata.
-- [Extensions](#extensions): a `SubordinateStatus.ResponseLifetime` under one second answers 500 instead of signing an expired response.
-- [Errors](#errors): a transport error that wraps `model.ErrServerError` for one peer no longer ends a trust chain walk that has another route.
-- [Retriever interfaces](#retriever-interfaces): a retriever error that wraps `model.ErrServerError` or `model.ErrTemporarilyUnavailable` answers with the endpoint's fixed description, not its own text.
-- [Errors](#errors): a failure to fetch the subject's own entity configuration answers with the class your `HttpClient`'s transport error carries, not 404 `not_found`.
-- [Retriever interfaces](#retriever-interfaces): a `SubordinateCacheTime` under one second caches nothing.
-- [Trust chains](#trust-chains): a subordinate statement that cannot be fetched no longer ends a resolve that another route can complete.
-- [Entity statements and metadata](#entity-statements-and-metadata): an `Extensions` entry under a built-in entity type is refused when written.
-- [Query parameters](#query-parameters): `/list` and `/extended-list` leave out a store value that is not an entity identifier, and serve a repeated one once.
-- [Query parameters](#query-parameters): `/extended-list` removes a `subordinate_statement` from your retriever when `claims` is present without it, or when this server cannot issue one.
-- [Query parameters](#query-parameters): `/trust-mark` answers 500 for a value from `IssueTrustMark` that is not a trust mark for the requested subject and type.
-- [Limits](#limits): a trust mark of a type the trust anchor does not trust no longer counts against `MaxTrustMarks`, and no longer writes a log line of its own. The summary line counts them as `untrusted_types`.
-- [Query parameters](#query-parameters): `/trust-mark-status` answers 404 for a trust mark whose `iss` is not this server, without asking your retriever.
-- [Anchoring a chain a caller supplies](#anchoring-a-chain-a-caller-supplies): an entity configuration or subordinate statement that carries a `trust_chain` or `peer_trust_chain` header is refused.
-- [Metadata policy](#metadata-policy): an entity type policy or a parameter policy whose value is `null` is refused.
-- [Entity statements and metadata](#entity-statements-and-metadata): resolved `oauth_authorization_server` metadata must hold the endpoints and signing algorithm lists that RFC 8414 section 2 makes conditional.
-- [Entity statements and metadata](#entity-statements-and-metadata): `openid_credential_verifier_provider` is a built-in entity type with its own field, and its resolved metadata must hold `jwks`.
-- [Entity statements and metadata](#entity-statements-and-metadata): `openid_credential_verifier` metadata must follow Wallet Architectures draft 06 section 6.4.1.
-- [Retriever interfaces](#retriever-interfaces): `AddSubordinate`, `GetSubordinate` and `GetSubordinates` copy the configuration, so a write to it no longer changes what `/fetch` signs.
-- [Entity statements and metadata](#entity-statements-and-metadata): an entity identifier must be an RFC 3986 URI, so a raw space, a raw non-ASCII character or a port above 65535 is refused.
-- [Entity statements and metadata](#entity-statements-and-metadata): a credential issuer's `authorization_servers` must be a non-empty array of entity identifiers.
-- [Metadata policy](#metadata-policy): a merged policy whose `add` and `superset_of` operators hold more operands in total than `MaxStatementValues` is refused.
-- [Metadata policy](#metadata-policy): a `metadata_policy` that repeats a member name at any of its three levels is refused.
-- [Entity statements and metadata](#entity-statements-and-metadata): a statement, trust mark or delegation that repeats a name in its header or its claims is refused.
-- [Metadata policy](#metadata-policy): `SubordinateConfiguration` has new `Metadata` and `Constraints` fields, so a literal that sets its fields by position no longer compiles.
-- [ServerConfiguration](#serverconfiguration): `server.NewServer` returns an error, and refuses a configuration that would fail every request.
-- [Metadata policy](#metadata-policy): a `value` operator replaces a parameter of another JSON type, so a resolved parameter can have a type the subject did not publish. Check the types in a custom entity type's `VerifyResolvedMetadata`, and in any `Extensions` type before you use it.
-- [Metadata policy](#metadata-policy): `value` and `default` assign their operand as written, repeats included, and refuse to merge with an operand that differs only by a repeat. `add` keeps a repeat the subject published, and initialises an absent parameter with its operand as written.
-- [Query parameters](#query-parameters): `/resolve` with `entity_type` judges only the named types, so a broken type that the request does not name no longer refuses the resolution.
-- [Metadata policy](#metadata-policy): an element of any operand on `scope` is split into scope values, so `subset_of: ["openid profile"]` permits both, and a `superset_of` or `one_of` element that holds whitespace is no longer refused.
-- [Metadata policy](#metadata-policy): a resolved `scope` that holds no scope value is refused as `invalid_metadata` for `openid_relying_party` and `oauth_client`.
-
-### From v0.11.0-rc.2
-
-- [Installation](#installation): this release requires `go-jose` v0.11.0 and Go 1.27.
-- [Query parameters](#query-parameters): a `sub` that spells the server's own identifier differently is refused.
-- [Limits](#limits): `MaxRequestPeerBytes`, `MaxPeerResponseTime`, `MaxResolveTime`, `MaxTrustMarks`, `MaxStatementValues` and `MaxAuthorityHints` are new, and `Server.Configure` no longer installs `http.DefaultClient`.
-- [Retriever interfaces](#retriever-interfaces): a subordinate added with `AddSubordinate` and no `Retriever` no longer expires.
-- [Per-subordinate signing keys](#per-subordinate-signing-keys): a signer whose `KeyID` is already published for a different key is left out, and `/.well-known/openid-federation` no longer answers 500.
-- [Entity statements and metadata](#entity-statements-and-metadata): more statements are refused, `PolicyOperators` has an `Unrecognised` field, and `Metadata.VerifyResolved` applies the shape rules and takes the subject's identifier.
-- [How operand values are compared](#how-operand-values-are-compared): `essential` takes a boolean only, operator combinations are checked across levels, and the four list operators are held to their element types.
-- [Trust chains](#trust-chains): the fetch endpoint is requested as published, and trust mark refusals are logged at Info.
-- [Constraints](#constraints): `EntityStatement.Constraints` is typed, and constraints are enforced.
-- [Anchoring a chain a caller supplies](#anchoring-a-chain-a-caller-supplies): with no `TrustAnchors`, `Client.ResolveMetadata` fetches the anchor's entity configuration itself.
-- [Errors](#errors): signer errors are classified, and `/list` keeps every class a retriever gives.
-
-### From v0.10.0
-
-Every change in the list above applies, and so do these:
-
-- [Limits](#limits): `MaxTrustChainDepth` defaults to 10, and `MaxEntitiesTraversed` and `MaxTrustMarkIssuers` are new.
-- [Retriever interfaces](#retriever-interfaces): a bare `error` for an unknown subject answers 500.
-- [Entity statements and metadata](#entity-statements-and-metadata): three `EntityStatement` fields changed type or were removed, and the required-claim checks moved out of `VerifyMetadata`.
-- [Custom entity types](#custom-entity-types): a subject whose entity type is incomplete after resolution is refused.
-- [How operand values are compared](#how-operand-values-are-compared): `ProcessAndExtractPolicy` skips self-issued statements, and the superior's `metadata` claim is applied.
-- [Anchoring a chain a caller supplies](#anchoring-a-chain-a-caller-supplies): a chain of one entry resolves only when it is the trust anchor's own entity configuration, `Client.ResolveMetadata` takes a `trustAnchor` argument and never returns nil metadata, and `TrustAnchors` restricts which anchors `/resolve` serves.
+What changed in each release, and what you may have to do about it, is in [UPGRADING.md](UPGRADING.md). Each entry there links to the section of this README that describes the behaviour now.
 
 ## Packages
 
@@ -193,7 +120,7 @@ When an authority's entity configuration is generated, the federation endpoint c
 
 An entity with no `IntermediateConfiguration` is a leaf. This server mounts no `/fetch` or `/list` for it, and section 5.1.1 says that a leaf MUST NOT publish `federation_fetch_endpoint` or `federation_list_endpoint`. If you type either claim into the `FederationMetadata` of such an entity, the library leaves it out of the entity configuration. `NewServer` logs each such claim at error level once, when the server is built, not on every request. Other endpoint claims, such as `federation_resolve_endpoint`, are published as you configure them.
 
-> **Breaking change.** Earlier releases published a `federation_fetch_endpoint` or `federation_list_endpoint` typed into a leaf's metadata. A resolver that followed it got a 404 and refused the chain as `invalid_trust_chain`. If another service serves fetch and list for this entity, publish the entity configuration from that service. Or set `IntermediateConfiguration`, so that this server serves them and publishes its own endpoints.
+> **Breaking change.** In v0.11.1, a leaf published a `federation_fetch_endpoint` or `federation_list_endpoint` typed into its metadata. A resolver that followed it got a 404 and refused the chain as `invalid_trust_chain`. If another service serves fetch and list for this entity, publish the entity configuration from that service. Or set `IntermediateConfiguration`, so that this server serves them and publishes its own endpoints.
 
 ### A relying party resolving another entity
 
@@ -581,6 +508,8 @@ type SubordinateStatusRetriever interface {
 
 Subordinates retrieved through a `Retriever` are cached for `IntermediateConfiguration.SubordinateCacheTime`. Under one second, nothing is kept, and every lookup asks the `Retriever`, because the time an entry was stored is recorded in whole seconds: a shorter cache time would keep entries that are never served. An expired entry is not removed, only replaced at the next lookup for the same subject, so the cache holds every subject your `Retriever` has confirmed until you call `FlushCache`. Confirm only the subjects you registered, matched exactly. A `Retriever` that confirms any subject, or matches spellings loosely, lets a caller add an entry for each new `sub` it sends to `/fetch`.
 
+> **Breaking change.** In v0.11.1, a `SubordinateCacheTime` under one second served an entry until that much time had passed since the start of the second in which it was stored, so whether an entry was served at all depended on when in that second it arrived. Set at least one second if you want entries cached.
+
 With no `Retriever`, the subordinates you add with `AddSubordinate` are the store itself, not a cache. They are served until you call `FlushCache`, which removes them all, and `SubordinateCacheTime` does not apply. There is no way to remove one subordinate on its own.
 
 With a `Retriever`, `AddSubordinate` only seeds the cache. `/fetch` serves the entry until `SubordinateCacheTime` passes, and then asks the `Retriever`, whose answer replaces it. `/list` never shows it, because `/list` asks the `Retriever`.
@@ -601,7 +530,7 @@ A retriever that returns `(nil, nil)` is treated the same way, so a store that s
 
 > **Breaking change.** Returning a bare `error` for an unknown subject now gives the caller a 500 rather than a 404. Earlier releases turned every retriever error into 404 `not_found`, which reported a store outage to federation peers as "this subordinate does not exist". If your retriever signals an unknown subject with a bare error — `sql.ErrNoRows`, an ORM's "record not found", or your own sentinel — wrap it with `model.NewNotFoundError(...)` or return `(nil, nil)`, or `/fetch` will answer 500 for every unknown subject.
 
-The text of an unclassified retriever error is never sent to the caller, on any endpoint. It is logged, and the response carries a fixed description, because a driver error commonly contains a host name and a user name. An error carrying a 4xx sentinel, such as `model.NewUnsupportedParameterError(...)` or `model.NewNotFoundError(...)`, passes through unchanged, so it chooses both the status and the description a peer sees. An error carrying `model.ErrServerError` or `model.ErrTemporarilyUnavailable` keeps its status, 500 or 503, but the response carries the endpoint's fixed description, and your text goes to the log: those classes describe this server's own condition, and a store's text for it often names a host or a user. A 500 is logged at error level and a 503 at Info.
+The text of an unclassified retriever error is never sent to the caller, on any endpoint. It is logged, and the response carries a fixed description, because a driver error commonly contains a host name and a user name. An error carrying a 4xx sentinel, such as `model.NewUnsupportedParameterError(...)` or `model.NewNotFoundError(...)`, passes through unchanged, so it chooses both the status and the description a peer sees. One exception: on `/fetch`, `ErrNotFound` from `GetSubordinate` means the subject is not a subordinate, and the response carries the fixed description `unknown entity identifier`. An error carrying `model.ErrServerError` or `model.ErrTemporarilyUnavailable` keeps its status, 500 or 503, but the response carries the endpoint's fixed description, and your text goes to the log: those classes describe this server's own condition, and a store's text for it often names a host or a user. A 500 is logged at error level and a 503 at Info.
 
 > **Breaking change.** A retriever error that wrapped `model.ErrServerError` or `model.ErrTemporarilyUnavailable` reached the caller with its own description, so a store that wrapped a driver error sent it to every caller. The status is unchanged. If you relied on your 503 text reaching peers, it now reaches your log instead. `model.ErrPageNotFound` is the exception: only `ExtendedListingRetriever` can return it, as [Query parameters](#query-parameters) describes. From any other retriever it is an unclassified fault, and an error that carries it beside another class answers as that other class.
 
@@ -673,7 +602,7 @@ A name must not occur twice at the top level of the header or of the claims of a
 
 Parsing applies the claim rules from section 3.2 of the specification. Earlier releases handled each of the cases below differently.
 
-- A statement is rejected when it is expired or future-dated. Both comparisons allow `model.ClockSkewLeeway`, 60 seconds, of clock skew, and so does the trust chain expiry check, so the two layers agree on what expired means. The `iat` claim must be before the `exp` claim. A trust mark and its `delegation` are judged with the same allowance, which earlier releases did not do: they were compared against the current time exactly, so an issuer whose clock ran a few seconds fast had its marks dropped from resolve responses with no error while an entity statement in the same state was accepted. One limit is worth knowing: a trust mark whose `exp` has already passed is still left out of a resolve response, however small the margin, because section 8.3.2 makes the response's `exp` the minimum over the marks it carries and a response whose `exp` has passed is unusable. The allowance decides whether such a mark is *valid*, not whether it can be carried.
+- A statement is rejected when it is expired or future-dated. Both comparisons allow `model.ClockSkewLeeway`, 60 seconds, of clock skew. The trust chain expiry check allows none: a chain whose earliest `exp` is not in the future is refused, because a resolve response must carry an `exp` in the future (section 8.3.2). So a statement up to 60 seconds past its `exp` parses, but a chain that includes it is refused. The `iat` claim must be before the `exp` claim. A trust mark and its `delegation` are judged with the same allowance, which earlier releases did not do: they were compared against the current time exactly, so an issuer whose clock ran a few seconds fast had its marks dropped from resolve responses with no error while an entity statement in the same state was accepted. One limit is worth knowing: a trust mark whose `exp` has already passed is still left out of a resolve response, however small the margin, because section 8.3.2 makes the response's `exp` the minimum over the marks it carries and a response whose `exp` has passed is unusable. The allowance decides whether such a mark is *valid*, not whether it can be carried.
 - A statement that carries a `crit` claim is rejected, with no opt-in. The library has no way to carry the critical extension claims themselves. See issue #132.
 - The `typ` header of an entity statement, a trust mark and a trust mark delegation is compared as a media type, with one rule for all three. A value with no `/` is read with `application/` before it, as RFC 7515 section 4.1.9 requires. Case is ignored for ASCII letters only, so `entity-ſtatement+jwt` is refused. Earlier releases accepted that spelling for entity statements and delegations, and dropped a trust mark typed `application/trust-mark+jwt` or `TRUST-MARK+JWT` from resolve responses.
 - A statement that carries a `metadata_policy_crit` claim is rejected. The claim names metadata policy operators that an implementation must understand, and this library understands none beyond the seven standard operators.
@@ -822,7 +751,7 @@ An entity type with required claims that resolves to the empty object is refused
 
 > **Breaking change.** A subject that publishes `{}` for an entity type with required claims, and whose superiors supply none of them, previously resolved and now gets `invalid_metadata`. On `/resolve`, only the entity types the request names are judged, so a caller asking for one entity type is not refused because a different one is incomplete. With no `entity_type`, every type is requested, and one incomplete type refuses the resolution.
 
-Registered types are handled the same way as built-in types: published in entity configurations, carried in subordinate statements, subject to metadata policy, filtered by the `entity_type` parameter on `/resolve`, and passed through the `entity_type` filter on `/list`.
+Registered types are handled the same way as built-in types: published in entity configurations, carried in subordinate statements, subject to metadata policy, filtered by the `entity_type` parameter on `/resolve`, and passed to your `SubordinateListingRetriever` when `/list` is asked to filter by `entity_type`. Without a listing retriever, `/list` answers a filter with `unsupported_parameter`; see [Query parameters](#query-parameters).
 
 ### Unrecognised types
 
@@ -830,7 +759,7 @@ Entity types absent from the registry are preserved and relayed unmodified. An i
 
 Set `DiscardUnrecognisedEntityTypes` to remove them instead. Discarding does not produce an error.
 
-The nine built-in types are always registered and are never discarded. A registry entry under a built-in identifier adds its validation to that built-in rather than replacing it: `Metadata.UnmarshalJSON` always runs the built-in `VerifyMetadata`, and `Metadata.VerifyResolved` always runs the built-in `VerifyResolvedMetadata` alongside the registered one. A registration can therefore tighten a standard type but not loosen it. See [#74](https://github.com/MichaelFraser99/go-openid-federation/issues/74).
+The ten built-in types are always registered and are never discarded. A registry entry under a built-in identifier adds its validation to that built-in rather than replacing it: `Metadata.UnmarshalJSON` always runs the built-in `VerifyMetadata`, and `Metadata.VerifyResolved` always runs the built-in `VerifyResolvedMetadata` alongside the registered one. A registration can therefore tighten a standard type but not loosen it. See [#74](https://github.com/MichaelFraser99/go-openid-federation/issues/74).
 
 `model.DefaultEntityTypeRegistry` returns the built-in definitions. Embedding one in a custom type delegates to its validation, which is useful when a type is close to a standardised one.
 
@@ -862,7 +791,7 @@ The private-member check is a denylist of the member names the JOSE specificatio
 
 The `value` operator assigns its operand whatever the type of the parameter it replaces, because section 6.1.3.1.1 says the parameter MUST be assigned the operator's value. A superior can therefore change a parameter's JSON type, for example from a string to an array. Section 6.1 does not make policy check value types. It leaves that check to the application, after the trust chain resolves.
 
-- For a built-in entity type, the library does that check. A resolved parameter of the wrong type is refused as `invalid_metadata`.
+- For a built-in entity type, the library checks the parameters that the type gives a shape rule, such as `redirect_uris`, `contacts`, `jwks` and the endpoint URLs, and refuses a resolved one of the wrong type as `invalid_metadata`. Other parameters, such as `client_name` or `logo_uri`, are not type-checked, so check their types before you use them.
 - For an entity type that you register, the library calls your `VerifyResolvedMetadata` on the resolved metadata. Check each parameter's type there. Do not assume a parameter has the type the subject published.
 - For a type that is not registered, which is kept in `Extensions`, the library checks nothing. Check each value's type before you use it. A bare type assertion such as `meta["x"].(string)` panics on a changed type.
 
@@ -1149,9 +1078,11 @@ Two exceptions worth knowing, rather than inferring from the above:
 
   During the trust chain walk, a transport error that wraps `model.ErrServerError` for one entity's entity configuration is remembered rather than answered at once, because your policy may refuse that peer only. The walk tries the remaining `authority_hints`, and the remembered class is the answer only when no route reaches the trust anchor.
 
-  > **Breaking change.** Earlier releases ended the walk on such an error, so one peer that your transport refused could fail a `/resolve` that had another route.
+  > **Breaking change.** In v0.11.1, the walk ended on such an error, so one peer that your transport refused could fail a `/resolve` that had another route.
 
-  For the subject's own entity configuration, the class your transport error carries is the answer, because the subject has no other route. A throttled transport answers 503 and a policy refusal answers its class, with this library's own description. Earlier releases answered 404 `not_found` for any failure to fetch it. The trust anchor's entity configuration already kept its class for the same reason.
+  For the subject's own entity configuration, the class your transport error carries is the answer, because the subject has no other route. A throttled transport answers 503 and a policy refusal answers its class, with this library's own description. The trust anchor's entity configuration already kept its class for the same reason.
+
+  > **Breaking change.** In v0.11.1, any failure to fetch the subject's own entity configuration answered 404 `not_found`.
 
 So the answer for a peer that can't be reached, or answers badly, depends on where that peer sits in the chain. This is deliberate: the class says which step failed, and the description says why.
 
@@ -1213,7 +1144,7 @@ pre-commit run --all-files
 
 ## Specification coverage
 
-Entity statements and configurations, subordinate statements, trust chain construction and validation, all seven metadata policy operators, metadata validation for the nine entity types listed above, registration of additional entity types, trust mark issuance, listing and status, and the fetch, list, resolve and well-known endpoints.
+Entity statements and configurations, subordinate statements, trust chain construction and validation, all seven metadata policy operators, metadata validation for the ten entity types listed above, registration of additional entity types, trust mark issuance, listing and status, and the fetch, list, resolve and well-known endpoints.
 
 ### Known gaps
 
@@ -1222,7 +1153,11 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | Internationalised hosts under `naming_constraints` | Decided: refused by default, and matched only when `Configuration.HostToASCII` is set | [#50](https://github.com/MichaelFraser99/go-openid-federation/issues/50) |
 | Clock skew tolerance | `model.ClockSkewLeeway` is a constant and cannot be configured | [#141](https://github.com/MichaelFraser99/go-openid-federation/issues/141) |
 | Extension claims | Dropped on parse and cannot be issued | [#132](https://github.com/MichaelFraser99/go-openid-federation/issues/132) |
-| `trust_chain` and `peer_trust_chain` JOSE headers | Not read or written. An entity configuration or subordinate statement that carries either header is refused, as sections 4.3 and 4.4 require | [#139](https://github.com/MichaelFraser99/go-openid-federation/issues/139) |
+| `trust_chain` and `peer_trust_chain` JOSE headers | Decided: not read or written. An entity configuration or subordinate statement that carries either header is refused, as sections 4.3 and 4.4 require | [#139](https://github.com/MichaelFraser99/go-openid-federation/issues/139) |
+| Client authentication at `/resolve` | `/resolve` takes no client authentication and walks the federation on demand for every request, which section 18.1 advises against as a default. The bounds under [Limits](#limits) cap one request, not the number of requests, so rate limit `/resolve` yourself | [#219](https://github.com/MichaelFraser99/go-openid-federation/issues/219) |
+| Empty levels in `metadata_policy` | `{}`, an entity type with no parameters, and a parameter with no operators are accepted, and have no effect | [#129](https://github.com/MichaelFraser99/go-openid-federation/issues/129) |
+| Trust mark issuers | The issuers of a subject's trust marks are resolved one after another, so each extra issuer adds its fetches to a resolve's time | [#137](https://github.com/MichaelFraser99/go-openid-federation/issues/137) |
+| Subordinate statement caching | Within one request, a subordinate statement fetched for one walk is fetched again for another, such as two trust mark issuers under the same intermediate | [#138](https://github.com/MichaelFraser99/go-openid-federation/issues/138) |
 | Trust mark type identifiers as object member names | Decided, not planned: member names in `trust_mark_issuers` and `trust_mark_owners` are not checked against a syntax, because §7.1 makes a URL RECOMMENDED rather than required and the one MUST, collision resistance, is not checkable | [#140](https://github.com/MichaelFraser99/go-openid-federation/issues/140) |
 | `subordinate_statement` on an unlistable entity | Decided: a deliberate deviation. Table 4 of the extended listing draft makes the attribute a MUST when requested, and an entity the subordinate store does not hold is returned without it. See [Retriever interfaces](#retriever-interfaces) | [#126](https://github.com/MichaelFraser99/go-openid-federation/issues/126) |
 | An entity type registered under a built-in identifier | Decided: the registration adds to the built-in check, so it can tighten a built-in type but not loosen it | [#74](https://github.com/MichaelFraser99/go-openid-federation/issues/74) |

@@ -469,8 +469,11 @@ func TestServer_Resolve(t *testing.T) {
 				Policies: tt.trustAnchorPolicy,
 			})
 
-			directChildEntityServer.AddAuthorityHint(model.EntityIdentifier(s.URL))
-			walletEntityServer.AddAuthorityHint(model.EntityIdentifier(s.URL))
+			for _, subordinate := range []*Server{directChildEntityServer, walletEntityServer} {
+				if err := subordinate.AddAuthorityHint(model.EntityIdentifier(s.URL)); err != nil {
+					t.Fatalf("failed to add the authority hint: %v", err)
+				}
+			}
 
 			// Build the request URL with the test-specific parameters
 			requestURL := fmt.Sprintf("%s/resolve", s.URL)

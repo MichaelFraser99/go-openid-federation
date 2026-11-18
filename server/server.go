@@ -63,15 +63,22 @@ func (s *Server) SetHttpClient(client *http.Client) {
 // AddAuthorityHint
 //
 //	Adds an authority hint to a running server
-func (s *Server) AddAuthorityHint(entityIdentifier model.EntityIdentifier) {
+func (s *Server) AddAuthorityHint(hint model.EntityIdentifier) error {
+	if _, err := model.ValidateEntityIdentifier(string(hint)); err != nil {
+		return fmt.Errorf("the AuthorityHint is not an entity identifier: %s", err.Error())
+	}
+	if model.NamesTheSameEntity(hint, s.cfg.EntityIdentifier) {
+		return fmt.Errorf("the AuthorityHint names this server's own EntityIdentifier, and section 3.1.2 makes authority_hints the identifiers of the entity's immediate superiors")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if slices.Contains(s.authorityHints, entityIdentifier) {
-		return
+	if slices.Contains(s.authorityHints, hint) {
+		return nil
 	}
 	hints := make([]model.EntityIdentifier, len(s.authorityHints), len(s.authorityHints)+1)
 	copy(hints, s.authorityHints)
-	s.authorityHints = append(hints, entityIdentifier)
+	s.authorityHints = append(hints, hint)
+	return nil
 }
 
 func (s *Server) AuthorityHints() []model.EntityIdentifier {

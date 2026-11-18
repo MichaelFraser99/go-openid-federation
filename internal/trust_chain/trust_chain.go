@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/MichaelFraser99/go-openid-federation/internal/boundedjson"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_configuration"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
 	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
@@ -701,7 +702,7 @@ func ResolveMetadataForEntityTypes(ctx context.Context, cfg model.Configuration,
 		return nil, err
 	}
 	for i, entry := range trustChain {
-		if err := model.VerifyTokenValueCount(entry, cfg.StatementValuesLimit()); err != nil {
+		if err := boundedjson.VerifyTokenValueCount(entry, cfg.StatementValuesLimit()); err != nil {
 			cfg.LogInfo(ctx, "trust chain entry exceeds the value limit", slog.Int("entry", i), slog.Int("limit", cfg.StatementValuesLimit()))
 			return nil, model.NewInvalidTrustChainError(fmt.Sprintf("trust chain entry %d %s", i, err.Error()))
 		}

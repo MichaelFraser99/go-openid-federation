@@ -17,6 +17,7 @@ import (
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
+	"github.com/MichaelFraser99/go-openid-federation/internal/boundedjson"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
 	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
 	"github.com/MichaelFraser99/go-openid-federation/internal/trust_chain"
@@ -55,7 +56,7 @@ func issuedBy(trustMark string, issuer model.EntityIdentifier, valueLimit int) b
 	if err != nil {
 		return false
 	}
-	if model.VerifyJSONValueCount(payload, valueLimit) != nil {
+	if boundedjson.VerifyJSONValueCount(payload, valueLimit) != nil {
 		return false
 	}
 	var claims map[string]any
@@ -305,7 +306,7 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 		cfg.LogInfo(ctx, "failed to decode JWT header", slog.String("error", err.Error()), slog.String("trust_mark", model.TruncateForResponse(trustMark)))
 		return nil, fmt.Errorf("failed to decode JWT header: %v", err)
 	}
-	if err := model.VerifyJSONValueCount(headBytes, cfg.StatementValuesLimit()); err != nil {
+	if err := boundedjson.VerifyJSONValueCount(headBytes, cfg.StatementValuesLimit()); err != nil {
 		cfg.LogInfo(ctx, "trust mark header exceeds the value limit", slog.Int("limit", cfg.StatementValuesLimit()))
 		return nil, fmt.Errorf("the trust mark's JWT header %s", err.Error())
 	}
@@ -338,7 +339,7 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 		cfg.LogInfo(ctx, "failed to decode JWT body", slog.String("error", err.Error()), slog.String("trust_mark", model.TruncateForResponse(trustMark)))
 		return nil, fmt.Errorf("failed to decode JWT body: %v", err)
 	}
-	if err := model.VerifyJSONValueCount(bodyBytes, cfg.StatementValuesLimit()); err != nil {
+	if err := boundedjson.VerifyJSONValueCount(bodyBytes, cfg.StatementValuesLimit()); err != nil {
 		cfg.LogInfo(ctx, "trust mark body exceeds the value limit", slog.Int("limit", cfg.StatementValuesLimit()))
 		return nil, fmt.Errorf("the trust mark's JWT body %s", err.Error())
 	}

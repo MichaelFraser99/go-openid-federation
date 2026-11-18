@@ -13,6 +13,7 @@ import (
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
+	"github.com/MichaelFraser99/go-openid-federation/internal/boundedjson"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
@@ -99,7 +100,7 @@ func verifyDelegation(ctx context.Context, cfg model.Configuration, mark model.T
 		cfg.LogInfo(ctx, "failed to decode the delegation header", slog.String("error", err.Error()))
 		return fmt.Errorf("the trust mark's delegation has a header that cannot be decoded")
 	}
-	if err := model.VerifyJSONValueCount(headBytes, cfg.StatementValuesLimit()); err != nil {
+	if err := boundedjson.VerifyJSONValueCount(headBytes, cfg.StatementValuesLimit()); err != nil {
 		cfg.LogInfo(ctx, "the delegation header exceeds the value limit", slog.Int("limit", cfg.StatementValuesLimit()))
 		return fmt.Errorf("the trust mark's delegation header %s", err.Error())
 	}
@@ -139,7 +140,7 @@ func verifyDelegation(ctx context.Context, cfg model.Configuration, mark model.T
 		cfg.LogInfo(ctx, "failed to decode the delegation body", slog.String("error", err.Error()))
 		return fmt.Errorf("the trust mark's delegation has a body that cannot be decoded")
 	}
-	if err := model.VerifyJSONValueCount(bodyBytes, cfg.StatementValuesLimit()); err != nil {
+	if err := boundedjson.VerifyJSONValueCount(bodyBytes, cfg.StatementValuesLimit()); err != nil {
 		cfg.LogInfo(ctx, "the delegation body exceeds the value limit", slog.Int("limit", cfg.StatementValuesLimit()))
 		return fmt.Errorf("the trust mark's delegation body %s", err.Error())
 	}

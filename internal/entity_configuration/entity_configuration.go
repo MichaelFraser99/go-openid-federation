@@ -21,6 +21,7 @@ import (
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
+	"github.com/MichaelFraser99/go-openid-federation/internal/boundedjson"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
 	"github.com/MichaelFraser99/go-openid-federation/internal/peerclient"
 	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
@@ -157,7 +158,7 @@ func validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode JWT header: %s", err.Error())
 	}
-	if err := model.VerifyJSONValueCount(head, cfg.StatementValuesLimit()); err != nil {
+	if err := boundedjson.VerifyJSONValueCount(head, cfg.StatementValuesLimit()); err != nil {
 		return nil, fmt.Errorf("the JWT header %s", err.Error())
 	}
 	var headMap map[string]any
@@ -173,7 +174,7 @@ func validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode JWT body: %s", err.Error())
 	}
-	if err := model.VerifyJSONValueCount(body, cfg.StatementValuesLimit()); err != nil {
+	if err := boundedjson.VerifyJSONValueCount(body, cfg.StatementValuesLimit()); err != nil {
 		return nil, fmt.Errorf("the JWT body %s", err.Error())
 	}
 	var bodyMap map[string]any
@@ -181,7 +182,7 @@ func validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JWT body: %s", err.Error())
 	}
-	if err := model.VerifyTrustMarkValueCount(bodyMap, cfg.StatementValuesLimit()); err != nil {
+	if err := boundedjson.VerifyTrustMarkValueCount(bodyMap, cfg.StatementValuesLimit()); err != nil {
 		return nil, fmt.Errorf("the JWT body %s", err.Error())
 	}
 

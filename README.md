@@ -64,6 +64,7 @@ Each change you may have to act on is marked **Breaking change** in the section 
 - [ServerConfiguration](#serverconfiguration): `server.NewServer` returns an error, and refuses a configuration that would fail every request.
 - [Metadata policy](#metadata-policy): a `value` operator replaces a parameter of another JSON type, so a resolved parameter can have a type the subject did not publish. Check the types in a custom entity type's `VerifyResolvedMetadata`, and in any `Extensions` type before you use it.
 - [Metadata policy](#metadata-policy): `value` and `default` assign their operand as written, repeats included, and refuse to merge with an operand that differs only by a repeat. `add` keeps a repeat the subject published, and initialises an absent parameter with its operand as written.
+- [Query parameters](#query-parameters): `/resolve` with `entity_type` judges only the named types, so a broken type that the request does not name no longer refuses the resolution.
 
 ### From v0.11.0-rc.2
 
@@ -302,7 +303,9 @@ Section 8.2.2 makes the response an array of entity identifiers, so `/list` serv
 | --- | --- | --- |
 | `sub` | yes | The entity to resolve |
 | `trust_anchor` | yes | The trust anchor to resolve against. Section 8.3.1 permits the parameter more than once and leaves a resolver free to answer from any of them; this implementation uses the first and ignores the rest |
-| `entity_type` | no | Repeatable; restricts the metadata returned |
+| `entity_type` | no | Repeatable; restricts the metadata returned, and the metadata judged |
+
+Section 6.1.4.2 says that resolved metadata that is broken MUST NOT be used. `/resolve` verifies only the entity types that `entity_type` names, and returns only those. If a requested type fails its checks, the response is `invalid_metadata`. A type that the request does not name is not verified and is not returned, so it cannot decide the answer. With no `entity_type`, every type is requested, and one type that fails refuses the resolution. A policy error refuses the resolution whichever types are requested, because section 6.1.4 makes the trust chain invalid. `Client.ResolveMetadata` has no `entity_type`, so it verifies every type. `Metadata.ForEntityTypes` returns a copy of metadata that holds only the named types.
 
 Resolving metadata makes outbound HTTP requests for the caller-supplied `sub` and `trust_anchor` and for the federated authorities discovered while building the trust chain.
 
@@ -763,7 +766,7 @@ Resolved `oauth_authorization_server` metadata must also hold the parameters tha
 
 If `grant_types_supported` is absent, RFC 8414 gives the default `["authorization_code", "implicit"]`, so both endpoints are required. An empty `grant_types_supported` requires `token_endpoint` only. Grant type and method names are compared exactly, as they are registered.
 
-> **Breaking change.** Resolved `oauth_authorization_server` metadata that held only `issuer` and `response_types_supported` previously resolved, and now gets `invalid_metadata`. Add `authorization_endpoint` and `token_endpoint`, or set `grant_types_supported` to the grant types that the server supports. Metadata that names `private_key_jwt` or `client_secret_jwt` for an endpoint now also needs the signing algorithm list for that endpoint. The resolution is refused as a whole, as for every resolved metadata fault ([#158](https://github.com/MichaelFraser99/go-openid-federation/issues/158)).
+> **Breaking change.** Resolved `oauth_authorization_server` metadata that held only `issuer` and `response_types_supported` previously resolved, and now gets `invalid_metadata`. Add `authorization_endpoint` and `token_endpoint`, or set `grant_types_supported` to the grant types that the server supports. Metadata that names `private_key_jwt` or `client_secret_jwt` for an endpoint now also needs the signing algorithm list for that endpoint. On `/resolve`, this refuses the resolution only when the request names `oauth_authorization_server`, or names no `entity_type`.
 
 Whether the required claims of a type are present is checked at the end of resolution, not on each statement. A subject may publish part of a type's metadata and leave its superior to supply the rest, through either a `metadata` claim or a metadata policy, so no single statement has to be complete on its own. The resolved metadata does, and `VerifyResolvedMetadata` is where that is judged. An empty object is accepted on a statement, and in the resolved metadata only for a type that has no required claims; for the rest it means none of them arrived.
 
@@ -815,7 +818,7 @@ Metadata policy can produce metadata that no longer satisfies the type's own rul
 
 An entity type with required claims that resolves to the empty object is refused for the same reason. The specification permits an entity to publish `{}` for a type its superiors will fill, but if nothing fills it the resolved metadata has none of the type's required claims, and section 6.1.4.2 requires resolved metadata that is incorrect to be treated as broken. `federation_entity`, `oauth_client` and `oauth_resource` have no required claims, so `{}` resolves for them.
 
-> **Breaking change.** A subject that publishes `{}` for an entity type with required claims, and whose superiors supply none of them, previously resolved and now gets `invalid_metadata`. The resolution is refused as a whole rather than per type, so a caller asking for one entity type is refused because a different one is incomplete ([#158](https://github.com/MichaelFraser99/go-openid-federation/issues/158)).
+> **Breaking change.** A subject that publishes `{}` for an entity type with required claims, and whose superiors supply none of them, previously resolved and now gets `invalid_metadata`. On `/resolve`, only the entity types the request names are judged, so a caller asking for one entity type is not refused because a different one is incomplete. With no `entity_type`, every type is requested, and one incomplete type refuses the resolution.
 
 Registered types are handled the same way as built-in types: published in entity configurations, carried in subordinate statements, subject to metadata policy, filtered by the `entity_type` parameter on `/resolve`, and passed through the `entity_type` filter on `/list`.
 
@@ -1212,7 +1215,6 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | `trust_chain` and `peer_trust_chain` JOSE headers | Not read or written. An entity configuration or subordinate statement that carries either header is refused, as sections 4.3 and 4.4 require | [#139](https://github.com/MichaelFraser99/go-openid-federation/issues/139) |
 | Trust mark type identifiers as object member names | Decided, not planned: member names in `trust_mark_issuers` and `trust_mark_owners` are not checked against a syntax, because §7.1 makes a URL RECOMMENDED rather than required and the one MUST, collision resistance, is not checkable | [#140](https://github.com/MichaelFraser99/go-openid-federation/issues/140) |
 | `subordinate_statement` on an unlistable entity | Decided: a deliberate deviation. Table 4 of the extended listing draft makes the attribute a MUST when requested, and an entity the subordinate store does not hold is returned without it. See [Retriever interfaces](#retriever-interfaces) | [#126](https://github.com/MichaelFraser99/go-openid-federation/issues/126) |
-| One broken entity type in a resolution | Refuses the whole resolution, including for a caller that asked for a different entity type | [#158](https://github.com/MichaelFraser99/go-openid-federation/issues/158) |
 | An entity type registered under a built-in identifier | Decided: the registration adds to the built-in check, so it can tighten a built-in type but not loosen it | [#74](https://github.com/MichaelFraser99/go-openid-federation/issues/74) |
 | Custom policy operators | Decided: not supported. They cannot be registered, parsed from JSON or merged | [#96](https://github.com/MichaelFraser99/go-openid-federation/issues/96) |
 | `scope` operators | `one_of` on `scope` can never be satisfied, a scope array operand is tokenised by some operators and not others, and a resolved `scope` of `""` passes verification | [#197](https://github.com/MichaelFraser99/go-openid-federation/issues/197), [#198](https://github.com/MichaelFraser99/go-openid-federation/issues/198), [#200](https://github.com/MichaelFraser99/go-openid-federation/issues/200) |

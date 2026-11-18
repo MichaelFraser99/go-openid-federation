@@ -52,7 +52,7 @@ func (s *Server) Resolve(w http.ResponseWriter, r *http.Request) ResponseFunc {
 		return s.respondWithResolveFailure(ctx, w, "error building trust chain", err)
 	}
 
-	resolved, err := trust_chain.ResolveMetadata(ctx, s.cfg.Configuration, s.cfg.EntityIdentifier, *parsedTrustAnchor, trustChain, cache)
+	resolved, err := trust_chain.ResolveMetadataForEntityTypes(ctx, s.cfg.Configuration, s.cfg.EntityIdentifier, *parsedTrustAnchor, trustChain, cache, entityTypes)
 	if err != nil {
 		return s.respondWithResolveFailure(ctx, w, "error resolving trust chain", err)
 	}
@@ -63,10 +63,6 @@ func (s *Server) Resolve(w http.ResponseWriter, r *http.Request) ResponseFunc {
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		s.cfg.LogInfo(ctx, "the resolve request did not complete before its deadline", slog.String("error", ctxErr.Error()))
 		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(resolveUnavailableError))
-	}
-
-	if resolved.Metadata != nil {
-		resolved.Metadata.FilterByEntityTypes(entityTypes)
 	}
 
 	resolvedBytes, err := json.Marshal(resolved)

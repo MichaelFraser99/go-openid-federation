@@ -55,6 +55,12 @@ Each change you may have to act on is marked **Breaking change** in the README s
 - [Retriever interfaces](README.md#retriever-interfaces): a `ListTrustMarkIssuers` record with a type that is not valid UTF-8 or an issuer that is not an entity identifier is left out of `trust_mark_issuers`, where it took down `/.well-known/openid-federation`.
 - [Entity statements and metadata](README.md#entity-statements-and-metadata): a private key member inside a `jwks` value of any shape, such as a bare JWK or an array, is found. `/.well-known` and `/fetch` refuse the statement, and `/extended-list` removes the key.
 - [Query parameters](README.md#query-parameters): `/trust-mark-status` answers 404 for a trust mark with no `iss`, and `/subordinate-status` answers 400 `invalid_request` for this server's own identifier.
+- [Retriever interfaces](README.md#retriever-interfaces): the subordinate store holds values in JSON shape, so `GetSubordinate` returns a `josemodel.Jwks` or other Go type you stored as `map[string]any` and `[]any`.
+- [How operand values are compared](README.md#how-operand-values-are-compared): an operand built in Go is held in JSON shape, so `OperatorValue` returns `map[string]any` and `[]any`, not the type you passed.
+- [ServerConfiguration](README.md#serverconfiguration): `NewServer` refuses a signer whose key cannot sign with its `Algorithm`, an `AuthorityHints` entry that names this server, and a private key member in the metadata or trust mark owners it would publish. It accepts a metadata `jwks` held as a `josemodel.Jwks` again.
+- [Metadata policy](README.md#metadata-policy): `subset_of` and `one_of` operands count towards the merged-policy bound, and one statement's `scope` operands may hold at most `MaxStatementValues` scope values.
+- [Metadata policy](README.md#metadata-policy): an array element of a `value` or `default` operand on `scope` is split into scope values, as for the other operators.
+- [Metadata policy](README.md#metadata-policy): policies merge from the trust anchor down, as section 6.1.4.1 requires, so the values of a merged `add` resolve in a different order.
 
 ## From v0.11.0-rc.2
 

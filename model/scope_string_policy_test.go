@@ -436,6 +436,7 @@ func TestApplyPolicy_ReadsEveryScopeOperandElementAsScopeTokens(t *testing.T) {
 		{name: "a superset_of holding a tab, which is not a delimiter", policy: `{"superset_of":["\t"]}`, subject: "openid profile", fault: "not a superset"},
 		{name: "a superset_of value holding a no-break space, which is not a delimiter", policy: `{"superset_of":["openid\u00a0profile"]}`, subject: "openid profile", fault: "not a superset"},
 		{name: "an add element holding two tokens", policy: `{"add":["email phone"]}`, subject: "openid", expect: "openid email phone"},
+		{name: "an add element holding two tokens beside a subset_of that allows each", policy: `{"add":["openid email"],"subset_of":["openid","email","profile"]}`, subject: "openid", expect: "openid email"},
 		{name: "a one_of element holding two tokens on a present scope", policy: `{"one_of":["openid profile"]}`, subject: "openid", fault: "one_of cannot be applied to scope", leaks: []string{"openid profile"}},
 	}
 
@@ -537,6 +538,65 @@ func TestApplyPolicy_TheResolvedScopeHoldsWhatThePolicySaid(t *testing.T) {
 			got, _ := (*applied.Metadata.OAuthClientMetadata)["scope"].(string)
 			if got != tc.expect {
 				t.Errorf("[%s] the value an operator supplied must reach the resolved scope as the policy wrote it, not re-split on a character that does not separate scope values: expected %q, got %q", tc.reference, tc.expect, got)
+			}
+		})
+	}
+}
+
+func TestProcessAndExtractPolicy_ReadsAOneOfScopeElementAsTokensWhenMerging(t *testing.T) {
+	var leaf EntityStatement
+	if err := json.Unmarshal([]byte(`{"iss":"https://leaf.example.com","sub":"https://leaf.example.com","iat":1,"exp":99999999999,"jwks":{"keys":[]},"metadata":{"oauth_client":{"redirect_uris":["https://leaf.example.com/cb"]}}}`), &leaf); err != nil {
+		t.Fatalf("failed to parse the fixture subject: %v", err)
+	}
+	merged, err := ProcessAndExtractPolicy([]EntityStatement{leaf, scopePolicyStatement(t, `{"one_of":["openid"]}`), scopePolicyStatement(t, `{"one_of":["openid profile"]}`)})
+	if err != nil {
+		t.Fatalf("[6.1.3.1.8] expected the one_of element to be read as tokens, so that the merged intersection holds openid, got %v", err)
+	}
+	applied, err := ApplyPolicy(leaf, *merged)
+	if err != nil {
+		t.Fatalf("[6.1.3.1.4] expected one_of to have no effect on an absent scope, got %v", err)
+	}
+	if scope, present := (*applied.Metadata.OAuthClientMetadata)["scope"]; present {
+		t.Errorf("expected no scope, got %#v", scope)
+	}
+}
+
+func TestApplyPolicy_DoesNotTokeniseAnOperandOnAnotherParameter(t *testing.T) {
+	var policy MetadataPolicy
+	if err := json.Unmarshal([]byte(`{"oauth_client":{"response_types":{"subset_of":["code id_token","code"]}}}`), &policy); err != nil {
+		t.Fatalf("failed to parse the policy: %v", err)
+	}
+	metadata := map[string]any{"response_types": []any{"code id_token", "token"}}
+	if err := applyPolicyToMetadata(metadata, policy.OAuthClientMetadata); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got, ok := metadata["response_types"].([]any); !ok || len(got) != 1 || got[0] != "code id_token" {
+		t.Errorf("[6.1.3.1.8] only scope is a space-separated list, so a response type holding a space is one value, got %#v", metadata["response_types"])
+	}
+}
+
+func TestToSlice_TokenisesOnlyScope(t *testing.T) {
+	operand := []any{"code id_token", "code"}
+	tests := map[string]struct {
+		build func() (MetadataPolicyOperator, error)
+		scope []any
+	}{
+		"add":         {build: func() (MetadataPolicyOperator, error) { o, err := NewAdd(operand); return *o, err }, scope: []any{"code", "id_token", "code"}},
+		"one_of":      {build: func() (MetadataPolicyOperator, error) { o, err := NewOneOf(operand); return *o, err }, scope: []any{"code", "id_token"}},
+		"subset_of":   {build: func() (MetadataPolicyOperator, error) { o, err := NewSubsetOf(operand); return *o, err }, scope: []any{"code", "id_token"}},
+		"superset_of": {build: func() (MetadataPolicyOperator, error) { o, err := NewSupersetOf(operand); return *o, err }, scope: []any{"code", "id_token"}},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			operator, err := tc.build()
+			if err != nil {
+				t.Fatalf("failed to build the operator: %v", err)
+			}
+			if got := operator.ToSlice("response_types").OperatorValue(); !reflect.DeepEqual(got, operand) {
+				t.Errorf("expected another parameter's operand to stay whole, got %#v", got)
+			}
+			if got := operator.ToSlice("scope").OperatorValue(); !reflect.DeepEqual(got, tc.scope) {
+				t.Errorf("[6.1.3.1.8] expected scope's operand read as tokens %#v, got %#v", tc.scope, got)
 			}
 		})
 	}

@@ -20,7 +20,7 @@ import (
 )
 
 func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEntityIdentifier, targetTrustAnchorEntityIdentifier model.EntityIdentifier, cache *resolvecache.Cache) (trustChain []string, parsedTrustChain []model.EntityStatement, expiry *int64, err error) {
-	ctx, cancel := context.WithTimeout(ctx, cfg.ResolveTimeLimit())
+	ctx, cancel := WithResolveTimeLimit(ctx, cfg)
 	defer cancel()
 	cfg.LogInfo(ctx, "building chain between entities", slog.String("leaf", string(targetLeafEntityIdentifier)), slog.String("trust_anchor", string(targetTrustAnchorEntityIdentifier)))
 	if err = verifyTrustAnchorRequested(ctx, cfg, targetTrustAnchorEntityIdentifier); err != nil {
@@ -151,8 +151,8 @@ func routeStatements(ctx context.Context, cfg model.Configuration, signedRoute [
 			signedResponse, subordinateStatement, err := issue(ctx, route[i+1], route[i].Sub)
 			if err != nil {
 				cfg.LogInfo(ctx, "this server did not issue its own subordinate statement", slog.String("subject", string(route[i].Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
-				if ctxErr := ctx.Err(); ctxErr != nil {
-					return nil, nil, nil, walkNotCompleted(ctxErr)
+				if ctx.Err() != nil {
+					return nil, nil, nil, walkNotCompleted(ctx, true)
 				}
 				if errors.Is(err, model.ErrServerError) || errors.Is(err, model.ErrTemporarilyUnavailable) {
 					return nil, nil, link, fmt.Errorf("%w%w%w", resolvecache.ErrOwnFault, resolvecache.ErrOwnIssuedFault, err)
@@ -178,8 +178,8 @@ func routeStatements(ctx context.Context, cfg model.Configuration, signedRoute [
 		signedResponse, subordinateStatement, err := subordinate_statement.Retrieve(ctx, cfg, route[i+1], route[i].Sub)
 		if err != nil {
 			cfg.LogInfo(ctx, "subordinate statement unusable", slog.String("issuer", string(route[i+1].Sub)), slog.String("subject", string(route[i].Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return nil, nil, nil, walkNotCompleted(ctxErr)
+			if ctx.Err() != nil {
+				return nil, nil, nil, walkNotCompleted(ctx, false)
 			}
 			return nil, nil, link, subordinateStatementFailure(err)
 		}
@@ -361,8 +361,30 @@ func suppliedEntryRefused(err error, entry int, kind string) error {
 	return suppliedEntryError{described: described, cause: err}
 }
 
-func walkNotCompleted(err error) error {
-	return fmt.Errorf("%w%s: %w", model.ErrTemporarilyUnavailable, "trust chain walk did not complete", err)
+type resolveTimeLimit struct{}
+
+func (resolveTimeLimit) Error() string { return "" }
+
+func (resolveTimeLimit) Is(target error) bool { return target == context.DeadlineExceeded }
+
+var errResolveTimeLimit error = resolveTimeLimit{}
+
+func WithResolveTimeLimit(ctx context.Context, cfg model.Configuration) (context.Context, context.CancelFunc) {
+	return context.WithTimeoutCause(ctx, cfg.ResolveTimeLimit(), errResolveTimeLimit)
+}
+
+func ResolveTimeLimitReached(ctx context.Context) error {
+	if !errors.Is(context.Cause(ctx), errResolveTimeLimit) {
+		return nil
+	}
+	return fmt.Errorf("%w%w", errResolveTimeLimit, model.NewLimitReachedError("the resolver reached the maximum time it may spend on one request"))
+}
+
+func walkNotCompleted(ctx context.Context, own bool) error {
+	if limit := ResolveTimeLimitReached(ctx); limit != nil && !own {
+		return limit
+	}
+	return fmt.Errorf("%w%s: %w", model.ErrTemporarilyUnavailable, "trust chain walk did not complete", ctx.Err())
 }
 
 var errBudgetExhausted = errors.New("")
@@ -489,7 +511,7 @@ func chainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 
 	if err := ctx.Err(); err != nil {
 		cfg.LogInfo(ctx, "abandoning trust chain walk", slog.String("subject", model.TruncateForResponse(string(subject))), slog.String("error", model.TruncateForResponse(err.Error())))
-		return signedPath, path, false, walkNotCompleted(err)
+		return signedPath, path, false, walkNotCompleted(ctx, false)
 	}
 
 	if len(path) >= cfg.TrustChainDepthLimit() {
@@ -518,8 +540,8 @@ func chainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 	signedSubjectEntityStatement, subjectEntityStatement, err := entity_configuration.Retrieve(ctx, cfg, subject, cache)
 	if err != nil {
 		cfg.LogInfo(ctx, "entity configuration unusable", slog.String("subject", model.TruncateForResponse(string(subject))), slog.String("error", model.TruncateForResponse(err.Error())))
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return signedPath, path, false, walkNotCompleted(ctxErr)
+		if ctx.Err() != nil {
+			return signedPath, path, false, walkNotCompleted(ctx, errors.Is(err, resolvecache.ErrOwnFault))
 		}
 		if errors.Is(err, model.ErrLimitReached) {
 			return signedPath, path, true, budgetExhausted(err)
@@ -594,8 +616,11 @@ func chainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 		if err == nil {
 			return signedPath, path, false, nil
 		}
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return signedPath, path, false, walkNotCompleted(ctxErr)
+		if ctx.Err() != nil {
+			if !walkStopped(err) {
+				err = walkNotCompleted(ctx, false)
+			}
+			return signedPath, path, false, err
 		}
 		if errors.Is(err, errBudgetExhausted) {
 			return signedPath[:len(signedPath)-1], path[:len(path)-1], true, err
@@ -647,8 +672,8 @@ func retrieveTrustAnchor(ctx context.Context, cfg model.Configuration, trustAnch
 	signedEntityConfiguration, entityConfiguration, err := entity_configuration.Retrieve(ctx, cfg, trustAnchorEntityIdentifier, cache)
 	if err != nil {
 		cfg.LogInfo(ctx, "failed to retrieve trust anchor entity configuration", slog.String("trust_anchor", string(trustAnchorEntityIdentifier)), slog.String("error", model.TruncateForResponse(err.Error())))
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, nil, walkNotCompleted(ctxErr)
+		if ctx.Err() != nil {
+			return nil, nil, walkNotCompleted(ctx, errors.Is(err, resolvecache.ErrOwnFault))
 		}
 		if errors.Is(err, model.ErrServerError) || errors.Is(err, model.ErrTemporarilyUnavailable) {
 			return nil, nil, err
@@ -663,7 +688,7 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 }
 
 func ResolveMetadataForEntityTypes(ctx context.Context, cfg model.Configuration, issuerEntityIdentifier, trustAnchorEntityIdentifier model.EntityIdentifier, trustChain []string, cache *resolvecache.Cache, entityTypes []string) (*model.ResolveResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, cfg.ResolveTimeLimit())
+	ctx, cancel := WithResolveTimeLimit(ctx, cfg)
 	defer cancel()
 	cfg.LogInfo(ctx, "resolving metadata from trust chain", slog.String("issuer", string(issuerEntityIdentifier)), slog.String("trust_anchor", string(trustAnchorEntityIdentifier)), slog.Int("chain_length", len(trustChain)))
 

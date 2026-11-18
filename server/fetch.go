@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/MichaelFraser99/go-openid-federation/internal/entityid"
 	"github.com/MichaelFraser99/go-openid-federation/internal/subordinate_statement"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
@@ -35,7 +36,7 @@ func (s *Server) issueSubordinateStatement(ctx context.Context, sub string) (*st
 		return nil, err
 	}
 
-	if model.NamesTheSameEntity(*parsedSub, s.cfg.EntityIdentifier) {
+	if entityid.NamesTheSameEntity(*parsedSub, s.cfg.EntityIdentifier) {
 		s.cfg.LogInfo(ctx, "provided 'sub' parameter matches server entity identifier")
 		return nil, model.NewInvalidRequestError("an entity cannot issue a subordinate statement for itself")
 	}

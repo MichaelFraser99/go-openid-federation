@@ -10,6 +10,7 @@ import (
 	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwt"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
+	"github.com/MichaelFraser99/go-openid-federation/internal/entityid"
 	"github.com/MichaelFraser99/go-openid-federation/internal/errclass"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
@@ -52,7 +53,7 @@ func (s *Server) SubordinateStatus(w http.ResponseWriter, r *http.Request) Respo
 		return s.respondWithError(ctx, w, model.NewInvalidRequestError("request missing required parameter 'sub'"))
 	}
 
-	if model.NamesTheSameEntity(*parsedSubject, s.cfg.EntityIdentifier) {
+	if entityid.NamesTheSameEntity(*parsedSubject, s.cfg.EntityIdentifier) {
 		s.cfg.LogInfo(ctx, "provided 'sub' parameter matches server entity identifier")
 		return s.respondWithError(ctx, w, model.NewInvalidRequestError("an entity cannot issue a subordinate events statement for itself"))
 	}

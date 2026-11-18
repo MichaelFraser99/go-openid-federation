@@ -12,6 +12,7 @@ import (
 	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jws"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
+	"github.com/MichaelFraser99/go-openid-federation/internal/entityid"
 	"github.com/MichaelFraser99/go-openid-federation/internal/keyscan"
 	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 	"github.com/MichaelFraser99/go-openid-federation/model"
@@ -55,7 +56,7 @@ func validateConfiguration(cfg model.ServerConfiguration) error {
 	for i, hint := range cfg.AuthorityHints {
 		if _, err := model.ValidateEntityIdentifier(string(hint)); err != nil {
 			fault("AuthorityHints[%d] is not an entity identifier: %s", i, err.Error())
-		} else if cfg.EntityIdentifier != "" && model.NamesTheSameEntity(hint, cfg.EntityIdentifier) {
+		} else if cfg.EntityIdentifier != "" && entityid.NamesTheSameEntity(hint, cfg.EntityIdentifier) {
 			fault("AuthorityHints[%d] names this server's own EntityIdentifier", i)
 		}
 	}

@@ -19,6 +19,7 @@ import (
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/internal/boundedjson"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
+	"github.com/MichaelFraser99/go-openid-federation/internal/entityid"
 	"github.com/MichaelFraser99/go-openid-federation/internal/errclass"
 	"github.com/MichaelFraser99/go-openid-federation/internal/keyscan"
 	"github.com/MichaelFraser99/go-openid-federation/internal/peerclient"
@@ -245,7 +246,7 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		return nil, fmt.Errorf("no intermediate configuration provided")
 	}
 
-	if model.NamesTheSameEntity(subjectIdentifier, configuration.EntityIdentifier) {
+	if entityid.NamesTheSameEntity(subjectIdentifier, configuration.EntityIdentifier) {
 		return nil, model.NewInvalidSubjectError("an entity cannot issue a subordinate statement about itself, as a statement whose 'iss' and 'sub' claims match is an entity configuration")
 	}
 

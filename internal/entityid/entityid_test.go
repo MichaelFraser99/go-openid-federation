@@ -1,9 +1,13 @@
-package model
+package entityid
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/MichaelFraser99/go-openid-federation/model"
+)
 
 func TestNamesTheSameEntity_RefusesEverySpellingRFC3986MakesEquivalent(t *testing.T) {
-	const own = EntityIdentifier("https://fed.example.com/ta")
+	const own = model.EntityIdentifier("https://fed.example.com/ta")
 
 	tests := map[string]struct {
 		asked string
@@ -31,7 +35,7 @@ func TestNamesTheSameEntity_RefusesEverySpellingRFC3986MakesEquivalent(t *testin
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			if got := NamesTheSameEntity(own, EntityIdentifier(test.asked)); got != test.same {
+			if got := NamesTheSameEntity(own, model.EntityIdentifier(test.asked)); got != test.same {
 				t.Errorf("[RFC 3986 6.2.2] %q against %q: expected same=%t, got %t", test.asked, own, test.same, got)
 			}
 		})
@@ -48,7 +52,7 @@ func TestNamesTheSameEntity_DoesNotConflateIPv6HostsWithPorts(t *testing.T) {
 }
 
 func TestNamesTheSameEntity_DoesNotDecodeReservedOctets(t *testing.T) {
-	const own = EntityIdentifier("https://fed.example.com/t/a")
+	const own = model.EntityIdentifier("https://fed.example.com/t/a")
 
 	if NamesTheSameEntity(own, "https://fed.example.com/t%2Fa") {
 		t.Error("[RFC 3986 2.2] '%2F' is not a path separator, so decoding it would make two different identifiers compare equal")
@@ -60,7 +64,7 @@ func TestNamesTheSameEntity_DoesNotDecodeReservedOctets(t *testing.T) {
 
 func TestNamesTheSameEntity_DecodesEveryUnreservedOctet(t *testing.T) {
 	tests := map[string]struct {
-		own   EntityIdentifier
+		own   model.EntityIdentifier
 		asked string
 	}{
 		"a tilde":       {own: "https://fed.example.com/t~", asked: "https://fed.example.com/t%7e"},
@@ -72,7 +76,7 @@ func TestNamesTheSameEntity_DecodesEveryUnreservedOctet(t *testing.T) {
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			if !NamesTheSameEntity(test.own, EntityIdentifier(test.asked)) {
+			if !NamesTheSameEntity(test.own, model.EntityIdentifier(test.asked)) {
 				t.Errorf("[RFC 3986 6.2.2.2] an unreserved octet is equivalent to the character it encodes, so %q must name the same entity as %q", test.asked, test.own)
 			}
 		})

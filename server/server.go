@@ -14,6 +14,7 @@ import (
 
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_configuration"
+	"github.com/MichaelFraser99/go-openid-federation/internal/entityid"
 	"github.com/MichaelFraser99/go-openid-federation/internal/errclass"
 	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
 	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
@@ -69,7 +70,7 @@ func (s *Server) AddAuthorityHint(hint model.EntityIdentifier) error {
 	if _, err := model.ValidateEntityIdentifier(string(hint)); err != nil {
 		return fmt.Errorf("the AuthorityHint is not an entity identifier: %s", err.Error())
 	}
-	if model.NamesTheSameEntity(hint, s.cfg.EntityIdentifier) {
+	if entityid.NamesTheSameEntity(hint, s.cfg.EntityIdentifier) {
 		return fmt.Errorf("the AuthorityHint names this server's own EntityIdentifier, and section 3.1.2 makes authority_hints the identifiers of the entity's immediate superiors")
 	}
 	s.mu.Lock()

@@ -63,9 +63,10 @@ func TestServer_TrustMarkStatus_AnswersNotFoundForATrustMarkThisServerDidNotIssu
 	}
 
 	tests := []struct {
-		name   string
-		mark   string
-		issued bool
+		name      string
+		mark      string
+		issued    bool
+		anonymous bool
 	}{
 		{name: "a trust mark this server issued", mark: header + "." + segment(claims(issuer)) + "." + signature, issued: true},
 		{name: "a trust mark this server issued, with a signature that is not checked here", mark: header + "." + segment(claims(issuer)) + ".bm90LWEtc2lnbmF0dXJl", issued: true},
@@ -81,6 +82,10 @@ func TestServer_TrustMarkStatus_AnswersNotFoundForATrustMarkThisServerDidNotIssu
 		{name: "a payload this server issued followed by characters that are not base64url", mark: header + "." + whole + "!!." + signature},
 		{name: "a payload that is a JSON array", mark: header + "." + segment([]any{issuer}) + "." + signature},
 		{name: "a payload with more values than a statement may hold", mark: header + "." + segment(padded) + "." + signature},
+		{name: "a trust mark whose iss is empty", mark: header + "." + segment(claims("")) + "." + signature},
+		{name: "a trust mark with no iss, at a server with no EntityIdentifier", mark: header + "." + segment(claims(nil)) + "." + signature, anonymous: true},
+		{name: "a trust mark whose iss is empty, at a server with no EntityIdentifier", mark: header + "." + segment(claims("")) + "." + signature, anonymous: true},
+		{name: "a trust mark whose iss is not a string, at a server with no EntityIdentifier", mark: header + "." + segment(claims(7)) + "." + signature, anonymous: true},
 	}
 
 	for _, tc := range tests {
@@ -91,8 +96,12 @@ func TestServer_TrustMarkStatus_AnswersNotFoundForATrustMarkThisServerDidNotIssu
 			}
 			asked := &atomic.Int64{}
 			var logs bytes.Buffer
+			own := model.EntityIdentifier(issuer)
+			if tc.anonymous {
+				own = ""
+			}
 			server := mustNewServer(t, model.ServerConfiguration{
-				EntityIdentifier:    issuer,
+				EntityIdentifier:    own,
 				SignerConfiguration: model.SignerConfiguration{Algorithm: "ES256", Signer: signer, KeyID: "server"},
 				TrustMarkRetriever:  countingStatusRetriever{asked: asked},
 				Configuration:       model.Configuration{Logger: slog.New(slog.NewJSONHandler(&logs, nil))},

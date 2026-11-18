@@ -1602,6 +1602,15 @@ func cloneOperator(operator MetadataPolicyOperator) MetadataPolicyOperator {
 	return operator
 }
 
+func (m *Metadata) ForEntityTypes(entityTypes []string) *Metadata {
+	if m == nil {
+		return nil
+	}
+	copied := m.deepClone()
+	copied.FilterByEntityTypes(entityTypes)
+	return copied
+}
+
 func (m *Metadata) deepClone() *Metadata {
 	typed := *m
 	typed.Extensions = nil

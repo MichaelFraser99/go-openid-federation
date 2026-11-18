@@ -628,6 +628,10 @@ func retrieveTrustAnchor(ctx context.Context, cfg model.Configuration, trustAnch
 }
 
 func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityIdentifier, trustAnchorEntityIdentifier model.EntityIdentifier, trustChain []string, cache *resolvecache.Cache) (*model.ResolveResponse, error) {
+	return ResolveMetadataForEntityTypes(ctx, cfg, issuerEntityIdentifier, trustAnchorEntityIdentifier, trustChain, cache, nil)
+}
+
+func ResolveMetadataForEntityTypes(ctx context.Context, cfg model.Configuration, issuerEntityIdentifier, trustAnchorEntityIdentifier model.EntityIdentifier, trustChain []string, cache *resolvecache.Cache, entityTypes []string) (*model.ResolveResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, cfg.ResolveTimeLimit())
 	defer cancel()
 	cfg.LogInfo(ctx, "resolving metadata from trust chain", slog.String("issuer", string(issuerEntityIdentifier)), slog.String("trust_anchor", string(trustAnchorEntityIdentifier)), slog.Int("chain_length", len(trustChain)))
@@ -724,8 +728,9 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 			cfg.LogInfo(ctx, "trust chain expiry unusable", slog.Int64("exp", singleExp), slog.String("error", model.TruncateForResponse(err.Error())))
 			return nil, err
 		}
-		if processedChain[0].Metadata != nil {
-			if err := processedChain[0].Metadata.VerifyResolved(cfg.EntityTypes, processedChain[0].Sub); err != nil {
+		requested := processedChain[0].Metadata.ForEntityTypes(entityTypes)
+		if requested != nil {
+			if err := requested.VerifyResolved(cfg.EntityTypes, processedChain[0].Sub); err != nil {
 				cfg.LogInfo(ctx, "resolved metadata failed verification", slog.String("subject", string(processedChain[0].Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
 				return nil, model.NewInvalidMetadataError(fmt.Sprintf("resolved metadata for %s: %s", processedChain[0].Sub, err.Error()))
 			}
@@ -736,7 +741,7 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 			Iat:        time.Now().UTC().Unix(),
 			Exp:        singleExp,
 			TrustChain: trustChain,
-			Metadata:   resolvedMetadata(processedChain[0].Metadata),
+			Metadata:   resolvedMetadata(requested),
 			TrustMarks: processedChain[0].TrustMarks,
 		}, nil
 	}
@@ -832,13 +837,14 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 
 	if finalisedPolicy == nil {
 		cfg.LogInfo(ctx, "no policy to apply, returning metadata directly", slog.String("subject", string(subject.Sub)), slog.Int("trust_marks_count", len(subject.TrustMarks)))
-		if subject.Metadata != nil {
-			if err := subject.Metadata.VerifyResolved(cfg.EntityTypes, subject.Sub); err != nil {
+		requested := subject.Metadata.ForEntityTypes(entityTypes)
+		if requested != nil {
+			if err := requested.VerifyResolved(cfg.EntityTypes, subject.Sub); err != nil {
 				cfg.LogInfo(ctx, "resolved metadata failed verification", slog.String("subject", string(subject.Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
 				return nil, model.NewInvalidMetadataError(fmt.Sprintf("resolved metadata for %s: %s", subject.Sub, err.Error()))
 			}
 		}
-		result.Metadata = resolvedMetadata(subject.Metadata)
+		result.Metadata = resolvedMetadata(requested)
 		result.TrustMarks = subject.TrustMarks
 		return result, nil
 	}
@@ -850,14 +856,15 @@ func ResolveMetadata(ctx context.Context, cfg model.Configuration, issuerEntityI
 		return nil, model.NewInvalidMetadataError(fmt.Sprintf("metadata policy for %s cannot be applied to its metadata", subject.Sub))
 	}
 
-	if applied.Metadata != nil {
-		if err = applied.Metadata.VerifyResolved(cfg.EntityTypes, subject.Sub); err != nil {
+	requested := applied.Metadata.ForEntityTypes(entityTypes)
+	if requested != nil {
+		if err = requested.VerifyResolved(cfg.EntityTypes, subject.Sub); err != nil {
 			cfg.LogInfo(ctx, "resolved metadata failed verification", slog.String("subject", string(subject.Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
 			return nil, model.NewInvalidMetadataError(fmt.Sprintf("resolved metadata for %s: %s", subject.Sub, err.Error()))
 		}
 	}
 
-	result.Metadata = resolvedMetadata(applied.Metadata)
+	result.Metadata = resolvedMetadata(requested)
 	result.TrustMarks = subject.TrustMarks
 
 	cfg.LogInfo(ctx, "metadata resolution completed successfully", slog.String("subject", string(result.Sub)), slog.Int("trust_marks_count", len(result.TrustMarks)), slog.Int64("exp", result.Exp))

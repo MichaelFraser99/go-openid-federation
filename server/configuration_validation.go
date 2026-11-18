@@ -53,6 +53,8 @@ func validateConfiguration(cfg model.ServerConfiguration) error {
 	for i, hint := range cfg.AuthorityHints {
 		if _, err := model.ValidateEntityIdentifier(string(hint)); err != nil {
 			fault("AuthorityHints[%d] is not an entity identifier: %s", i, err.Error())
+		} else if cfg.EntityIdentifier != "" && model.NamesTheSameEntity(hint, cfg.EntityIdentifier) {
+			fault("AuthorityHints[%d] names this server's own EntityIdentifier", i)
 		}
 	}
 	for _, trustMarkType := range slices.Sorted(maps.Keys(cfg.EntityConfiguration.TrustMarkOwners)) {
@@ -85,7 +87,25 @@ func validateConfiguration(cfg model.ServerConfiguration) error {
 			fault("EntityConfiguration.Metadata is not valid: %s", err.Error())
 		}
 	}
+	if err := verifyPublishedKeysArePublic(cfg.EntityConfiguration); err != nil {
+		fault("EntityConfiguration would publish private key material: %s", err.Error())
+	}
 	return errors.Join(faults...)
+}
+
+func verifyPublishedKeysArePublic(statement model.EntityStatement) error {
+	raw, err := json.Marshal(struct {
+		Metadata        *model.Metadata                 `json:"metadata,omitempty"`
+		TrustMarkOwners map[string]model.TrustMarkOwner `json:"trust_mark_owners,omitempty"`
+	}{statement.Metadata, statement.TrustMarkOwners})
+	if err != nil {
+		return nil
+	}
+	var published map[string]any
+	if err := json.Unmarshal(raw, &published); err != nil {
+		return nil
+	}
+	return model.VerifyPublishableStatementKeys(published)
 }
 
 func publishedMetadata(raw []byte) (*model.Metadata, error) {

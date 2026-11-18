@@ -32,6 +32,7 @@ func validServerConfiguration(t *testing.T) model.ServerConfiguration {
 
 func TestNewServer_RefusesAConfigurationThatCannotServe(t *testing.T) {
 	ownerKey := map[string]any{"kty": "EC", "crv": "P-256", "kid": "owner", "x": "x", "y": "y"}
+	privateKey := map[string]any{"kty": "EC", "crv": "P-256", "kid": "leaked", "x": "x", "y": "y", "d": "secret"}
 
 	tests := map[string]struct {
 		change func(cfg *model.ServerConfiguration)
@@ -65,6 +66,33 @@ func TestNewServer_RefusesAConfigurationThatCannotServe(t *testing.T) {
 		"an authority hint that is not an entity identifier": {change: func(cfg *model.ServerConfiguration) {
 			cfg.AuthorityHints = []model.EntityIdentifier{"https://ta.example.com", "ta.example.com"}
 		}, says: "AuthorityHints[1] is not an entity identifier"},
+		"an authority hint naming this server": {change: func(cfg *model.ServerConfiguration) {
+			cfg.AuthorityHints = []model.EntityIdentifier{"https://ta.example.com", "https://entity.example.com"}
+		}, says: "AuthorityHints[1] names this server's own EntityIdentifier"},
+		"an authority hint naming this server with a trailing slash": {change: func(cfg *model.ServerConfiguration) {
+			cfg.AuthorityHints = []model.EntityIdentifier{"https://entity.example.com/"}
+		}, says: "AuthorityHints[0] names this server's own EntityIdentifier"},
+		"an authority hint naming another entity on the same host": {change: func(cfg *model.ServerConfiguration) {
+			cfg.AuthorityHints = []model.EntityIdentifier{"https://entity.example.com/ta"}
+		}},
+		"a private key in published metadata": {change: func(cfg *model.ServerConfiguration) {
+			cfg.EntityConfiguration.Metadata = &model.Metadata{OpenIDRelyingPartyMetadata: &model.OpenIDRelyingPartyMetadata{
+				"redirect_uris": []any{"https://entity.example.com/cb"},
+				"jwks":          map[string]any{"keys": []any{privateKey}},
+			}}
+		}, says: "EntityConfiguration would publish private key material"},
+		"a private key as a bare jwks in an extension type": {change: func(cfg *model.ServerConfiguration) {
+			cfg.EntityConfiguration.Metadata = &model.Metadata{Extensions: map[string]map[string]any{"x_custom": {"jwks": privateKey}}}
+		}, says: "EntityConfiguration would publish private key material"},
+		"a private key held by a trust mark owner": {change: func(cfg *model.ServerConfiguration) {
+			cfg.EntityConfiguration.TrustMarkOwners = map[string]model.TrustMarkOwner{"https://tm.example.com/a": {Sub: "https://owner.example.com", JWKs: josemodel.Jwks{Keys: []map[string]any{ownerKey, privateKey}}}}
+		}, says: "EntityConfiguration would publish private key material"},
+		"a public key in published metadata": {change: func(cfg *model.ServerConfiguration) {
+			cfg.EntityConfiguration.Metadata = &model.Metadata{OpenIDRelyingPartyMetadata: &model.OpenIDRelyingPartyMetadata{
+				"redirect_uris": []any{"https://entity.example.com/cb"},
+				"jwks":          map[string]any{"keys": []any{ownerKey}},
+			}}
+		}},
 		"a trust mark owner with no sub": {change: func(cfg *model.ServerConfiguration) {
 			cfg.EntityConfiguration.TrustMarkOwners = map[string]model.TrustMarkOwner{"https://tm.example.com/a": {JWKs: josemodel.Jwks{Keys: []map[string]any{ownerKey}}}}
 		}, says: `EntityConfiguration.TrustMarkOwners["https://tm.example.com/a"].Sub is empty`},

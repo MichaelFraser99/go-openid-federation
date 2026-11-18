@@ -505,7 +505,9 @@ func (t trustMarks) IssueTrustMark(_ context.Context, trustMarkType string, subj
 
 Sign with a key in this server's published `jwks`, with the `kid` of that key, or resolvers cannot verify the trust mark. Answer `model.NewNotFoundError` for a subject that does not hold the trust mark, and `/trust-mark` answers 404.
 
-The endpoint does not verify the signature. If the value fails one of these checks, the endpoint answers 500 `server_error` with its fixed description, and logs the check that failed at error level. The log line does not include the value.
+The endpoint does not verify the signature, and it does not check `exp`. The specification does not require an issuer to refuse an expired trust mark, so the library serves what `IssueTrustMark` returns. If you store trust marks, mint a fresh one, or answer `model.NewNotFoundError` for one that has expired.
+
+If the value fails one of these checks, the endpoint answers 500 `server_error` with its fixed description, and logs the check that failed at error level. The log line does not include the value.
 
 > **Breaking change.** The endpoint served any non-empty value from `IssueTrustMark` at 200. A value that is not a trust mark for the requested subject and type now answers 500. If your retriever returns a trust mark with a `typ` that your trust framework defines, other than `trust-mark+jwt`, it is now refused here. This library already refused such a trust mark when it resolved one.
 
@@ -526,7 +528,7 @@ Section 8.4.2 says that the endpoint MUST answer 404 for "something it did not i
 - The payload is not base64url, or not a JSON object.
 - The payload holds more values than `MaxStatementValues`.
 - The payload repeats a member name at its top level.
-- The `iss` is not this server's entity identifier, as an exact string.
+- The `iss` is absent, empty or not a string, or is not this server's entity identifier, as an exact string.
 
 The endpoint does not verify the signature. A trust mark that names this server as `iss` but that this server did not issue still reaches your retriever. Look up the whole trust mark, not only its subject and type.
 
@@ -534,7 +536,9 @@ The endpoint does not verify the signature. A trust mark that names this server 
 
 **`/subordinate-status`**
 
-Takes `sub` as a required query parameter.
+Takes `sub` as a required query parameter. A `sub` that names this server itself, in any spelling that `/fetch` treats as the same entity, answers 400 `invalid_request` without asking your retriever, because a statement whose `iss` and `sub` match is not about a subordinate.
+
+> **Breaking change.** In v0.11.1, `/subordinate-status` signed an events statement about this server itself when your retriever answered for it.
 
 ### The ResponseFunc pattern
 
@@ -604,7 +608,9 @@ A trust anchor has no `AuthorityHints`, so no superior can complete its metadata
 
 The signer's public key is added to the published JWKS, keyed by `kid`, if not already present.
 
-`Server.AddAuthorityHint` adds a superior to `authority_hints` once. An identifier already present, compared as an exact string, is not added again. Two spellings of one entity, such as with and without a trailing `/`, are both kept, as they are when `authority_hints` is read.
+`Server.AddAuthorityHint` adds a superior to `authority_hints` once, and returns an error for a hint it refuses: one that is not an entity identifier, or one that names this server itself in any spelling that `/fetch` treats as the same entity. A refused hint is not added, and the error does not repeat it. An identifier already present, compared as an exact string, is not added again. Two spellings of one entity, such as with and without a trailing `/`, are both kept, as they are when `authority_hints` is read.
+
+> **Breaking change.** `AddAuthorityHint` returns an `error`. In v0.11.1 it accepted any value, and a hint that was not an entity identifier, such as an `http` URL, made every `/.well-known/openid-federation` request answer 500 until the process restarted.
 
 When any endpoint other than `/resolve` fails with 500 `server_error`, whether from this server's own fault or a retriever's, the cause is logged at error level, once. The response carries a fixed description, so the log is the only record of the cause. Any other class, including `temporarily_unavailable` and every 4xx, is logged at Info.
 
@@ -754,6 +760,10 @@ A retriever that returns `(nil, nil)` is treated the same way, so a store that s
 The text of an unclassified retriever error is never sent to the caller, on any endpoint. It is logged, and the response carries a fixed description, because a driver error commonly contains a host name and a user name. An error carrying a 4xx sentinel, such as `model.NewUnsupportedParameterError(...)` or `model.NewNotFoundError(...)`, passes through unchanged, so it chooses both the status and the description a peer sees. One exception: on `/fetch`, `ErrNotFound` from `GetSubordinate` means the subject is not a subordinate, and the response carries the fixed description `unknown entity identifier`. An error carrying `model.ErrServerError` or `model.ErrTemporarilyUnavailable` keeps its status, 500 or 503, but the response carries the endpoint's fixed description, and your text goes to the log: those classes describe this server's own condition, and a store's text for it often names a host or a user. A 500 is logged at error level and a 503 at Info.
 
 > **Breaking change.** A retriever error that wrapped `model.ErrServerError` or `model.ErrTemporarilyUnavailable` reached the caller with its own description, so a store that wrapped a driver error sent it to every caller. The status is unchanged. If you relied on your 503 text reaching peers, it now reaches your log instead. `model.ErrPageNotFound` is the exception: only `ExtendedListingRetriever` can return it, as [Query parameters](#query-parameters) describes. From any other retriever it is an unclassified fault, and an error that carries it beside another class answers as that other class.
+
+A record from `ListTrustMarkIssuers` whose trust mark type is not valid UTF-8, or one of whose issuers is not an entity identifier, is left out of `trust_mark_issuers` whole, and the rest of the entity configuration is published. The record is not trimmed to its valid issuers, because an empty list means that anyone may issue the trust mark. One line per response at error level gives the counts, not the stored values.
+
+> **Breaking change.** In v0.11.1, one such record made `/.well-known/openid-federation` answer 500.
 
 `GetSubordinateSigners` and `TrustMarkIssuerRetriever.ListTrustMarkIssuers` are the exception to that pass-through. They describe what this server publishes, not what a caller asked for, so there is no text in them that a caller needs. Only `model.ErrTemporarilyUnavailable` survives them:
 
@@ -1002,7 +1012,7 @@ The validators the built-in types use are exported for custom types to reuse.
 
 `VerifyPublishableJWK(key)` refuses a key carrying private key material, and `VerifyKeyStrength(key, alg)` holds an RSA key to its algorithm's minimum modulus size, `MinimumRSAKeyBits`. `PrivateJWKMembers(key)` names the private members a key carries, and `VerifyPublishableMetadataKeys` and `VerifyPublishableTrustMarkOwnerKeys` apply the first to a whole `Metadata` or `trust_mark_owners` map. Call them from a consumer that assembles its own key sets before handing them to the library.
 
-The private-member check is a denylist of the member names the JOSE specifications define, applied to key sets found under the member name `jwks`. Three things are therefore not caught: a vendor extension that stores private material under another member name, or inside `x5c`; a bare JWK under a name other than `jwks`, such as a `cnf.jwk` in a custom entity type; and a statement nested deeper than the scan goes, which is refused rather than published. A resolver also still republishes a peer's leaked key verbatim in the `trust_chain` claim and in resolved metadata, because stripping it would break the chain's signatures.
+The private-member check is a denylist of the member names the JOSE specifications define, applied to every JSON object inside a value under the member name `jwks`, whatever its shape: a `keys` array, a bare JWK, an array of keys, or a `keys` member that is an object. Three things are therefore not caught: a vendor extension that stores private material under another member name, or inside `x5c`; a bare JWK under a name other than `jwks`, such as a `cnf.jwk` in a custom entity type; and a statement nested deeper than the scan goes, which is refused rather than published. A resolver also still republishes a peer's leaked key verbatim in the `trust_chain` claim and in resolved metadata, because stripping it would break the chain's signatures.
 
 `ParseJWKSet(v)` reads a JWK Set from a decoded JSON value. Use it rather than unmarshalling into a `jwks` struct field: Go matches struct fields with Unicode simple folding, so a member named `keyſ` decodes as `keys` and the keys a conforming parser reads are not the keys you get. It takes the keys from the exact `keys` member and leaves out an entry that `ValidateJWKShape` finds unusable, which RFC 7517 section 5 asks of an implementation. `ParseFederationEntityKeys(v)` is the stricter reading for a `jwks` claim: it adds section 3.1.1's rule that every key in the set carry a unique `kid`.
 

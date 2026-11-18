@@ -51,6 +51,10 @@ Each change you may have to act on is marked **Breaking change** in the README s
 - [Query parameters](README.md#query-parameters): on `/extended-list` with `claims=subordinate_statement`, a store's 4xx answer for one subordinate lists that subordinate without its statement, where the whole page answered 500.
 - [Metadata policy](README.md#metadata-policy): a `subset_of` that leaves no value resolves to `[]`, not `null`.
 - [Metadata policy](README.md#metadata-policy): a policy this server issues that puts `one_of` on `scope` is logged at Error on each issuance, and still issued.
+- [ServerConfiguration](README.md#serverconfiguration): `Server.AddAuthorityHint` returns an `error`, and refuses a hint that is not an entity identifier or that names this server itself.
+- [Retriever interfaces](README.md#retriever-interfaces): a `ListTrustMarkIssuers` record with a type that is not valid UTF-8 or an issuer that is not an entity identifier is left out of `trust_mark_issuers`, where it took down `/.well-known/openid-federation`.
+- [Entity statements and metadata](README.md#entity-statements-and-metadata): a private key member inside a `jwks` value of any shape, such as a bare JWK or an array, is found. `/.well-known` and `/fetch` refuse the statement, and `/extended-list` removes the key.
+- [Query parameters](README.md#query-parameters): `/trust-mark-status` answers 404 for a trust mark with no `iss`, and `/subordinate-status` answers 400 `invalid_request` for this server's own identifier.
 
 ## From v0.11.0-rc.2
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwt"
+	"github.com/MichaelFraser99/go-openid-federation/internal/trust_chain"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -165,7 +166,7 @@ func TestFilterByTrusted_AResolveResponseExpiryStaysInTheFuture(t *testing.T) {
 			if err := FilterByTrusted(t.Context(), model.Configuration{HttpClient: f.server.Client()}, resolved, ta, nil); err != nil {
 				t.Fatalf("[%s] one unusable mark must not refuse the whole response, got %v", tc.reference, err)
 			}
-			if err := model.VerifyChainExpiry(resolved.Exp); err != nil {
+			if err := trust_chain.VerifyChainExpiry(resolved.Exp); err != nil {
 				t.Errorf("[%s] the response expiry is the minimum over the marks it carries, so a mark whose expiry has passed must not be carried: %v", tc.reference, err)
 			}
 			if len(resolved.TrustMarks) != 0 {

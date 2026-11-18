@@ -91,7 +91,7 @@ func routeLink(route []model.EntityStatement, i int) *resolvecache.Link {
 }
 
 func earliestExpiringLink(route, chain []model.EntityStatement) *resolvecache.Link {
-	exp := model.CalculateChainExpiration(chain)
+	exp := calculateChainExpiration(chain)
 	last := len(chain) - 1
 	if chain[0].Exp == exp || chain[last].Exp == exp {
 		return nil
@@ -100,8 +100,8 @@ func earliestExpiringLink(route, chain []model.EntityStatement) *resolvecache.Li
 }
 
 func verifyRoute(ctx context.Context, cfg model.Configuration, route []model.EntityStatement, trustChain []string, parsedTrustChain []model.EntityStatement) (int64, *resolvecache.Link, error) {
-	exp := model.CalculateChainExpiration(parsedTrustChain)
-	if err := model.VerifyChainExpiry(exp); err != nil {
+	exp := calculateChainExpiration(parsedTrustChain)
+	if err := VerifyChainExpiry(exp); err != nil {
 		cfg.LogInfo(ctx, "trust chain expiry unusable", slog.Int64("exp", exp), slog.String("error", truncate.TruncateForResponse(err.Error())))
 		return 0, earliestExpiringLink(route, parsedTrustChain), err
 	}
@@ -143,7 +143,7 @@ func routeStatements(ctx context.Context, cfg model.Configuration, signedRoute [
 	trustChain := []string{signedRoute[0]}
 	parsedTrustChain := []model.EntityStatement{route[0]}
 
-	if err := model.VerifyChainExpiry(model.CalculateChainExpiration(route)); err != nil {
+	if err := VerifyChainExpiry(calculateChainExpiration(route)); err != nil {
 		return nil, nil, earliestExpiringLink(route, route), err
 	}
 
@@ -202,8 +202,8 @@ func anchorAsItsOwnSubject(ctx context.Context, cfg model.Configuration, trustAn
 		return nil, nil, nil, err
 	}
 	parsedTrustChain := []model.EntityStatement{*anchor}
-	exp := model.CalculateChainExpiration(parsedTrustChain)
-	if err = model.VerifyChainExpiry(exp); err != nil {
+	exp := calculateChainExpiration(parsedTrustChain)
+	if err = VerifyChainExpiry(exp); err != nil {
 		cfg.LogInfo(ctx, "trust chain expiry unusable", slog.Int64("exp", exp), slog.String("error", truncate.TruncateForResponse(err.Error())))
 		return nil, nil, nil, err
 	}
@@ -777,8 +777,8 @@ func ResolveMetadataForEntityTypes(ctx context.Context, cfg model.Configuration,
 
 	if len(trustChain) == 1 {
 		cfg.LogInfo(ctx, "trust chain has single entry, returning metadata directly", slog.String("subject", string(processedChain[0].Sub)), slog.Int("trust_marks_count", len(processedChain[0].TrustMarks)))
-		singleExp := model.CalculateChainExpiration(processedChain)
-		if err := model.VerifyChainExpiry(singleExp); err != nil {
+		singleExp := calculateChainExpiration(processedChain)
+		if err := VerifyChainExpiry(singleExp); err != nil {
 			cfg.LogInfo(ctx, "trust chain expiry unusable", slog.Int64("exp", singleExp), slog.String("error", truncate.TruncateForResponse(err.Error())))
 			return nil, err
 		}
@@ -849,9 +849,9 @@ func ResolveMetadataForEntityTypes(ctx context.Context, cfg model.Configuration,
 	}
 	cfg.LogInfo(ctx, "subject entity configuration verified against superior's published key", slog.String("kid", *subjectKid))
 
-	exp := model.CalculateChainExpiration(processedChain)
+	exp := calculateChainExpiration(processedChain)
 	cfg.LogInfo(ctx, "checking chain expiration", slog.Int64("exp", exp), slog.Int64("now", time.Now().UTC().Unix()))
-	if err := model.VerifyChainExpiry(exp); err != nil {
+	if err := VerifyChainExpiry(exp); err != nil {
 		cfg.LogInfo(ctx, "trust chain expiry unusable", slog.Int64("exp", exp), slog.String("error", truncate.TruncateForResponse(err.Error())))
 		return nil, err
 	}

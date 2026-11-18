@@ -578,30 +578,6 @@ func IsEntityStatementMediaType(contentType string) bool {
 	return err == nil && mediaType == EntityStatementMediaType
 }
 
-func VerifyChainExpiry(exp int64) error {
-	if ChainHasExpired(exp) {
-		return fmt.Errorf("%w%w", ErrExpired, NewInvalidTrustChainError("trust chain expired"))
-	}
-	if exp <= time.Now().UTC().Unix() {
-		return fmt.Errorf("%w%w", ErrExpired, NewInvalidTrustChainError("trust chain expiry is not in the future, so no resolve response can be issued for it"))
-	}
-	return nil
-}
-
-func ChainHasExpired(exp int64) bool {
-	return time.Now().Add(-ClockSkewLeeway).UTC().Unix() >= exp
-}
-
-func CalculateChainExpiration(chain []EntityStatement) int64 {
-	exp := chain[0].Exp
-	for _, statement := range chain[1:] {
-		if statement.Exp < exp {
-			exp = statement.Exp
-		}
-	}
-	return exp
-}
-
 func convertStringsToAnySlice(input []string) []any {
 	result := make([]any, len(input))
 	for i, v := range input {

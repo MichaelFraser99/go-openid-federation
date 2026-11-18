@@ -16,7 +16,7 @@ func NewAdd(operatorValue any) (*Add, error) {
 	}
 
 	return &Add{
-		operatorValue: DeduplicateSlice(anySlice),
+		operatorValue: anySlice,
 	}, nil
 }
 

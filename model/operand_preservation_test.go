@@ -29,9 +29,14 @@ func TestApplyPolicyToMetadata_KeepsTheArraysTheClausesDoNotRewrite(t *testing.T
 			metadata: map[string]any{"x": []any{"a"}},
 			want:     []any{"a", "y"},
 		},
-		"add initialises an absent parameter": {
-			policy:   `{"add":["y"]}`,
+		"add initialises an absent parameter with its operand as written": {
+			policy:   `{"add":["y","y"]}`,
 			metadata: map[string]any{},
+			want:     []any{"y", "y"},
+		},
+		"add on an empty parameter does not add its own repeat a second time": {
+			policy:   `{"add":["y","y"]}`,
+			metadata: map[string]any{"x": []any{}},
 			want:     []any{"y"},
 		},
 		"value assigns its operand as written": {

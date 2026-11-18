@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/MichaelFraser99/go-jose/joseerror"
 	"github.com/MichaelFraser99/go-jose/jwa"
@@ -274,6 +275,30 @@ func UnpublishedLeafEndpoints(cfg model.ServerConfiguration) []string {
 	return configured
 }
 
+func publishableTrustMarkIssuers(ctx context.Context, cfg model.ServerConfiguration, listed map[string][]model.EntityIdentifier) map[string][]model.EntityIdentifier {
+	published := make(map[string][]model.EntityIdentifier, len(listed))
+	omitted := 0
+	for trustMarkType, issuers := range listed {
+		if !utf8.ValidString(trustMarkType) || slices.ContainsFunc(issuers, invalidEntityIdentifier) {
+			omitted++
+			continue
+		}
+		if issuers == nil {
+			issuers = []model.EntityIdentifier{}
+		}
+		published[trustMarkType] = issuers
+	}
+	if omitted > 0 {
+		cfg.LogError(ctx, "omitting trust_mark_issuers records whose trust mark type is not valid UTF-8 or whose issuers include a value that is not an entity identifier", slog.Int("omitted_records", omitted), slog.Int("published_records", len(published)))
+	}
+	return published
+}
+
+func invalidEntityIdentifier(identifier model.EntityIdentifier) bool {
+	_, err := model.ValidateEntityIdentifier(string(identifier))
+	return err != nil
+}
+
 func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 	entityConfiguration := cfg.EntityConfiguration
 	entityConfiguration.Sub = cfg.EntityIdentifier
@@ -345,14 +370,7 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 		if err != nil {
 			return nil, publicationFailure(ctx, cfg, fmt.Errorf("failed to list trust mark issuers: %w", err))
 		}
-		trustMarkIssuers := make(map[string][]model.EntityIdentifier, len(trustMarkIssuerMap))
-		for trustMarkType, issuers := range trustMarkIssuerMap {
-			if issuers == nil {
-				issuers = []model.EntityIdentifier{}
-			}
-			trustMarkIssuers[trustMarkType] = issuers
-		}
-		entityConfiguration.TrustMarkIssuers = trustMarkIssuers
+		entityConfiguration.TrustMarkIssuers = publishableTrustMarkIssuers(ctx, cfg, trustMarkIssuerMap)
 	}
 
 	entityConfigurationBytes, err := json.Marshal(entityConfiguration)

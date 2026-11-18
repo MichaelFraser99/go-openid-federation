@@ -28,6 +28,11 @@ func TestApplyPolicyToMetadata_OneOfOnAnArrayNamesTheCause(t *testing.T) {
 			metadata: map[string]any{"response_types": []any{"code"}},
 			says:     "one_of cannot be applied to a metadata parameter whose value is an array",
 		},
+		"a Go array parameter": {
+			parameter: "response_types", policy: `{"one_of":["code"]}`,
+			metadata: map[string]any{"response_types": [1]string{"code"}},
+			says:     "one_of cannot be applied to a metadata parameter whose value is an array",
+		},
 		"a string parameter that matches": {
 			parameter: "token_endpoint_auth_method", policy: `{"one_of":["private_key_jwt","none"]}`,
 			metadata: map[string]any{"token_endpoint_auth_method": "none"},

@@ -313,6 +313,9 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 	if unrecognised := subjectSubordinateConfiguration.Policies.UnrecognisedOperators(); len(unrecognised) > 0 {
 		return nil, unusableRecord(fmt.Errorf("the metadata policy configured for %s holds operators this library does not understand, so it cannot publish them: %s", model.TruncateForResponse(string(subjectIdentifier)), model.TruncateForResponse(strings.Join(unrecognised, ", "))))
 	}
+	if entityTypes := subjectSubordinateConfiguration.Policies.OneOfOnScope(); len(entityTypes) > 0 {
+		configuration.LogError(ctx, "the metadata policy configured for a subordinate puts one_of on scope, which fails whenever scope is present because policy operators process scope as an array; use subset_of to limit scope values", slog.String("subject", string(subjectIdentifier)), slog.String("entity_types", strings.Join(entityTypes, ", ")))
+	}
 	if policy := subjectSubordinateConfiguration.Policies; policy.HasParameterPolicies() {
 		subordinateStatement.MetadataPolicy = &policy
 	}

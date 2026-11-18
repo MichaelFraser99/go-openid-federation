@@ -52,7 +52,10 @@ func (o OneOf) Resolve(metadataParameterValue any) (any, error) {
 		return nil, fmt.Errorf("operator value must be a slice")
 	}
 
-	// Ensure metadata parameter's type matches with items in the operator value
+	if kind := reflect.ValueOf(metadataParameterValue).Kind(); kind == reflect.Slice || kind == reflect.Array {
+		return nil, fmt.Errorf("one_of cannot be applied to a metadata parameter whose value is an array, because one_of supports a single string, number or object")
+	}
+
 	if operandsContain(reflect.ValueOf(o.operatorValue), metadataParameterValue) {
 		return metadataParameterValue, nil
 	}

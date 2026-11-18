@@ -89,7 +89,7 @@ func fetch(ctx context.Context, cfg model.Configuration, entityIdentifier model.
 		if classified := model.ReclassifyWithDescription(err, entityConfigurationUnreachable); classified != nil {
 			return nil, nil, classified
 		}
-		return nil, nil, errors.New(entityConfigurationUnreachable)
+		return nil, nil, fmt.Errorf("%w%s", model.ErrPeerUnreachable, entityConfigurationUnreachable)
 	}
 	defer response.Body.Close() //nolint:errcheck
 
@@ -224,7 +224,7 @@ func validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 		if errors.Is(err, model.ErrInvalidMetadata) {
 			return nil, fmt.Errorf("invalid entity statement: %w", err)
 		}
-		return nil, model.NewInvalidTrustChainError(fmt.Sprintf("invalid entity statement: %s", err.Error()))
+		return nil, model.CarryMarkers(err, model.NewInvalidTrustChainError(fmt.Sprintf("invalid entity statement: %s", err.Error())))
 	}
 
 	if entityConfiguration.Iss != entityConfiguration.Sub {
@@ -627,5 +627,5 @@ func fetchEnded(ctx, fetchCtx context.Context, entityIdentifier model.EntityIden
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return fmt.Errorf("stopped fetching %q's entity configuration: %s", entityIdentifier, ctxErr.Error())
 	}
-	return fmt.Errorf("%q's entity configuration did not arrive within the peer deadline: %s", entityIdentifier, fetchCtx.Err().Error())
+	return fmt.Errorf("%w%q's entity configuration did not arrive within the peer deadline: %s", model.ErrPeerTimeout, entityIdentifier, fetchCtx.Err().Error())
 }

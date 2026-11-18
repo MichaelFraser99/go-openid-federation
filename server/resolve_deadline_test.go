@@ -175,11 +175,15 @@ func TestServer_Resolve_TheWholeRequestIsBoundedByOneDeadline(t *testing.T) {
 				return
 			}
 
-			if response.StatusCode != http.StatusServiceUnavailable {
-				t.Errorf("[8.9] this server not completing its own request within its deadline is a 503, got %d with %s", response.StatusCode, model.TruncateForResponse(string(raw)))
+			var body map[string]any
+			if err := json.Unmarshal(raw, &body); err != nil {
+				t.Fatalf("expected a JSON error response, got %d with %s", response.StatusCode, model.TruncateForResponse(string(raw)))
 			}
-			if !strings.Contains(string(raw), `"`+model.TemporarilyUnavailable+`"`) {
-				t.Errorf("[8.9] expected the temporarily_unavailable error code, got %s", model.TruncateForResponse(string(raw)))
+			if response.StatusCode != http.StatusNotFound || body["error"] != model.InvalidTrustAnchor {
+				t.Errorf("[18.1] peers choose how long a walk takes, so reaching the resolver's own time limit answers like its other walk bounds, 404 invalid_trust_anchor, got %d with %s", response.StatusCode, model.TruncateForResponse(string(raw)))
+			}
+			if body["error_description"] != "the resolver reached the maximum time it may spend on one request" {
+				t.Errorf("[18.1] expected the fixed description naming the time limit, got %v", body["error_description"])
 			}
 			if elapsed < tc.deadline {
 				t.Errorf("expected the request to run until its deadline of %s, it ended after %s", tc.deadline, elapsed)

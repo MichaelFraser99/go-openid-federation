@@ -17,7 +17,7 @@ import (
 const resolveUnavailableError = "unable to resolve entities at this time"
 
 func (s *Server) Resolve(w http.ResponseWriter, r *http.Request) ResponseFunc {
-	ctx, cancel := context.WithTimeout(r.Context(), s.cfg.ResolveTimeLimit())
+	ctx, cancel := trust_chain.WithResolveTimeLimit(r.Context(), s.cfg.Configuration)
 	defer cancel()
 	sub := r.URL.Query().Get("sub")
 	trustAnchor := r.URL.Query().Get("trust_anchor")
@@ -62,6 +62,9 @@ func (s *Server) Resolve(w http.ResponseWriter, r *http.Request) ResponseFunc {
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		s.cfg.LogInfo(ctx, "the resolve request did not complete before its deadline", slog.String("error", ctxErr.Error()))
+		if limit := trust_chain.ResolveTimeLimitReached(ctx); limit != nil {
+			return s.RespondWithError(ctx, w, limit)
+		}
 		return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(resolveUnavailableError))
 	}
 

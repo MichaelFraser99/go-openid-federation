@@ -16,7 +16,7 @@ func TestBuildTrustChain_ASubordinateStatementIsChargedLikeAConfiguration(t *tes
 	anchor := model.EntityIdentifier(testServer.URL + "/ta")
 
 	walkCache := resolvecache.New()
-	if _, _, _, err := chainUpOne(t.Context(), cfg, leaf, anchor, []model.EntityIdentifier{}, []model.EntityStatement{}, []string{}, walkCache, newWalkMemo()); err != nil {
+	if _, _, _, err := chainUpOne(t.Context(), cfg, leaf, anchor, []model.EntityIdentifier{}, []model.EntityStatement{}, []string{}, walkCache, newWalkMemo(nil)); err != nil {
 		t.Fatalf("expected the walk to reach the anchor: %v", err)
 	}
 	configurationsOnly := walkCache.PeerBytes()
@@ -52,7 +52,7 @@ func TestBuildTrustChain_ABudgetSpentByTheWalkRefusesTheSubordinateFetch(t *test
 	anchor := model.EntityIdentifier(testServer.URL + "/ta")
 
 	walkCache := resolvecache.New()
-	if _, _, _, err := chainUpOne(t.Context(), model.Configuration{HttpClient: testServer.Client()}, leaf, anchor, []model.EntityIdentifier{}, []model.EntityStatement{}, []string{}, walkCache, newWalkMemo()); err != nil {
+	if _, _, _, err := chainUpOne(t.Context(), model.Configuration{HttpClient: testServer.Client()}, leaf, anchor, []model.EntityIdentifier{}, []model.EntityStatement{}, []string{}, walkCache, newWalkMemo(nil)); err != nil {
 		t.Fatalf("expected the walk to reach the anchor: %v", err)
 	}
 	spentByTheWalk := walkCache.PeerBytes()

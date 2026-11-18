@@ -586,10 +586,10 @@ func TruncateForResponse(value string) string {
 
 func VerifyChainExpiry(exp int64) error {
 	if ChainHasExpired(exp) {
-		return NewInvalidTrustChainError("trust chain expired")
+		return fmt.Errorf("%w%w", ErrExpired, NewInvalidTrustChainError("trust chain expired"))
 	}
 	if exp <= time.Now().UTC().Unix() {
-		return NewInvalidTrustChainError("trust chain expiry is not in the future, so no resolve response can be issued for it")
+		return fmt.Errorf("%w%w", ErrExpired, NewInvalidTrustChainError("trust chain expiry is not in the future, so no resolve response can be issued for it"))
 	}
 	return nil
 }

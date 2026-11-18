@@ -42,10 +42,10 @@ func TestVerifyChainLinks_HoldsEachLinkToTheConfiguredAlgorithms(t *testing.T) {
 		parsed = append(parsed, statement)
 	}
 
-	if err := verifyChainLinks(t.Context(), model.Configuration{SigningAlgorithms: []jwa.Algorithm{jwa.RS256, jwa.PS256}}, signed, parsed); err != nil {
+	if _, err := verifyChainLinks(t.Context(), model.Configuration{SigningAlgorithms: []jwa.Algorithm{jwa.RS256, jwa.PS256}}, signed, parsed); err != nil {
 		t.Fatalf("the fixture is wrong: a list naming PS256 must accept the links, got %v", err)
 	}
-	err := verifyChainLinks(t.Context(), model.Configuration{SigningAlgorithms: []jwa.Algorithm{jwa.RS256}}, signed, parsed)
+	_, err := verifyChainLinks(t.Context(), model.Configuration{SigningAlgorithms: []jwa.Algorithm{jwa.RS256}}, signed, parsed)
 	if !errors.Is(err, model.ErrInvalidTrustChain) {
 		t.Fatalf("[3.2] a link signed with an algorithm the deployment does not accept is refused, got %v", err)
 	}

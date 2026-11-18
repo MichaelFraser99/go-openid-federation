@@ -19,6 +19,9 @@ var (
 	ErrServerError            = errors.New("")
 	ErrTemporarilyUnavailable = errors.New("")
 	ErrUnsupportedParameter   = errors.New("")
+	ErrPeerUnreachable        = errors.New("")
+	ErrPeerTimeout            = errors.New("")
+	ErrExpired                = errors.New("")
 )
 
 const (
@@ -113,15 +116,23 @@ var classifiedErrorBuilders = []struct {
 	{ErrServerError, NewServerError},
 }
 
+var errorMarkers = []error{ErrLimitReached, ErrPeerUnreachable, ErrPeerTimeout, ErrExpired}
+
+func CarryMarkers(from, to error) error {
+	for _, marker := range errorMarkers {
+		if errors.Is(from, marker) {
+			to = fmt.Errorf("%w%w", marker, to)
+		}
+	}
+	return to
+}
+
 func ReclassifyWithDescription(err error, description string) error {
 	for _, candidate := range classifiedErrorBuilders {
 		if candidate.sentinel == ErrPageNotFound || !errors.Is(err, candidate.sentinel) {
 			continue
 		}
-		if errors.Is(err, ErrLimitReached) {
-			return fmt.Errorf("%w%w", ErrLimitReached, candidate.build(description))
-		}
-		return candidate.build(description)
+		return CarryMarkers(err, candidate.build(description))
 	}
 	return nil
 }

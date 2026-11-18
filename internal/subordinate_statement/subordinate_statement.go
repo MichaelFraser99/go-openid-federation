@@ -72,7 +72,7 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 		if classified := model.ReclassifyWithDescription(err, "failed to reach the issuer's federation fetch endpoint"); classified != nil {
 			return nil, nil, classified
 		}
-		return nil, nil, model.NewInvalidTrustChainError("failed to reach the issuer's federation fetch endpoint")
+		return nil, nil, fmt.Errorf("%w%w", model.ErrPeerUnreachable, model.NewInvalidTrustChainError("failed to reach the issuer's federation fetch endpoint"))
 	}
 	defer response.Body.Close() //nolint:errcheck
 
@@ -94,8 +94,8 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 	responseBytes, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
 	if err != nil {
 		cfg.LogInfo(ctx, "failed to read the issuer's federation fetch response body", slog.String("issuer", string(issuer.Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, nil, fmt.Errorf("%w%s: %w", model.ErrTemporarilyUnavailable, "this server did not complete the request", ctxErr)
+		if ended := fetchEnded(ctx, fetchCtx, cfg, issuer); ended != nil {
+			return nil, nil, ended
 		}
 		return nil, nil, model.NewInvalidTrustChainError("failed to read the issuer's federation fetch response body")
 	}
@@ -200,7 +200,7 @@ func validate(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 		if errors.Is(err, model.ErrInvalidMetadata) {
 			return nil, fmt.Errorf("invalid entity statement: %w", err)
 		}
-		return nil, model.NewInvalidTrustChainError(fmt.Sprintf("invalid entity statement: %s", err.Error()))
+		return nil, model.CarryMarkers(err, model.NewInvalidTrustChainError(fmt.Sprintf("invalid entity statement: %s", err.Error())))
 	}
 
 	if subordinateStatement.Iss == subordinateStatement.Sub {
@@ -409,5 +409,5 @@ func fetchEnded(ctx, fetchCtx context.Context, cfg model.Configuration, issuer m
 		return fmt.Errorf("%w%s: %w", model.ErrTemporarilyUnavailable, "this server did not complete the request", ctxErr)
 	}
 	cfg.LogInfo(ctx, "the issuer's federation fetch response did not arrive within the peer deadline", slog.String("issuer", string(issuer.Sub)))
-	return model.NewInvalidTrustChainError("the issuer's federation fetch response did not arrive within the peer deadline")
+	return fmt.Errorf("%w%w", model.ErrPeerTimeout, model.NewInvalidTrustChainError("the issuer's federation fetch response did not arrive within the peer deadline"))
 }

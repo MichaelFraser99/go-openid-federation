@@ -824,7 +824,7 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	if time.Now().Add(-ClockSkewLeeway).UTC().Unix() >= exp {
-		return fmt.Errorf("entity statement has expired")
+		return fmt.Errorf("%wentity statement has expired", ErrExpired)
 	}
 	if iat >= exp {
 		return fmt.Errorf("entity statement 'iat' claim must be before its 'exp' claim")

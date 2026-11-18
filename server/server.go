@@ -14,6 +14,7 @@ import (
 
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_configuration"
+	"github.com/MichaelFraser99/go-openid-federation/internal/errclass"
 	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
 	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 	"github.com/MichaelFraser99/go-openid-federation/model"
@@ -295,7 +296,7 @@ func (s *Server) loadSubordinate(ctx context.Context, identifier model.EntityIde
 		if subordinate.SignerConfiguration != nil {
 			if err := published.verify(ctx, *subordinate.SignerConfiguration); err != nil {
 				if errors.As(err, new(publishedSetUnavailable)) {
-					classified := model.ClassifySignerError(err, subordinateRetrievalFailureError)
+					classified := errclass.ClassifySignerError(err, subordinateRetrievalFailureError)
 					s.logFailure(ctx, "the published key set cannot be built, so a subordinate signer cannot be checked against it", classified, slog.String("sub", string(identifier)), slog.String("error", err.Error()))
 					return nil, nil, loggedFailure{classified}
 				}

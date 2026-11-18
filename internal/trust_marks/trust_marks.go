@@ -19,6 +19,7 @@ import (
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/internal/boundedjson"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
+	"github.com/MichaelFraser99/go-openid-federation/internal/errclass"
 	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
 	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 	"github.com/MichaelFraser99/go-openid-federation/internal/trust_chain"
@@ -233,7 +234,7 @@ func FilterByTrusted(ctx context.Context, cfg model.Configuration, resolved *mod
 			if errors.Is(err, resolvecache.ErrOwnIssuedFault) {
 				statement, description = "subordinate statement", ownSubordinateStatementUnavailable
 			}
-			classified := model.ClassifySignerError(err, description)
+			classified := errclass.ClassifySignerError(err, description)
 			if !errors.Is(err, resolvecache.ErrLogged) {
 				msg := "this resolver could not produce its own " + statement + " for a trust mark issuer walk"
 				if errors.Is(classified, model.ErrTemporarilyUnavailable) {

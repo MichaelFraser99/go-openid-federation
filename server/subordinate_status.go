@@ -9,6 +9,7 @@ import (
 
 	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwt"
+	"github.com/MichaelFraser99/go-openid-federation/internal/errclass"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -102,7 +103,7 @@ func (s *Server) SubordinateStatus(w http.ResponseWriter, r *http.Request) Respo
 	}, statusMap, jwt.Opts{Algorithm: jwa.GetAlgorithm(s.cfg.SignerConfiguration.Algorithm)})
 	if err != nil {
 		s.cfg.LogInfo(ctx, "error creating resolve response", slog.String("error", err.Error()))
-		return s.respondWithError(ctx, w, model.ClassifySignerError(err, subordinateStatusUnavailableError))
+		return s.respondWithError(ctx, w, errclass.ClassifySignerError(err, subordinateStatusUnavailableError))
 	}
 
 	return s.respondWithSubordinateStatementResponse(w, []byte(*token))

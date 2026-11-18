@@ -23,6 +23,7 @@ import (
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/internal/boundedjson"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
+	"github.com/MichaelFraser99/go-openid-federation/internal/errclass"
 	"github.com/MichaelFraser99/go-openid-federation/internal/keyscan"
 	"github.com/MichaelFraser99/go-openid-federation/internal/peerclient"
 	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
@@ -422,7 +423,7 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 		if errors.Is(err, joseerror.ErrUnsupportedAlgorithm) || errors.Is(err, joseerror.ErrInvalidPrivateKey) {
 			return nil, fmt.Errorf("refusing to publish an entity configuration this implementation would reject: %s", err.Error())
 		}
-		classified := model.ClassifySignerError(err, signingFailureError)
+		classified := errclass.ClassifySignerError(err, signingFailureError)
 		logSignerFailure(ctx, cfg.Configuration, classified, "the signer could not sign the entity configuration", slog.String("error", truncate.TruncateForResponse(err.Error())))
 		return nil, classified
 	}

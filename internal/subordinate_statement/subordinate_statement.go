@@ -19,6 +19,7 @@ import (
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/internal/boundedjson"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
+	"github.com/MichaelFraser99/go-openid-federation/internal/errclass"
 	"github.com/MichaelFraser99/go-openid-federation/internal/keyscan"
 	"github.com/MichaelFraser99/go-openid-federation/internal/peerclient"
 	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
@@ -368,7 +369,7 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		if errors.Is(err, joseerror.ErrUnsupportedAlgorithm) || errors.Is(err, joseerror.ErrInvalidPrivateKey) {
 			return nil, signerFault(fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %s", err.Error()))
 		}
-		classified := model.ClassifySignerError(err, signingFailureError)
+		classified := errclass.ClassifySignerError(err, signingFailureError)
 		if errors.Is(classified, model.ErrTemporarilyUnavailable) {
 			configuration.LogInfo(ctx, "the signer could not sign the subordinate statement", slog.String("sub", truncate.TruncateForResponse(string(subjectIdentifier))), slog.String("error", truncate.TruncateForResponse(err.Error())))
 		} else {

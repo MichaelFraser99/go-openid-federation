@@ -8,6 +8,7 @@ import (
 
 	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwt"
+	"github.com/MichaelFraser99/go-openid-federation/internal/errclass"
 	"github.com/MichaelFraser99/go-openid-federation/internal/trust_marks"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
@@ -60,7 +61,7 @@ func (s *Server) TrustMarkStatus(w http.ResponseWriter, r *http.Request) Respons
 	}, statusMap, jwt.Opts{Algorithm: jwa.GetAlgorithm(s.cfg.SignerConfiguration.Algorithm)})
 	if err != nil {
 		s.cfg.LogInfo(ctx, "error creating resolve response", slog.String("error", err.Error()))
-		return s.respondWithError(ctx, w, model.ClassifySignerError(err, trustMarkStatusUnavailableError))
+		return s.respondWithError(ctx, w, errclass.ClassifySignerError(err, trustMarkStatusUnavailableError))
 	}
 
 	return s.respondWithTrustMarkStatusResponse(w, []byte(*token))

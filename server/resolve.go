@@ -8,6 +8,7 @@ import (
 
 	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwt"
+	"github.com/MichaelFraser99/go-openid-federation/internal/errclass"
 	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
 	"github.com/MichaelFraser99/go-openid-federation/internal/trust_chain"
 	"github.com/MichaelFraser99/go-openid-federation/internal/trust_marks"
@@ -91,7 +92,7 @@ func (s *Server) Resolve(w http.ResponseWriter, r *http.Request) ResponseFunc {
 	}, resolvedMap, jwt.Opts{Algorithm: jwa.GetAlgorithm(s.cfg.SignerConfiguration.Algorithm)})
 	if err != nil {
 		s.cfg.LogError(ctx, "error creating resolve response", slog.String("error", err.Error()))
-		return s.respondWithError(ctx, w, model.ClassifySignerError(err, resolveUnavailableError))
+		return s.respondWithError(ctx, w, errclass.ClassifySignerError(err, resolveUnavailableError))
 	}
 
 	return s.respondWithResolveResponse(w, []byte(*token))

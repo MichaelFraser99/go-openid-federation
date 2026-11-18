@@ -9,6 +9,7 @@ import (
 
 	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwt"
+	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
 	"github.com/MichaelFraser99/go-openid-federation/internal/errclass"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
@@ -92,7 +93,7 @@ func (s *Server) SubordinateStatus(w http.ResponseWriter, r *http.Request) Respo
 		statusMap["exp"] = issuedAt.Add(*s.cfg.Extensions.SubordinateStatus.ResponseLifetime).Unix()
 	}
 
-	if err := model.VerifyIssuanceAlgorithm(s.cfg.SignerConfiguration.Algorithm); err != nil {
+	if err := entity_statement.VerifyIssuanceAlgorithm(s.cfg.SignerConfiguration.Algorithm); err != nil {
 		s.cfg.LogError(ctx, "the configured signing algorithm cannot be signed with", slog.String("error", err.Error()))
 		return s.respondWithError(ctx, w, model.NewServerError(subordinateStatusUnavailableError))
 	}

@@ -89,7 +89,7 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 		return nil, nil, model.NewInvalidTrustChainError("non-200 response from the issuer's federation fetch endpoint")
 	}
 
-	if !model.IsEntityStatementMediaType(response.Header.Get("Content-Type")) {
+	if !entity_statement.IsEntityStatementMediaType(response.Header.Get("Content-Type")) {
 		cfg.LogInfo(ctx, "invalid Content-Type response from the issuer's federation fetch response", slog.String("issuer", string(issuer.Sub)), slog.String("content_type", truncate.TruncateForResponse(response.Header.Get("Content-Type"))))
 		return nil, nil, model.NewInvalidTrustChainError("invalid Content-Type response from the issuer's federation fetch response")
 	}
@@ -301,7 +301,7 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		return nil, model.NewInvalidSubjectError("every key registered for this subject is unpublishable, so no usable subordinate statement can be issued for it")
 	}
 
-	subordinateStatementLifetime, err := model.ResolveStatementLifetime("SubordinateStatementLifetime", configuration.IntermediateConfiguration.SubordinateStatementLifetime, model.DefaultSubordinateStatementLifetime)
+	subordinateStatementLifetime, err := entity_statement.ResolveStatementLifetime("SubordinateStatementLifetime", configuration.IntermediateConfiguration.SubordinateStatementLifetime, model.DefaultSubordinateStatementLifetime)
 	if err != nil {
 		return nil, err
 	}
@@ -352,11 +352,11 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		return nil, unusableRecord(fmt.Errorf("refusing to publish this subordinate statement because %s", err.Error()))
 	}
 
-	if err = model.VerifyIssuedStatement(subordinateStatementBytes, configuration.EntityTypes); err != nil {
+	if err = entity_statement.VerifyIssuedStatement(subordinateStatementBytes, configuration.EntityTypes); err != nil {
 		return nil, unusableRecord(fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %s", err.Error()))
 	}
 
-	if err := model.VerifyIssuanceAlgorithm(signerConfiguration.Algorithm); err != nil {
+	if err := entity_statement.VerifyIssuanceAlgorithm(signerConfiguration.Algorithm); err != nil {
 		return nil, signerFault(fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %s", err.Error()))
 	}
 

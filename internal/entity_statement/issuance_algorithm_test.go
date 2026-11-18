@@ -1,4 +1,4 @@
-package model
+package entity_statement
 
 import (
 	"strings"
@@ -6,10 +6,11 @@ import (
 
 	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
+	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
 func TestVerifyIssuanceAlgorithm(t *testing.T) {
-	for _, algorithm := range DefaultSigningAlgorithms() {
+	for _, algorithm := range model.DefaultSigningAlgorithms() {
 		if algorithm == jwa.EdDSA {
 			continue
 		}

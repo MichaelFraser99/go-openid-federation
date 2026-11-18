@@ -8,6 +8,7 @@ import (
 
 	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwt"
+	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
 	"github.com/MichaelFraser99/go-openid-federation/internal/errclass"
 	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
 	"github.com/MichaelFraser99/go-openid-federation/internal/trust_chain"
@@ -81,7 +82,7 @@ func (s *Server) Resolve(w http.ResponseWriter, r *http.Request) ResponseFunc {
 		return s.respondWithError(ctx, w, model.NewServerError(resolveUnavailableError))
 	}
 
-	if err := model.VerifyIssuanceAlgorithm(s.cfg.SignerConfiguration.Algorithm); err != nil {
+	if err := entity_statement.VerifyIssuanceAlgorithm(s.cfg.SignerConfiguration.Algorithm); err != nil {
 		s.cfg.LogError(ctx, "the configured signing algorithm cannot be signed with", slog.String("error", err.Error()))
 		return s.respondWithError(ctx, w, model.NewServerError(resolveUnavailableError))
 	}

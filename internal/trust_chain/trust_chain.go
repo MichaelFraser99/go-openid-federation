@@ -185,7 +185,7 @@ func routeStatements(ctx context.Context, cfg model.Configuration, signedRoute [
 			}
 			return nil, nil, link, subordinateStatementFailure(err)
 		}
-		cache.RecordPeerBytes(model.StatementCost(*signedResponse, subordinateStatement))
+		cache.RecordPeerBytes(entity_statement.StatementCost(*signedResponse, subordinateStatement))
 		trustChain = append(trustChain, *signedResponse)
 		parsedTrustChain = append(parsedTrustChain, *subordinateStatement)
 	}

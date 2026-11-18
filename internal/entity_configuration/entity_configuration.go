@@ -60,7 +60,7 @@ func Retrieve(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 		return nil, nil, err
 	}
 	if signed != nil {
-		cache.RecordPeerBytes(model.StatementCost(*signed, statement))
+		cache.RecordPeerBytes(entity_statement.StatementCost(*signed, statement))
 	}
 	cache.Store(entityIdentifier, signed, statement)
 	return signed, statement, nil
@@ -107,7 +107,7 @@ func fetch(ctx context.Context, cfg model.Configuration, entityIdentifier model.
 	}
 	cfg.LogInfo(ctx, "entity configuration retrieved", slog.String("subject", string(entityIdentifier)))
 
-	if !model.IsEntityStatementMediaType(response.Header.Get("Content-Type")) {
+	if !entity_statement.IsEntityStatementMediaType(response.Header.Get("Content-Type")) {
 		cfg.LogInfo(ctx, "invalid Content-Type from the entity configuration endpoint", slog.String("subject", truncate.TruncateForResponse(string(entityIdentifier))), slog.String("content_type", truncate.TruncateForResponse(response.Header.Get("Content-Type"))))
 		return nil, nil, errors.New("invalid Content-Type from the entity configuration endpoint")
 	}
@@ -310,7 +310,7 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 	entityConfiguration.AuthorityHints = cfg.AuthorityHints
 	entityConfiguration.TrustMarks = cfg.TrustMarks
 	entityConfiguration.Iat = time.Now().UTC().Unix()
-	entityConfigurationLifetime, err := model.ResolveStatementLifetime("EntityConfigurationLifetime", cfg.EntityConfigurationLifetime, model.DefaultEntityConfigurationLifetime)
+	entityConfigurationLifetime, err := entity_statement.ResolveStatementLifetime("EntityConfigurationLifetime", cfg.EntityConfigurationLifetime, model.DefaultEntityConfigurationLifetime)
 	if err != nil {
 		return nil, err
 	}
@@ -406,11 +406,11 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 		}
 	}
 
-	if err = model.VerifyIssuedStatement(entityConfigurationBytes, cfg.EntityTypes); err != nil {
+	if err = entity_statement.VerifyIssuedStatement(entityConfigurationBytes, cfg.EntityTypes); err != nil {
 		return nil, fmt.Errorf("refusing to publish an entity configuration this implementation would reject: %s", err.Error())
 	}
 
-	if err := model.VerifyIssuanceAlgorithm(cfg.SignerConfiguration.Algorithm); err != nil {
+	if err := entity_statement.VerifyIssuanceAlgorithm(cfg.SignerConfiguration.Algorithm); err != nil {
 		return nil, fmt.Errorf("refusing to publish an entity configuration this implementation would reject: %s", err.Error())
 	}
 
@@ -537,7 +537,7 @@ func publishedKeySet(ctx context.Context, cfg model.ServerConfiguration) (*publi
 			(*apkJWK)["kid"] = signerConfiguration.KeyID
 			(*apkJWK)["alg"] = signerConfiguration.Algorithm
 
-			if err := model.VerifyIssuanceAlgorithm(signerConfiguration.Algorithm); err != nil {
+			if err := entity_statement.VerifyIssuanceAlgorithm(signerConfiguration.Algorithm); err != nil {
 				cfg.LogError(ctx, "not publishing a subordinate signer key because its algorithm cannot be signed with, so statements it signs could not be verified", slog.String("kid", truncate.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
 				continue
 			}

@@ -3,12 +3,10 @@ package model
 import (
 	"encoding/json"
 	"fmt"
-	"mime"
 	"net/url"
 	"reflect"
 	"slices"
 	"strings"
-	"time"
 )
 
 func reMarshalJsonAsEntityMetadata[T any](data any) (*T, error) {
@@ -538,44 +536,6 @@ func joinScopeTokens(values []string) string {
 		}
 	}
 	return strings.Join(tokens, " ")
-}
-
-func ResolveStatementLifetime(name string, configured, fallback time.Duration) (time.Duration, error) {
-	if configured < 0 {
-		return 0, fmt.Errorf("%s must not be negative, got %s", name, configured)
-	}
-	if configured == 0 {
-		return fallback, nil
-	}
-	if configured < time.Second {
-		return 0, fmt.Errorf("%s must be at least one second, got %s", name, configured)
-	}
-	return configured, nil
-}
-
-func VerifyIssuedStatement(claims []byte, registry EntityTypeRegistry) error {
-	var issued EntityStatement
-	if err := json.Unmarshal(claims, &issued); err != nil {
-		return err
-	}
-	if issued.Metadata != nil {
-		if err := issued.Metadata.Verify(registry, false); err != nil {
-			return err
-		}
-	}
-	if issued.MetadataPolicy != nil {
-		if err := issued.MetadataPolicy.Verify(registry, false); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-const EntityStatementMediaType = "application/entity-statement+jwt"
-
-func IsEntityStatementMediaType(contentType string) bool {
-	mediaType, _, err := mime.ParseMediaType(contentType)
-	return err == nil && mediaType == EntityStatementMediaType
 }
 
 func convertStringsToAnySlice(input []string) []any {

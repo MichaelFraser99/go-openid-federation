@@ -111,7 +111,7 @@ func VerifyIssuedSignature(ctx context.Context, token, kid, alg string, signer c
 	if err := ValidateStatementHeader(map[string]any{"typ": "entity-statement+jwt", "alg": alg}); err != nil {
 		return err
 	}
-	if err := model.VerifyIssuanceAlgorithm(alg); err != nil {
+	if err := VerifyIssuanceAlgorithm(alg); err != nil {
 		return err
 	}
 	publicJWK, err := jwk.PublicJwk(signer.Public())

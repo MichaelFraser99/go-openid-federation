@@ -83,19 +83,6 @@ func refusedSigningAlgorithm(algorithm jwa.Algorithm) bool {
 	}
 }
 
-func VerifyIssuanceAlgorithm(name string) error {
-	algorithm := jwa.GetAlgorithm(name)
-	switch {
-	case algorithm == jwa.HS256 || algorithm == jwa.HS384 || algorithm == jwa.HS512:
-		return fmt.Errorf("%s is never used to sign here: a federation key is published, so a symmetric key would not be secret", name)
-	case algorithm == jwa.EdDSA:
-		return fmt.Errorf("EdDSA is accepted only for verification, because RFC 9864 section 4.1.2 deprecates it; sign with Ed25519")
-	case algorithm == jwa.Unknown || !slices.Contains(defaultSigningAlgorithms, algorithm):
-		return fmt.Errorf("%q is not a supported signing algorithm", truncate.TruncateForResponse(name))
-	}
-	return nil
-}
-
 func (cfg *Configuration) AcceptedSigningAlgorithms() []jwa.Algorithm {
 	configured := cfg.SigningAlgorithms
 	if configured == nil {
@@ -150,14 +137,6 @@ const DefaultMaxPeerResponseBytes int64 = 1 << 20
 const DefaultMaxRequestPeerBytes int64 = 64 << 20
 
 const DecodedValueCost = 256
-
-func StatementCost(signed string, statement *EntityStatement) int64 {
-	cost := 2 * int64(len(signed))
-	if statement != nil {
-		cost += int64(statement.DecodedValues()) * DecodedValueCost
-	}
-	return cost
-}
 
 const DefaultMaxPeerResponseTime = 10 * time.Second
 

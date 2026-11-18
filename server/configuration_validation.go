@@ -34,7 +34,7 @@ func validateConfiguration(cfg model.ServerConfiguration) error {
 	if cfg.SignerConfiguration.KeyID == "" {
 		fault("SignerConfiguration.KeyID is empty")
 	}
-	if err := model.VerifyIssuanceAlgorithm(cfg.SignerConfiguration.Algorithm); err != nil {
+	if err := entity_statement.VerifyIssuanceAlgorithm(cfg.SignerConfiguration.Algorithm); err != nil {
 		fault("SignerConfiguration.Algorithm cannot be used: %s", err.Error())
 	} else if cfg.SignerConfiguration.Signer != nil {
 		if _, err := jws.GetValidator(jwa.GetAlgorithm(cfg.SignerConfiguration.Algorithm), cfg.SignerConfiguration.Signer.Public()); err != nil {
@@ -44,11 +44,11 @@ func validateConfiguration(cfg model.ServerConfiguration) error {
 	if err := cfg.VerifySigningAlgorithms(); err != nil {
 		fault("Configuration.SigningAlgorithms cannot be used: %s", err.Error())
 	}
-	if _, err := model.ResolveStatementLifetime("EntityConfigurationLifetime", cfg.EntityConfigurationLifetime, model.DefaultEntityConfigurationLifetime); err != nil {
+	if _, err := entity_statement.ResolveStatementLifetime("EntityConfigurationLifetime", cfg.EntityConfigurationLifetime, model.DefaultEntityConfigurationLifetime); err != nil {
 		faults = append(faults, err)
 	}
 	if cfg.IntermediateConfiguration != nil {
-		if _, err := model.ResolveStatementLifetime("IntermediateConfiguration.SubordinateStatementLifetime", cfg.IntermediateConfiguration.SubordinateStatementLifetime, model.DefaultSubordinateStatementLifetime); err != nil {
+		if _, err := entity_statement.ResolveStatementLifetime("IntermediateConfiguration.SubordinateStatementLifetime", cfg.IntermediateConfiguration.SubordinateStatementLifetime, model.DefaultSubordinateStatementLifetime); err != nil {
 			faults = append(faults, err)
 		}
 	}

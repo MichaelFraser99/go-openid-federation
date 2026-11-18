@@ -415,6 +415,21 @@ func TestServerConfiguration_SubordinateIdentifiers(t *testing.T) {
 		}
 	})
 
+	t.Run("a write to a returned listing does not reach the next one", func(t *testing.T) {
+		intermediate := &IntermediateConfiguration{}
+		for _, identifier := range want {
+			intermediate.AddSubordinate(identifier, &SubordinateConfiguration{})
+		}
+		cfg := &ServerConfiguration{IntermediateConfiguration: intermediate}
+		for range 3 {
+			got, err := cfg.SubordinateIdentifiers(context.Background())
+			if err != nil || !slices.Equal(got, want) {
+				t.Fatalf("expected %v, got %v (%v)", want, got, err)
+			}
+			got[0] = "https://written.example.com"
+		}
+	})
+
 	t.Run("an empty store", func(t *testing.T) {
 		got, err := (&ServerConfiguration{IntermediateConfiguration: &IntermediateConfiguration{}}).SubordinateIdentifiers(context.Background())
 		if err != nil || len(got) != 0 {

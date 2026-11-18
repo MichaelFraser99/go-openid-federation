@@ -308,10 +308,33 @@ func (cfg *ServerConfiguration) SubordinateIdentifiers(ctx context.Context) ([]E
 		}
 		return slices.Sorted(maps.Keys(subordinates)), nil
 	}
-	i := cfg.IntermediateConfiguration
+	listing, unlisted := cfg.IntermediateConfiguration.listing()
+	if unlisted > 0 {
+		cfg.LogError(ctx, "omitting listing entries the store returned that are not entity identifiers or repeat one already listed", slog.Int("not_entity_identifiers", unlisted), slog.Int("duplicates", 0))
+	}
+	return listing, nil
+}
+
+func (i *IntermediateConfiguration) listing() ([]EntityIdentifier, int) {
 	i.mu.RLock()
-	defer i.mu.RUnlock()
-	return slices.Sorted(maps.Keys(i.subordinates)), nil
+	listed, unlisted := i.listed, len(i.unlisted)
+	i.mu.RUnlock()
+	if listed != nil {
+		return slices.Clone(listed), unlisted
+	}
+
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.listed == nil {
+		i.listed = make([]EntityIdentifier, 0, len(i.subordinates))
+		for identifier := range i.subordinates {
+			if _, invalid := i.unlisted[identifier]; !invalid {
+				i.listed = append(i.listed, identifier)
+			}
+		}
+		slices.Sort(i.listed)
+	}
+	return slices.Clone(i.listed), len(i.unlisted)
 }
 
 func (cfg *ServerConfiguration) GetSubordinateJWKs(ctx context.Context) ([]SignerConfiguration, error) {
@@ -452,6 +475,8 @@ type ExtendedListingConfiguration struct {
 type IntermediateConfiguration struct {
 	mu                           sync.RWMutex
 	subordinates                 map[EntityIdentifier]*SubordinateConfiguration
+	listed                       []EntityIdentifier
+	unlisted                     map[EntityIdentifier]struct{}
 	SubordinateStatementLifetime time.Duration
 	SubordinateCacheTime         time.Duration
 }
@@ -460,6 +485,8 @@ func (i *IntermediateConfiguration) FlushCache() {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	i.subordinates = map[EntityIdentifier]*SubordinateConfiguration{}
+	i.listed = nil
+	i.unlisted = nil
 }
 
 func (i *IntermediateConfiguration) AddSubordinate(identifier EntityIdentifier, subordinateConfiguration *SubordinateConfiguration) {
@@ -469,6 +496,7 @@ func (i *IntermediateConfiguration) AddSubordinate(identifier EntityIdentifier, 
 	stored := subordinateConfiguration.asJSON()
 	stored.JWKs.Opts.EnforceUniqueKIDs = true
 	stored.CachedAt = time.Now().UTC().Unix()
+	_, invalid := ValidateEntityIdentifier(string(identifier))
 
 	i.mu.Lock()
 	defer i.mu.Unlock()
@@ -476,6 +504,13 @@ func (i *IntermediateConfiguration) AddSubordinate(identifier EntityIdentifier, 
 		i.subordinates = map[EntityIdentifier]*SubordinateConfiguration{}
 	}
 	i.subordinates[identifier] = stored
+	i.listed = nil
+	if invalid != nil {
+		if i.unlisted == nil {
+			i.unlisted = map[EntityIdentifier]struct{}{}
+		}
+		i.unlisted[identifier] = struct{}{}
+	}
 }
 
 func (s *SubordinateConfiguration) clone() *SubordinateConfiguration {

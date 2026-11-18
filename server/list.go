@@ -49,6 +49,9 @@ func (s *Server) List(w http.ResponseWriter, r *http.Request) ResponseFunc {
 		s.logFailure(ctx, "error retrieving subordinates", classified, slog.String("error", err.Error()))
 		return s.RespondWithError(ctx, w, classified)
 	}
+	if s.cfg.MetadataRetriever == nil {
+		return s.respondWithListing(ctx, w, identifiers)
+	}
 	return s.respondWithEntities(ctx, w, identifiers)
 }
 
@@ -92,6 +95,10 @@ func (s *Server) respondWithEntities(ctx context.Context, w http.ResponseWriter,
 		}
 	}
 	s.logOmittedEntries(ctx, listed)
+	return s.respondWithListing(ctx, w, entities)
+}
+
+func (s *Server) respondWithListing(ctx context.Context, w http.ResponseWriter, entities any) ResponseFunc {
 	entitiesJSON, err := json.Marshal(entities)
 	if err != nil {
 		s.cfg.LogError(ctx, "error marshalling entities", slog.String("error", err.Error()))

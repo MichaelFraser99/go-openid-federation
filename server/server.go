@@ -320,36 +320,36 @@ func (s *Server) respondWith(w http.ResponseWriter, status int, contentType stri
 
 func (s *Server) respondWithMisconfiguration(ctx context.Context, w http.ResponseWriter, cause string, description string) ResponseFunc {
 	s.cfg.LogError(ctx, cause)
-	return s.RespondWithError(ctx, w, model.NewServerError(description))
+	return s.respondWithError(ctx, w, model.NewServerError(description))
 }
 
-func (s *Server) RespondWithError(ctx context.Context, w http.ResponseWriter, err error) ResponseFunc {
+func (s *Server) respondWithError(ctx context.Context, w http.ResponseWriter, err error) ResponseFunc {
 	s.cfg.LogInfo(ctx, "handling error response", slog.String("error", err.Error()))
 	code, response := s.parseError(err)
 	return s.respondWith(w, code, "application/json", []byte(response))
 }
 
-func (s *Server) RespondWithJSON(w http.ResponseWriter, data []byte) ResponseFunc {
+func (s *Server) respondWithJSON(w http.ResponseWriter, data []byte) ResponseFunc {
 	return s.respondWith(w, http.StatusOK, "application/json", data)
 }
 
-func (s *Server) RespondWithTrustMark(w http.ResponseWriter, data []byte) ResponseFunc {
+func (s *Server) respondWithTrustMark(w http.ResponseWriter, data []byte) ResponseFunc {
 	return s.respondWith(w, http.StatusOK, "application/trust-mark+jwt", data)
 }
 
-func (s *Server) RespondWithEntityStatement(w http.ResponseWriter, data []byte) ResponseFunc {
+func (s *Server) respondWithEntityStatement(w http.ResponseWriter, data []byte) ResponseFunc {
 	return s.respondWith(w, http.StatusOK, "application/entity-statement+jwt", data)
 }
 
-func (s *Server) RespondWithResolveResponse(w http.ResponseWriter, data []byte) ResponseFunc {
+func (s *Server) respondWithResolveResponse(w http.ResponseWriter, data []byte) ResponseFunc {
 	return s.respondWith(w, http.StatusOK, "application/resolve-response+jwt", data)
 }
 
-func (s *Server) RespondWithTrustMarkStatusResponse(w http.ResponseWriter, data []byte) ResponseFunc {
+func (s *Server) respondWithTrustMarkStatusResponse(w http.ResponseWriter, data []byte) ResponseFunc {
 	return s.respondWith(w, http.StatusOK, "application/trust-mark-status-response+jwt", data)
 }
 
-func (s *Server) RespondWithSubordinateStatementResponse(w http.ResponseWriter, data []byte) ResponseFunc {
+func (s *Server) respondWithSubordinateStatementResponse(w http.ResponseWriter, data []byte) ResponseFunc {
 	return s.respondWith(w, http.StatusOK, "application/entity-events-statement+jwt", data)
 }
 

@@ -22,19 +22,19 @@ func (s *Server) TrustMarkList(w http.ResponseWriter, r *http.Request) ResponseF
 	if sub != "" {
 		parsedSub, err = s.resolveEntityIdentifier(ctx, model.EntityIdentifierParamSub, sub, trustMarkListingUnavailableError)
 		if err != nil {
-			return s.RespondWithError(ctx, w, err)
+			return s.respondWithError(ctx, w, err)
 		}
 	}
 
 	if trustMarkType == "" {
-		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("request missing required parameter 'trust_mark_type'"))
+		return s.respondWithError(ctx, w, model.NewInvalidRequestError("request missing required parameter 'trust_mark_type'"))
 	}
 
 	status, err := trust_marks.List(ctx, s.cfg, trustMarkType, parsedSub)
 	if err != nil {
 		classified := s.retrieverError(err, trustMarkListingUnavailableError)
 		s.logFailure(ctx, "error listing trust marks", classified, slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, classified)
+		return s.respondWithError(ctx, w, classified)
 	}
 
 	if status == nil {
@@ -44,8 +44,8 @@ func (s *Server) TrustMarkList(w http.ResponseWriter, r *http.Request) ResponseF
 	statusBytes, err := json.Marshal(status)
 	if err != nil {
 		s.cfg.LogInfo(ctx, "error marshalling trust mark status", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, model.NewServerError(trustMarkListingUnavailableError))
+		return s.respondWithError(ctx, w, model.NewServerError(trustMarkListingUnavailableError))
 	}
 
-	return s.RespondWithJSON(w, statusBytes)
+	return s.respondWithJSON(w, statusBytes)
 }

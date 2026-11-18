@@ -18,15 +18,15 @@ func (s *Server) Fetch(w http.ResponseWriter, r *http.Request) ResponseFunc {
 
 	if sub == "" {
 		s.cfg.LogInfo(ctx, "no sub query parameter found")
-		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("request missing required parameter 'sub'"))
+		return s.respondWithError(ctx, w, model.NewInvalidRequestError("request missing required parameter 'sub'"))
 	}
 
 	token, err := s.issueSubordinateStatement(ctx, sub)
 	if err != nil {
-		return s.RespondWithError(ctx, w, err)
+		return s.respondWithError(ctx, w, err)
 	}
 
-	return s.RespondWithEntityStatement(w, []byte(*token))
+	return s.respondWithEntityStatement(w, []byte(*token))
 }
 
 func (s *Server) issueSubordinateStatement(ctx context.Context, sub string) (*string, error) {

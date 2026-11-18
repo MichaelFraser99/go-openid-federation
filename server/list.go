@@ -21,11 +21,11 @@ func (s *Server) List(w http.ResponseWriter, r *http.Request) ResponseFunc {
 	filter, err := parseSubordinateListingFilter(r.URL.Query())
 	if err != nil {
 		s.cfg.LogInfo(ctx, "received list request with malformed filter", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, err)
+		return s.respondWithError(ctx, w, err)
 	}
 
 	if s.cfg.IntermediateConfiguration == nil {
-		return s.RespondWithJSON(w, []byte(`[]`))
+		return s.respondWithJSON(w, []byte(`[]`))
 	}
 
 	if listingRetriever, ok := s.cfg.MetadataRetriever.(model.SubordinateListingRetriever); ok {
@@ -33,21 +33,21 @@ func (s *Server) List(w http.ResponseWriter, r *http.Request) ResponseFunc {
 		if err != nil {
 			classified := s.retrieverError(err, subordinateListingUnavailableError)
 			s.logFailure(ctx, "error listing subordinates", classified, slog.String("error", err.Error()))
-			return s.RespondWithError(ctx, w, classified)
+			return s.respondWithError(ctx, w, classified)
 		}
 		return s.respondWithEntities(ctx, w, identifiers)
 	}
 
 	if !filter.IsEmpty() {
 		s.cfg.LogInfo(ctx, "received list request with filters but no listing retriever configured")
-		return s.RespondWithError(ctx, w, model.NewUnsupportedParameterError("subordinate listing filters are not supported"))
+		return s.respondWithError(ctx, w, model.NewUnsupportedParameterError("subordinate listing filters are not supported"))
 	}
 
 	identifiers, err := s.cfg.SubordinateIdentifiers(ctx)
 	if err != nil {
 		classified := s.retrieverError(err, listingUnavailableError)
 		s.logFailure(ctx, "error retrieving subordinates", classified, slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, classified)
+		return s.respondWithError(ctx, w, classified)
 	}
 	if s.cfg.MetadataRetriever == nil {
 		return s.respondWithListing(ctx, w, identifiers)
@@ -102,9 +102,9 @@ func (s *Server) respondWithListing(ctx context.Context, w http.ResponseWriter, 
 	entitiesJSON, err := json.Marshal(entities)
 	if err != nil {
 		s.cfg.LogError(ctx, "error marshalling entities", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, model.NewServerError(listingUnavailableError))
+		return s.respondWithError(ctx, w, model.NewServerError(listingUnavailableError))
 	}
-	return s.RespondWithJSON(w, entitiesJSON)
+	return s.respondWithJSON(w, entitiesJSON)
 }
 
 func parseSubordinateListingFilter(query map[string][]string) (model.SubordinateListingFilter, error) {

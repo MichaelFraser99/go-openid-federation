@@ -83,7 +83,8 @@ func TestMergePolicyOperators_ComparesValueAndDefaultOperandsAsWritten(t *testin
 		"value with a repeat against the same value":     {upper: `{"value":["a","a"]}`, lower: `{"value":["a","a"]}`, merges: true, want: []any{"a", "a"}},
 		"default with a repeat against default without":  {upper: `{"default":["a","a"]}`, lower: `{"default":["a"]}`},
 		"default with a repeat against the same default": {upper: `{"default":["a","a"]}`, lower: `{"default":["a","a"]}`, merges: true, want: []any{"a", "a"}},
-		"add with a repeat is merged as a union":         {upper: `{"add":["a","a"]}`, lower: `{"add":["b"]}`, merges: true, asSet: true, want: []any{"a", "b"}},
+		"add with a repeat above is merged as a union":   {upper: `{"add":["a","a"]}`, lower: `{"add":["b"]}`, merges: true, asSet: true, want: []any{"a", "b"}},
+		"add with a repeat below is merged as a union":   {upper: `{"add":["b"]}`, lower: `{"add":["a","a"]}`, merges: true, asSet: true, want: []any{"a", "b"}},
 		"add is merged as a union":                       {upper: `{"add":["a","b"]}`, lower: `{"add":["b","c"]}`, merges: true, asSet: true, want: []any{"a", "b", "c"}},
 	}
 

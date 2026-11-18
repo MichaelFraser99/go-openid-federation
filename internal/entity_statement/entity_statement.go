@@ -13,13 +13,14 @@ import (
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jws"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
+	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
 const maxQuotedHeaderBytes = 64
 
 func truncateHeaderValue(value string) string {
-	return model.TruncateAtCharacter(value, maxQuotedHeaderBytes)
+	return truncate.TruncateAtCharacter(value, maxQuotedHeaderBytes)
 }
 
 func NamesJWTType(typ, jwtType string) bool {
@@ -197,7 +198,7 @@ func VerifyKeyUse(key map[string]any) error {
 			return fmt.Errorf("the selected key in the included 'jwks' has a malformed 'use' member")
 		}
 		if sUse != "sig" {
-			return fmt.Errorf("the selected key in the included 'jwks' declares a 'use' of %q, which RFC 7517 section 4.2 makes the intended use of that key, and it is not verifying a signature", model.TruncateForResponse(sUse))
+			return fmt.Errorf("the selected key in the included 'jwks' declares a 'use' of %q, which RFC 7517 section 4.2 makes the intended use of that key, and it is not verifying a signature", truncate.TruncateForResponse(sUse))
 		}
 	}
 	if err := model.ValidateKeyOps(key); err != nil {

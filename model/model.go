@@ -19,6 +19,7 @@ import (
 
 	"github.com/MichaelFraser99/go-jose/jwa"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
+	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 )
 
 type Configuration struct {
@@ -90,7 +91,7 @@ func VerifyIssuanceAlgorithm(name string) error {
 	case algorithm == jwa.EdDSA:
 		return fmt.Errorf("EdDSA is accepted only for verification, because RFC 9864 section 4.1.2 deprecates it; sign with Ed25519")
 	case algorithm == jwa.Unknown || !slices.Contains(defaultSigningAlgorithms, algorithm):
-		return fmt.Errorf("%q is not a supported signing algorithm", TruncateForResponse(name))
+		return fmt.Errorf("%q is not a supported signing algorithm", truncate.TruncateForResponse(name))
 	}
 	return nil
 }
@@ -1041,7 +1042,7 @@ func (t *TrustMarkHolder) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("the 'trust_mark' member of a 'trust_marks' entry has a malformed 'trust_mark_type' claim")
 	}
 	if sClaimed != trustMarkType {
-		return fmt.Errorf("the 'trust_mark_type' member %q does not match the 'trust_mark_type' claim %q in the trust mark itself", TruncateForResponse(trustMarkType), TruncateForResponse(sClaimed))
+		return fmt.Errorf("the 'trust_mark_type' member %q does not match the 'trust_mark_type' claim %q in the trust mark itself", truncate.TruncateForResponse(trustMarkType), truncate.TruncateForResponse(sClaimed))
 	}
 
 	t.TrustMarkType = trustMarkType

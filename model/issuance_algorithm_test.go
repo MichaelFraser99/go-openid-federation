@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/MichaelFraser99/go-jose/jwa"
+	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 )
 
 func TestVerifyIssuanceAlgorithm(t *testing.T) {
@@ -40,7 +41,7 @@ func TestVerifyIssuanceAlgorithm(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), tc.expectErr) {
 				t.Fatalf("[3.2 step 3] expected a refusal naming %q, got %v", tc.expectErr, err)
 			}
-			if len(err.Error()) > MaxErrorDescriptionBytes+128 {
+			if len(err.Error()) > truncate.MaxErrorDescriptionBytes+128 {
 				t.Errorf("the refusal must bound the name it quotes, got %d bytes", len(err.Error()))
 			}
 		})

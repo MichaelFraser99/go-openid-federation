@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	josemodel "github.com/MichaelFraser99/go-jose/model"
+	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 )
 
 const MinimumRSAKeyBits = 2048
@@ -126,7 +127,7 @@ func stripJWKSetEntries(value any, depth int, dropped *[]string) (any, bool) {
 	case map[string]any:
 		if VerifyPublishableJWK(typed) != nil {
 			kid, _ := typed["kid"].(string)
-			*dropped = append(*dropped, TruncateForResponse(kid))
+			*dropped = append(*dropped, truncate.TruncateForResponse(kid))
 			return nil, false
 		}
 		for member, held := range typed {
@@ -191,7 +192,7 @@ func VerifyPublishableStatementKeys(statement map[string]any) error {
 	for _, located := range keys {
 		if err := VerifyPublishableJWK(located.key); err != nil {
 			kid, _ := located.key["kid"].(string)
-			return fmt.Errorf("the %q key set holds a key with key ID %q that %s", located.path, TruncateForResponse(kid), err.Error())
+			return fmt.Errorf("the %q key set holds a key with key ID %q that %s", located.path, truncate.TruncateForResponse(kid), err.Error())
 		}
 	}
 	return nil
@@ -288,7 +289,7 @@ func ValidateKeyOps(key map[string]any) error {
 			return fmt.Errorf("has a 'key_ops' member holding a value that is not a string")
 		}
 		if _, duplicate := seen[named]; duplicate {
-			return fmt.Errorf("lists %q more than once in 'key_ops', which RFC 7517 section 4.3 forbids", TruncateForResponse(named))
+			return fmt.Errorf("lists %q more than once in 'key_ops', which RFC 7517 section 4.3 forbids", truncate.TruncateForResponse(named))
 		}
 		seen[named] = struct{}{}
 	}
@@ -328,13 +329,13 @@ func LogPrivateKeyMembers(ctx context.Context, cfg *Configuration, issuer, subje
 		}
 		if len(named) < maxLoggedPrivateKeys {
 			kid, _ := key["kid"].(string)
-			named = append(named, TruncateForResponse(kid))
+			named = append(named, truncate.TruncateForResponse(kid))
 		}
 	}
 	if affected == 0 {
 		return
 	}
-	cfg.LogError(ctx, "a received key set carries private key material", slog.String("issuer", TruncateForResponse(string(issuer))), slog.String("subject", TruncateForResponse(string(subject))), slog.Int("affected_keys", affected), slog.Any("first_key_ids", named), slog.Any("members", slices.Sorted(maps.Keys(members))))
+	cfg.LogError(ctx, "a received key set carries private key material", slog.String("issuer", truncate.TruncateForResponse(string(issuer))), slog.String("subject", truncate.TruncateForResponse(string(subject))), slog.Int("affected_keys", affected), slog.Any("first_key_ids", named), slog.Any("members", slices.Sorted(maps.Keys(members))))
 }
 
 func ValidateJWKShape(key map[string]any) error {

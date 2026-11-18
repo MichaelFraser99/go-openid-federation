@@ -14,6 +14,7 @@ import (
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jws"
 	"github.com/MichaelFraser99/go-jose/jwt"
+	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -167,7 +168,7 @@ func TestServer_Resolve_TheWholeRequestIsBoundedByOneDeadline(t *testing.T) {
 
 			if tc.complete {
 				if response.StatusCode != http.StatusOK {
-					t.Fatalf("[8.3.2] expected the resolve to complete, got %d with %s", response.StatusCode, model.TruncateForResponse(string(raw)))
+					t.Fatalf("[8.3.2] expected the resolve to complete, got %d with %s", response.StatusCode, truncate.TruncateForResponse(string(raw)))
 				}
 				if marks := resolveResponseTrustMarks(t, raw); len(marks) != 1 {
 					t.Errorf("[8.3.2] the fixture is wrong: expected the verified trust mark in the response, got %v", marks)
@@ -177,10 +178,10 @@ func TestServer_Resolve_TheWholeRequestIsBoundedByOneDeadline(t *testing.T) {
 
 			var body map[string]any
 			if err := json.Unmarshal(raw, &body); err != nil {
-				t.Fatalf("expected a JSON error response, got %d with %s", response.StatusCode, model.TruncateForResponse(string(raw)))
+				t.Fatalf("expected a JSON error response, got %d with %s", response.StatusCode, truncate.TruncateForResponse(string(raw)))
 			}
 			if response.StatusCode != http.StatusNotFound || body["error"] != model.InvalidTrustAnchor {
-				t.Errorf("[18.1] peers choose how long a walk takes, so reaching the resolver's own time limit answers like its other walk bounds, 404 invalid_trust_anchor, got %d with %s", response.StatusCode, model.TruncateForResponse(string(raw)))
+				t.Errorf("[18.1] peers choose how long a walk takes, so reaching the resolver's own time limit answers like its other walk bounds, 404 invalid_trust_anchor, got %d with %s", response.StatusCode, truncate.TruncateForResponse(string(raw)))
 			}
 			if body["error_description"] != "the resolver reached the maximum time it may spend on one request" {
 				t.Errorf("[18.1] expected the fixed description naming the time limit, got %v", body["error_description"])

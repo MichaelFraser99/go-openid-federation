@@ -25,6 +25,7 @@ import (
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
 	"github.com/MichaelFraser99/go-openid-federation/internal/peerclient"
 	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
+	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -76,7 +77,7 @@ func fetch(ctx context.Context, cfg model.Configuration, entityIdentifier model.
 
 	request, err := http.NewRequestWithContext(fetchCtx, http.MethodGet, fmt.Sprintf("%s.well-known/openid-federation", strings.TrimSuffix(string(entityIdentifier), "/")+"/"), nil)
 	if err != nil {
-		cfg.LogInfo(ctx, "the entity configuration url cannot be built", slog.String("subject", model.TruncateForResponse(string(entityIdentifier))), slog.String("error", model.TruncateForResponse(err.Error())))
+		cfg.LogInfo(ctx, "the entity configuration url cannot be built", slog.String("subject", truncate.TruncateForResponse(string(entityIdentifier))), slog.String("error", truncate.TruncateForResponse(err.Error())))
 		return nil, nil, errors.New("the entity configuration url cannot be built")
 	}
 	request.Header.Set("Accept", "application/entity-statement+jwt")
@@ -86,7 +87,7 @@ func fetch(ctx context.Context, cfg model.Configuration, entityIdentifier model.
 		if ended := fetchEnded(ctx, fetchCtx, entityIdentifier); ended != nil {
 			return nil, nil, ended
 		}
-		cfg.LogInfo(ctx, "failed to reach the entity configuration endpoint", slog.String("subject", model.TruncateForResponse(string(entityIdentifier))), slog.String("error", model.TruncateForResponse(err.Error())))
+		cfg.LogInfo(ctx, "failed to reach the entity configuration endpoint", slog.String("subject", truncate.TruncateForResponse(string(entityIdentifier))), slog.String("error", truncate.TruncateForResponse(err.Error())))
 		if classified := model.ReclassifyWithDescription(err, entityConfigurationUnreachable); classified != nil {
 			return nil, nil, classified
 		}
@@ -99,13 +100,13 @@ func fetch(ctx context.Context, cfg model.Configuration, entityIdentifier model.
 	}
 
 	if response.StatusCode != http.StatusOK {
-		cfg.LogInfo(ctx, "non-200 response from the entity configuration endpoint", slog.String("subject", model.TruncateForResponse(string(entityIdentifier))), slog.String("status", model.TruncateForResponse(response.Status)))
+		cfg.LogInfo(ctx, "non-200 response from the entity configuration endpoint", slog.String("subject", truncate.TruncateForResponse(string(entityIdentifier))), slog.String("status", truncate.TruncateForResponse(response.Status)))
 		return nil, nil, errors.New("non-200 response from the entity configuration endpoint")
 	}
 	cfg.LogInfo(ctx, "entity configuration retrieved", slog.String("subject", string(entityIdentifier)))
 
 	if !model.IsEntityStatementMediaType(response.Header.Get("Content-Type")) {
-		cfg.LogInfo(ctx, "invalid Content-Type from the entity configuration endpoint", slog.String("subject", model.TruncateForResponse(string(entityIdentifier))), slog.String("content_type", model.TruncateForResponse(response.Header.Get("Content-Type"))))
+		cfg.LogInfo(ctx, "invalid Content-Type from the entity configuration endpoint", slog.String("subject", truncate.TruncateForResponse(string(entityIdentifier))), slog.String("content_type", truncate.TruncateForResponse(response.Header.Get("Content-Type"))))
 		return nil, nil, errors.New("invalid Content-Type from the entity configuration endpoint")
 	}
 
@@ -115,7 +116,7 @@ func fetch(ctx context.Context, cfg model.Configuration, entityIdentifier model.
 		if ended := fetchEnded(ctx, fetchCtx, entityIdentifier); ended != nil {
 			return nil, nil, ended
 		}
-		cfg.LogInfo(ctx, "failed to read the entity configuration response body", slog.String("subject", model.TruncateForResponse(string(entityIdentifier))), slog.String("error", model.TruncateForResponse(err.Error())))
+		cfg.LogInfo(ctx, "failed to read the entity configuration response body", slog.String("subject", truncate.TruncateForResponse(string(entityIdentifier))), slog.String("error", truncate.TruncateForResponse(err.Error())))
 		return nil, nil, errors.New("failed to read the entity configuration response body")
 	}
 	if err := fetchEnded(ctx, fetchCtx, entityIdentifier); err != nil {
@@ -392,14 +393,14 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 	for _, trustMarkType := range slices.Sorted(maps.Keys(entityConfiguration.TrustMarkOwners)) {
 		for _, key := range entityConfiguration.TrustMarkOwners[trustMarkType].JWKs.Keys {
 			if err := verifyConfiguredKey(key, model.VerifyMinimumKeyStrength); err != nil {
-				return nil, fmt.Errorf("refusing to publish this entity configuration because a key in the trust_mark_owners entry for %q %s", model.TruncateForResponse(trustMarkType), err.Error())
+				return nil, fmt.Errorf("refusing to publish this entity configuration because a key in the trust_mark_owners entry for %q %s", truncate.TruncateForResponse(trustMarkType), err.Error())
 			}
 		}
 		usable := slices.ContainsFunc(entityConfiguration.TrustMarkOwners[trustMarkType].JWKs.Keys, func(key map[string]any) bool {
 			return model.ValidateJWKShape(key) == nil && entity_statement.VerifyKeyUse(key) == nil
 		})
 		if !usable {
-			return nil, fmt.Errorf("refusing to publish this entity configuration because the trust_mark_owners entry for %q holds no usable key, so no delegation for that type could be verified", model.TruncateForResponse(trustMarkType))
+			return nil, fmt.Errorf("refusing to publish this entity configuration because the trust_mark_owners entry for %q holds no usable key, so no delegation for that type could be verified", truncate.TruncateForResponse(trustMarkType))
 		}
 	}
 
@@ -421,7 +422,7 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 			return nil, fmt.Errorf("refusing to publish an entity configuration this implementation would reject: %s", err.Error())
 		}
 		classified := model.ClassifySignerError(err, signingFailureError)
-		logSignerFailure(ctx, cfg.Configuration, classified, "the signer could not sign the entity configuration", slog.String("error", model.TruncateForResponse(err.Error())))
+		logSignerFailure(ctx, cfg.Configuration, classified, "the signer could not sign the entity configuration", slog.String("error", truncate.TruncateForResponse(err.Error())))
 		return nil, classified
 	}
 
@@ -493,13 +494,13 @@ func publishedKeySet(ctx context.Context, cfg model.ServerConfiguration) (*publi
 			return nil, fmt.Errorf("all provided jwk values in entity cfg must have unique `kid` claims - %q appears more than once", sKid)
 		}
 		if err := model.ValidateJWKShape(key); err != nil {
-			return nil, fmt.Errorf("the provided jwk value with key ID %q %s", model.TruncateForResponse(sKid), err.Error())
+			return nil, fmt.Errorf("the provided jwk value with key ID %q %s", truncate.TruncateForResponse(sKid), err.Error())
 		}
 		if err := model.VerifyPublishableJWK(key); err != nil {
-			return nil, fmt.Errorf("refusing to publish the jwk value with key ID %q because it %s", model.TruncateForResponse(sKid), err.Error())
+			return nil, fmt.Errorf("refusing to publish the jwk value with key ID %q because it %s", truncate.TruncateForResponse(sKid), err.Error())
 		}
 		if err := verifyConfiguredKey(key, model.VerifyKeyStrength); err != nil {
-			return nil, fmt.Errorf("the provided jwk value with key ID %q %s", model.TruncateForResponse(sKid), err.Error())
+			return nil, fmt.Errorf("the provided jwk value with key ID %q %s", truncate.TruncateForResponse(sKid), err.Error())
 		}
 		index.add(sKid, key)
 	}
@@ -519,34 +520,34 @@ func publishedKeySet(ctx context.Context, cfg model.ServerConfiguration) (*publi
 		}
 		for _, signerConfiguration := range subordinateSignerConfigurations {
 			if signerConfiguration.Signer == nil {
-				cfg.LogError(ctx, "not publishing a subordinate signer key because its signer configuration holds no signer", slog.String("kid", model.TruncateForResponse(signerConfiguration.KeyID)))
+				cfg.LogError(ctx, "not publishing a subordinate signer key because its signer configuration holds no signer", slog.String("kid", truncate.TruncateForResponse(signerConfiguration.KeyID)))
 				continue
 			}
 			if signerConfiguration.KeyID == "" {
-				cfg.LogError(ctx, "not publishing a subordinate signer key because its key ID is empty, and every key in a published key set needs one", slog.String("alg", model.TruncateForResponse(signerConfiguration.Algorithm)))
+				cfg.LogError(ctx, "not publishing a subordinate signer key because its key ID is empty, and every key in a published key set needs one", slog.String("alg", truncate.TruncateForResponse(signerConfiguration.Algorithm)))
 				continue
 			}
 			apkJWK, err := jwk.PublicJwk(signerConfiguration.Signer.Public())
 			if err != nil {
-				cfg.LogError(ctx, "not publishing a subordinate signer key because its public key cannot be written as a jwk", slog.String("kid", model.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
+				cfg.LogError(ctx, "not publishing a subordinate signer key because its public key cannot be written as a jwk", slog.String("kid", truncate.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
 				continue
 			}
 			(*apkJWK)["kid"] = signerConfiguration.KeyID
 			(*apkJWK)["alg"] = signerConfiguration.Algorithm
 
 			if err := model.VerifyIssuanceAlgorithm(signerConfiguration.Algorithm); err != nil {
-				cfg.LogError(ctx, "not publishing a subordinate signer key because its algorithm cannot be signed with, so statements it signs could not be verified", slog.String("kid", model.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
+				cfg.LogError(ctx, "not publishing a subordinate signer key because its algorithm cannot be signed with, so statements it signs could not be verified", slog.String("kid", truncate.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
 				continue
 			}
 
 			if err := model.VerifyKeyStrength(*apkJWK, signerConfiguration.Algorithm); err != nil {
-				cfg.LogError(ctx, "not publishing a subordinate signer key because its modulus is outside the sizes this library verifies for the algorithm it signs with, so statements it signs cannot be verified", slog.String("kid", model.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
+				cfg.LogError(ctx, "not publishing a subordinate signer key because its modulus is outside the sizes this library verifies for the algorithm it signs with, so statements it signs cannot be verified", slog.String("kid", truncate.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
 				continue
 			}
 
 			if existing, published := index.get(signerConfiguration.KeyID); published {
 				if err := publishedKeyUsableForSigning(existing, *apkJWK, signerConfiguration.Signer.Public()); err != nil {
-					cfg.LogError(ctx, "not publishing a subordinate signer key because a key already published under its key ID does not match it, so statements it signs could not be verified", slog.String("kid", model.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
+					cfg.LogError(ctx, "not publishing a subordinate signer key because a key already published under its key ID does not match it, so statements it signs could not be verified", slog.String("kid", truncate.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
 				}
 				continue
 			}
@@ -569,10 +570,10 @@ func VerifySignerPublished(published josemodel.Jwks, signer model.SignerConfigur
 	(*signerJWK)["alg"] = signer.Algorithm
 	existing, _ := published.RetrieveByKeyID(signer.KeyID)
 	if len(existing) == 0 {
-		return fmt.Errorf("the signer's key ID %q is not in the published key set", model.TruncateForResponse(signer.KeyID))
+		return fmt.Errorf("the signer's key ID %q is not in the published key set", truncate.TruncateForResponse(signer.KeyID))
 	}
 	if err := publishedKeyUsableForSigning(existing[0], *signerJWK, signer.Signer.Public()); err != nil {
-		return fmt.Errorf("the key published under the signer's key ID %q %s", model.TruncateForResponse(signer.KeyID), err.Error())
+		return fmt.Errorf("the key published under the signer's key ID %q %s", truncate.TruncateForResponse(signer.KeyID), err.Error())
 	}
 	return nil
 }

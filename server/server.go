@@ -15,6 +15,7 @@ import (
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_configuration"
 	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
+	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -155,7 +156,7 @@ func (s *Server) methodNotAllowed(allowed string) func(http.ResponseWriter, *htt
 	return func(w http.ResponseWriter, r *http.Request) ResponseFunc {
 		return func() {
 			s.cfg.LogInfo(r.Context(), "rejecting a request made with an unsupported method",
-				slog.String("path", r.URL.Path), slog.String("method", model.TruncateForResponse(r.Method)), slog.String("allowed", allowed))
+				slog.String("path", r.URL.Path), slog.String("method", truncate.TruncateForResponse(r.Method)), slog.String("allowed", allowed))
 			_, body := s.parseError(model.NewInvalidRequestError(fmt.Sprintf("this endpoint accepts %s", allowed)))
 			w.Header().Set("Allow", allowed)
 			w.Header().Set("Content-Type", "application/json")
@@ -357,7 +358,7 @@ func (s *Server) parseError(err error) (statusCode int, message string) {
 	statusCode, errorCode := errorStatusAndCode(err)
 	body, marshalErr := json.Marshal(map[string]string{
 		"error":             errorCode,
-		"error_description": model.TruncateForResponse(err.Error()),
+		"error_description": truncate.TruncateForResponse(err.Error()),
 	})
 	if marshalErr != nil {
 		return http.StatusInternalServerError, fmt.Sprintf(`{"error":"%s"}`, model.ServerError)

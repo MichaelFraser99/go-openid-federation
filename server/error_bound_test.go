@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -33,8 +34,8 @@ func TestParseError_BoundsTheDescription(t *testing.T) {
 				t.Fatalf("failed to decode the error body: %v", err)
 			}
 
-			if len(decoded.Description) > model.MaxErrorDescriptionBytes+3 {
-				t.Fatalf("expected the description to be bounded by %d bytes, got %d", model.MaxErrorDescriptionBytes, len(decoded.Description))
+			if len(decoded.Description) > truncate.MaxErrorDescriptionBytes+3 {
+				t.Fatalf("expected the description to be bounded by %d bytes, got %d", truncate.MaxErrorDescriptionBytes, len(decoded.Description))
 			}
 			if tc.bound && !strings.HasSuffix(decoded.Description, "...") {
 				t.Errorf("expected a bounded description to be marked as truncated")

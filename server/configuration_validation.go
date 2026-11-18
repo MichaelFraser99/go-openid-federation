@@ -12,6 +12,7 @@ import (
 	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jws"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
+	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -60,20 +61,20 @@ func validateConfiguration(cfg model.ServerConfiguration) error {
 	for _, trustMarkType := range slices.Sorted(maps.Keys(cfg.EntityConfiguration.TrustMarkOwners)) {
 		owner := cfg.EntityConfiguration.TrustMarkOwners[trustMarkType]
 		if owner.Sub == "" {
-			fault("EntityConfiguration.TrustMarkOwners[%q].Sub is empty", model.TruncateForResponse(trustMarkType))
+			fault("EntityConfiguration.TrustMarkOwners[%q].Sub is empty", truncate.TruncateForResponse(trustMarkType))
 		} else if _, err := model.ValidateEntityIdentifier(string(owner.Sub)); err != nil {
-			fault("EntityConfiguration.TrustMarkOwners[%q].Sub is not an entity identifier: %s", model.TruncateForResponse(trustMarkType), err.Error())
+			fault("EntityConfiguration.TrustMarkOwners[%q].Sub is not an entity identifier: %s", truncate.TruncateForResponse(trustMarkType), err.Error())
 		}
 		if !slices.ContainsFunc(owner.JWKs.Keys, func(key map[string]any) bool {
 			return model.ValidateJWKShape(key) == nil && entity_statement.VerifyKeyUse(key) == nil
 		}) {
-			fault("EntityConfiguration.TrustMarkOwners[%q].JWKs holds no usable key", model.TruncateForResponse(trustMarkType))
+			fault("EntityConfiguration.TrustMarkOwners[%q].JWKs holds no usable key", truncate.TruncateForResponse(trustMarkType))
 		}
 	}
 	for _, trustMarkType := range slices.Sorted(maps.Keys(cfg.EntityConfiguration.TrustMarkIssuers)) {
 		for i, issuer := range cfg.EntityConfiguration.TrustMarkIssuers[trustMarkType] {
 			if _, err := model.ValidateEntityIdentifier(string(issuer)); err != nil {
-				fault("EntityConfiguration.TrustMarkIssuers[%q][%d] is not an entity identifier: %s", model.TruncateForResponse(trustMarkType), i, err.Error())
+				fault("EntityConfiguration.TrustMarkIssuers[%q][%d] is not an entity identifier: %s", truncate.TruncateForResponse(trustMarkType), i, err.Error())
 			}
 		}
 	}

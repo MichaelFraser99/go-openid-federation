@@ -578,12 +578,6 @@ func IsEntityStatementMediaType(contentType string) bool {
 	return err == nil && mediaType == EntityStatementMediaType
 }
 
-const MaxErrorDescriptionBytes = 256
-
-func TruncateForResponse(value string) string {
-	return TruncateAtCharacter(value, MaxErrorDescriptionBytes)
-}
-
 func VerifyChainExpiry(exp int64) error {
 	if ChainHasExpired(exp) {
 		return fmt.Errorf("%w%w", ErrExpired, NewInvalidTrustChainError("trust chain expired"))

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/MichaelFraser99/go-openid-federation/internal/subordinate_statement"
+	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -121,24 +122,24 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 
 		serialised, err := json.Marshal(subordinateEntity)
 		if err != nil {
-			s.cfg.LogError(ctx, "omitting a subordinate listing entry that cannot be serialised", slog.String("sub", model.TruncateForResponse(identifier)), slog.String("error", err.Error()))
+			s.cfg.LogError(ctx, "omitting a subordinate listing entry that cannot be serialised", slog.String("sub", truncate.TruncateForResponse(identifier)), slog.String("error", err.Error()))
 			continue
 		}
 		var entity map[string]any
 		if err := json.Unmarshal(serialised, &entity); err != nil {
-			s.cfg.LogError(ctx, "omitting a subordinate listing entry that cannot be read back once serialised", slog.String("sub", model.TruncateForResponse(identifier)), slog.String("error", err.Error()))
+			s.cfg.LogError(ctx, "omitting a subordinate listing entry that cannot be read back once serialised", slog.String("sub", truncate.TruncateForResponse(identifier)), slog.String("error", err.Error()))
 			continue
 		}
 
 		if model.NestsDeeperThanTheKeyScan(entity) {
-			s.cfg.LogError(ctx, "omitting a subordinate listing entry that nests deeper than the key scan reaches, so it cannot be checked for private key material", slog.String("sub", model.TruncateForResponse(identifier)))
+			s.cfg.LogError(ctx, "omitting a subordinate listing entry that nests deeper than the key scan reaches, so it cannot be checked for private key material", slog.String("sub", truncate.TruncateForResponse(identifier)))
 			continue
 		}
 
 		var dropped []string
 		model.StripUnpublishableKeys(entity, 0, &dropped)
 		if len(dropped) > 0 {
-			s.cfg.LogError(ctx, "dropping keys carrying private key material from an extended listing entry", slog.String("sub", model.TruncateForResponse(identifier)), slog.Any("key_ids", dropped))
+			s.cfg.LogError(ctx, "dropping keys carrying private key material from an extended listing entry", slog.String("sub", truncate.TruncateForResponse(identifier)), slog.Any("key_ids", dropped))
 		}
 		publishable = append(publishable, entity)
 	}

@@ -16,6 +16,20 @@ func scopeTokens(scope string) []string {
 	return strings.FieldsFunc(scope, func(r rune) bool { return r == ' ' })
 }
 
+func scopeTokenSlice(values []any) []any {
+	tokens := make([]any, 0, len(values))
+	for _, value := range values {
+		if s, ok := value.(string); ok {
+			for _, token := range scopeTokens(s) {
+				tokens = append(tokens, token)
+			}
+			continue
+		}
+		tokens = append(tokens, value)
+	}
+	return tokens
+}
+
 func scopeOperatorSlice(value any) []any {
 	if s, ok := value.(string); ok {
 		return ConvertStringsToAnySlice(scopeTokens(s))

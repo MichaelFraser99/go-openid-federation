@@ -29,7 +29,14 @@ func (s SupersetOf) OperatorValue() any {
 }
 
 func (s SupersetOf) ToSlice(key string) MetadataPolicyOperator {
-	return s
+	if key != "scope" {
+		return s
+	}
+	tokenised, err := NewSupersetOf(scopeTokenSlice(s.operatorValue))
+	if err != nil {
+		return s
+	}
+	return *tokenised
 }
 
 func (s SupersetOf) String() string {

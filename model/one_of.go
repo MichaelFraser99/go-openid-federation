@@ -29,7 +29,14 @@ func (o OneOf) OperatorValue() any {
 }
 
 func (o OneOf) ToSlice(key string) MetadataPolicyOperator {
-	return o
+	if key != "scope" {
+		return o
+	}
+	tokenised, err := NewOneOf(scopeTokenSlice(o.operatorValue))
+	if err != nil {
+		return o
+	}
+	return *tokenised
 }
 
 func (o OneOf) String() string {

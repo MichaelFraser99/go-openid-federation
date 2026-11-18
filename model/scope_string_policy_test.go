@@ -415,42 +415,55 @@ func TestApplyPolicy_AnInvalidScopeTokenDoesNotClearAnAllowList(t *testing.T) {
 	}
 }
 
-func TestProcessAndExtractPolicy_AnOperandNoSubjectCanMatchIsRefusedAsThePolicysFault(t *testing.T) {
+func TestApplyPolicy_ReadsEveryScopeOperandElementAsScopeTokens(t *testing.T) {
 	tests := []struct {
-		name      string
-		reference string
-		policy    string
-		leaks     []string
+		name    string
+		policy  string
+		subject string
+		expect  string
+		fault   string
+		leaks   []string
 	}{
-		{name: "a superset_of holding only an empty value", reference: "RFC 6749 3.3", policy: `{"superset_of":[""]}`},
-		{name: "a superset_of holding an empty value beside a real one", reference: "RFC 6749 3.3", policy: `{"superset_of":["","openid"]}`},
-		{name: "a superset_of holding only whitespace", reference: "RFC 6749 3.3", policy: `{"superset_of":["   "]}`},
-		{name: "a superset_of holding a tab", reference: "RFC 6749 3.3", policy: `{"superset_of":["\t"]}`},
-		{name: "a superset_of value with a trailing space", reference: "RFC 6749 3.3", policy: `{"superset_of":["openid "]}`, leaks: []string{"openid "}},
-		{name: "a superset_of value with a leading space", reference: "RFC 6749 3.3", policy: `{"superset_of":[" openid"]}`, leaks: []string{" openid"}},
-		{name: "a superset_of value holding two tokens", reference: "RFC 6749 3.3", policy: `{"superset_of":["openid profile"]}`, leaks: []string{"openid profile"}},
-		{name: "a superset_of value holding a no-break space", reference: "RFC 6749 3.3", policy: `{"superset_of":["openid\u00a0profile"]}`},
-		{name: "a one_of holding an empty value", reference: "RFC 6749 3.3", policy: `{"one_of":[""]}`},
-		{name: "a one_of value holding two tokens", reference: "RFC 6749 3.3", policy: `{"one_of":["openid profile"]}`, leaks: []string{"openid profile"}},
+		{name: "a subset_of element holding two tokens", policy: `{"subset_of":["openid profile"]}`, subject: "openid profile", expect: "openid profile"},
+		{name: "a subset_of element holding three tokens against one", policy: `{"subset_of":["openid profile email"]}`, subject: "openid", expect: "openid"},
+		{name: "a superset_of element holding two tokens, both held", policy: `{"superset_of":["openid profile"]}`, subject: "openid profile", expect: "openid profile"},
+		{name: "a superset_of element holding two tokens, one held", policy: `{"superset_of":["openid profile"]}`, subject: "openid", fault: "not a superset", leaks: []string{"openid profile"}},
+		{name: "a superset_of value with a trailing space", policy: `{"superset_of":["openid "]}`, subject: "openid profile", expect: "openid profile"},
+		{name: "a superset_of value with a leading space", policy: `{"superset_of":[" openid"]}`, subject: "openid profile", expect: "openid profile"},
+		{name: "a superset_of holding only an empty value", policy: `{"superset_of":[""]}`, subject: "openid profile", expect: "openid profile"},
+		{name: "a superset_of holding an empty value beside a real one", policy: `{"superset_of":["","openid"]}`, subject: "openid profile", expect: "openid profile"},
+		{name: "a superset_of holding only spaces", policy: `{"superset_of":["   "]}`, subject: "openid profile", expect: "openid profile"},
+		{name: "a superset_of holding a tab, which is not a delimiter", policy: `{"superset_of":["\t"]}`, subject: "openid profile", fault: "not a superset"},
+		{name: "a superset_of value holding a no-break space, which is not a delimiter", policy: `{"superset_of":["openid\u00a0profile"]}`, subject: "openid profile", fault: "not a superset"},
+		{name: "an add element holding two tokens", policy: `{"add":["email phone"]}`, subject: "openid", expect: "openid email phone"},
+		{name: "a one_of element holding two tokens on a present scope", policy: `{"one_of":["openid profile"]}`, subject: "openid", fault: "one_of cannot be applied to scope", leaks: []string{"openid profile"}},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			for _, subject := range []string{"openid", "openid profile", "openid  profile "} {
-				leaf := scopeSubject(t, subject)
+			leaf := scopeSubject(t, tc.subject)
 
-				_, err := ProcessAndExtractPolicy([]EntityStatement{leaf, scopePolicyStatement(t, tc.policy)})
-				if err == nil {
-					t.Fatalf("[%s] a scope value is one token of at least one character and no whitespace, so an operand the subject must match but never can is a fault in the policy rather than one left to deny every subject's chain: subject %q", tc.reference, subject)
-				}
-				if !strings.Contains(err.Error(), "no subject can ever match it") {
-					t.Errorf("[%s] the refusal must name the operator at fault rather than the subject's metadata, got %v", tc.reference, err)
+			merged, err := ProcessAndExtractPolicy([]EntityStatement{leaf, scopePolicyStatement(t, tc.policy)})
+			if err != nil {
+				t.Fatalf("[6.1.3.1.8] expected a scope operand to be read as scope tokens rather than refused, got %v", err)
+			}
+			applied, err := ApplyPolicy(leaf, *merged)
+			if tc.fault != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.fault) {
+					t.Fatalf("[6.1.3] expected a policy error naming %q, got %v", tc.fault, err)
 				}
 				for _, operand := range tc.leaks {
 					if strings.Contains(err.Error(), operand) {
-						t.Errorf("[%s] a superior writes this operand and the description reaches a resolve response, so no part of it may appear: %v", tc.reference, err)
+						t.Errorf("a superior writes this operand, so no part of it may appear in the error: %v", err)
 					}
 				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("expected the policy to apply, got %v", err)
+			}
+			if got, _ := (*applied.Metadata.OAuthClientMetadata)["scope"].(string); got != tc.expect {
+				t.Errorf("[RFC 6749 3.3] expected scope %q, got %q", tc.expect, got)
 			}
 		})
 	}

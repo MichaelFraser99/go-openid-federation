@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode"
 )
 
 func ReMarshalJsonAsEntityMetadata[T any](data any) (*T, error) {
@@ -72,11 +71,7 @@ func sortByPriority(policies []MetadataPolicyOperator) []MetadataPolicyOperator 
 	return policies
 }
 
-func operandMustBeMatchedBySubject(operator string) bool {
-	return operator == "superset_of" || operator == "one_of"
-}
-
-func verifyScopeOperand(operator string, value any) error {
+func verifyScopeOperand(value any) error {
 	if value == nil {
 		return nil
 	}
@@ -88,15 +83,8 @@ func verifyScopeOperand(operator string, value any) error {
 	}
 	slice := reflect.ValueOf(value)
 	for i := range slice.Len() {
-		token, ok := slice.Index(i).Interface().(string)
-		if !ok {
+		if _, ok := slice.Index(i).Interface().(string); !ok {
 			return fmt.Errorf("all scope values must be strings")
-		}
-		if !operandMustBeMatchedBySubject(operator) {
-			continue
-		}
-		if len(scopeTokens(token)) != 1 || strings.ContainsFunc(token, unicode.IsSpace) {
-			return fmt.Errorf("a %s scope value must be a single token holding at least one character and no whitespace, or no subject can ever match it", operator)
 		}
 	}
 	return nil
@@ -113,7 +101,7 @@ func sortAndValidatePolicy(policy *MetadataPolicy) error {
 					if operator.String() == "essential" {
 						continue
 					}
-					if err := verifyScopeOperand(operator.String(), operator.OperatorValue()); err != nil {
+					if err := verifyScopeOperand(operator.OperatorValue()); err != nil {
 						return err
 					}
 				}

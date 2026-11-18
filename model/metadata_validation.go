@@ -16,6 +16,21 @@ func VerifyRequiredClaims(m map[string]any, keys ...string) error {
 	return nil
 }
 
+func VerifyScopeClaim(m map[string]any) error {
+	value, present := m["scope"]
+	if !present {
+		return nil
+	}
+	scope, isString := value.(string)
+	if !isString {
+		return fmt.Errorf("the 'scope' claim must be a string of space-separated scope values")
+	}
+	if len(scopeTokens(scope)) == 0 {
+		return fmt.Errorf("the 'scope' claim must hold at least one scope value")
+	}
+	return nil
+}
+
 func MetadataStringSlice(v any) ([]string, bool) {
 	switch t := v.(type) {
 	case []string:

@@ -321,7 +321,7 @@ func TestServer_Resolve(t *testing.T) {
 		},
 		"invalid trust_anchor parameter returns an error": {
 			requestSub:  validEntityIdentifier,
-			trustAnchor: josemodel.Pointer("invalid-url"), // Invalid URL format
+			trustAnchor: josemodel.Pointer("invalid-url"),
 			validate: func(t *testing.T, response *http.Response, err error) {
 				validateErrorResponse(t, response, err, http.StatusBadRequest, "invalid_request", "malformed 'trust_anchor' parameter")
 			},

@@ -62,7 +62,7 @@ func (d Default) Resolve(metadataParameterValue any) (any, error) {
 		return metadataParameterValue, nil // special case to catch any slice but specifically empty slices which count as a value and should not be processed as nil
 	}
 	if metadataParameterValue == nil {
-		return d.operatorValue, nil
+		return cloneValue(d.operatorValue), nil
 	}
 	return metadataParameterValue, nil
 }

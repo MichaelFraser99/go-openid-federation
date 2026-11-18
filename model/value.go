@@ -53,7 +53,7 @@ func (v Value) String() string {
 }
 
 func (v Value) Resolve(any) (any, error) {
-	return v.operatorValue, nil
+	return cloneValue(v.operatorValue), nil
 }
 
 func (v Value) ResolutionHierarchy() int {

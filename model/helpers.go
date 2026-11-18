@@ -340,9 +340,9 @@ func mergeTokenisedPolicyOperators(policySetA, policySetB PolicyOperators, opera
 	if len(policySetA.Metadata) == 0 && len(policySetB.Metadata) == 0 {
 		return nil, nil
 	} else if len(policySetA.Metadata) == 0 {
-		return slices.Clone(policySetB.Metadata), nil
+		return policySetB.deepClone().Metadata, nil
 	} else if len(policySetB.Metadata) == 0 {
-		return slices.Clone(policySetA.Metadata), nil
+		return policySetA.deepClone().Metadata, nil
 	} else {
 		structuredA := structureAsMap(policySetA.Metadata)
 		structuredB := structureAsMap(policySetB.Metadata)
@@ -422,10 +422,10 @@ func metadataPolicySetContains(policySet []MetadataPolicyOperator, policyType re
 }
 
 func ApplyPolicy(subject EntityStatement, policy MetadataPolicy) (*EntityStatement, error) {
-	if subject.Metadata == nil { //if no metadata
+	subject = subject.clone()
+	if subject.Metadata == nil {
 		return &subject, nil
 	}
-	subject.Metadata = subject.Metadata.clone()
 
 	policies := policy.byEntityType()
 	for entityType, metadata := range subject.Metadata.byEntityType() {
@@ -438,6 +438,42 @@ func ApplyPolicy(subject EntityStatement, policy MetadataPolicy) (*EntityStateme
 		}
 	}
 	return &subject, nil
+}
+
+func (e EntityStatement) clone() EntityStatement {
+	copied := e
+	copied.JWKs.Keys = cloneValue(e.JWKs.Keys).([]map[string]any)
+	copied.AuthorityHints = slices.Clone(e.AuthorityHints)
+	copied.TrustAnchorHints = slices.Clone(e.TrustAnchorHints)
+	copied.TrustMarks = slices.Clone(e.TrustMarks)
+	if e.Metadata != nil {
+		copied.Metadata = e.Metadata.clone()
+	}
+	if e.MetadataPolicy != nil {
+		copied.MetadataPolicy = e.MetadataPolicy.deepClone()
+	}
+	if e.Constraints != nil {
+		copied.Constraints = e.Constraints.clone()
+	}
+	if e.TrustMarkIssuers != nil {
+		copied.TrustMarkIssuers = make(map[string][]EntityIdentifier, len(e.TrustMarkIssuers))
+		for trustMarkType, issuers := range e.TrustMarkIssuers {
+			copied.TrustMarkIssuers[trustMarkType] = slices.Clone(issuers)
+		}
+	}
+	if e.TrustMarkOwners != nil {
+		copied.TrustMarkOwners = make(map[string]TrustMarkOwner, len(e.TrustMarkOwners))
+		for trustMarkType, owner := range e.TrustMarkOwners {
+			owner.JWKs.Keys = cloneValue(owner.JWKs.Keys).([]map[string]any)
+			owner.AdditionalClaims = cloneValue(owner.AdditionalClaims).(map[string]any)
+			copied.TrustMarkOwners[trustMarkType] = owner
+		}
+	}
+	if e.SourceEndpoint != nil {
+		endpoint := *e.SourceEndpoint
+		copied.SourceEndpoint = &endpoint
+	}
+	return copied
 }
 
 func applyPolicyToMetadata(metadata map[string]any, policy map[string]PolicyOperators) error {
@@ -613,10 +649,10 @@ func ApplySuperiorMetadata(subject, superior *Metadata) *Metadata {
 	for entityType, parameters := range subject.byEntityType() {
 		merged := make(map[string]any, len(parameters))
 		for parameter, value := range parameters {
-			merged[parameter] = value
+			merged[parameter] = cloneValue(value)
 		}
 		for parameter, value := range supplied[entityType] {
-			merged[parameter] = value
+			merged[parameter] = cloneValue(value)
 		}
 		result.setEntityType(entityType, merged)
 	}

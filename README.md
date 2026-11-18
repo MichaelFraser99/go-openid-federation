@@ -30,6 +30,8 @@ What changed in each release, and what you may have to do about it, is in [UPGRA
 | `server_test` | `TestServer` helper that stands up a four-entity federation over `httptest` |
 | `model_test` | Test helpers for the model package |
 
+> **Breaking change.** The exported API holds only what a consumer configures, implements or calls. Helpers that the library's own packages share, such as `model.StripUnpublishableKeys` and `Server.RespondWithError`, were exported without being documented. They are now private or under `internal/`, and [UPGRADING.md](UPGRADING.md) lists them.
+
 ## Quick start
 
 ### A leaf entity

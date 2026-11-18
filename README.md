@@ -63,6 +63,7 @@ Each change you may have to act on is marked **Breaking change** in the section 
 - [Metadata policy](#metadata-policy): `SubordinateConfiguration` has new `Metadata` and `Constraints` fields, so a literal that sets its fields by position no longer compiles.
 - [ServerConfiguration](#serverconfiguration): `server.NewServer` returns an error, and refuses a configuration that would fail every request.
 - [Metadata policy](#metadata-policy): a `value` operator replaces a parameter of another JSON type, so a resolved parameter can have a type the subject did not publish. Check the types in a custom entity type's `VerifyResolvedMetadata`, and in any `Extensions` type before you use it.
+- [Metadata policy](#metadata-policy): `value` and `default` assign their operand as written, repeats included, and refuse to merge with an operand that differs only by a repeat. `add` keeps a repeat the subject published.
 
 ### From v0.11.0-rc.2
 
@@ -861,6 +862,12 @@ The `value` operator assigns its operand whatever the type of the parameter it r
 
 > **Breaking change.** A `value` whose operand had a different JSON type from the parameter was refused, and the whole resolution failed with it. That resolution now succeeds, and the parameter has the operand's type.
 
+`value` and `default` keep their operand as written, repeated values included, because sections 6.1.3.1.1 and 6.1.3.1.3 assign the operator's value. `add` keeps every value the subject published, repeats included, and adds only the values that are not already present (section 6.1.3.1.2). `one_of`, `subset_of` and `superset_of` only test membership, so a repeat in their operand changes nothing.
+
+Two levels of a chain merge a `value`, or a `default`, only when their operands are equal as written. `["a","a"]` and `["a"]` are different arrays, so merging them is a policy error. Two `add` operators merge into the union of their values, which holds each value once.
+
+> **Breaking change.** A `value` or `default` operand that repeats a value was deduplicated, so `["a","a"]` assigned `["a"]`. It now assigns `["a","a"]`, and two levels whose operands differ only by a repeated value no longer merge.
+
 ### How operand values are compared
 
 Operand equality is defined on the JSON value, and it is defined for the shapes a JSON decode produces: `nil`, `bool`, `string`, `float64`, `[]any` and `map[string]any`, plus the Go integer types. Such a value is compared by its canonical JSON encoding, which `encoding/json` writes with object member names sorted at every level.
@@ -1208,7 +1215,6 @@ Entity statements and configurations, subordinate statements, trust chain constr
 | One broken entity type in a resolution | Refuses the whole resolution, including for a caller that asked for a different entity type | [#158](https://github.com/MichaelFraser99/go-openid-federation/issues/158) |
 | An entity type registered under a built-in identifier | Decided: the registration adds to the built-in check, so it can tighten a built-in type but not loosen it | [#74](https://github.com/MichaelFraser99/go-openid-federation/issues/74) |
 | Custom policy operators | Decided: not supported. They cannot be registered, parsed from JSON or merged | [#96](https://github.com/MichaelFraser99/go-openid-federation/issues/96) |
-| Deduplication of operands | Rewrites values `value`, `default` and `add` must preserve: `value` and `default` deduplicate their own operand, and `add` deduplicates the metadata it adds to | [#154](https://github.com/MichaelFraser99/go-openid-federation/issues/154) |
 | `scope` operators | `one_of` on `scope` can never be satisfied, a scope array operand is tokenised by some operators and not others, and a resolved `scope` of `""` passes verification | [#197](https://github.com/MichaelFraser99/go-openid-federation/issues/197), [#198](https://github.com/MichaelFraser99/go-openid-federation/issues/198), [#200](https://github.com/MichaelFraser99/go-openid-federation/issues/200) |
 | A resolve response and the delegations behind it | A resolve response can outlive the delegation that authorises one of its trust marks | [#204](https://github.com/MichaelFraser99/go-openid-federation/issues/204) |
 | `aud` and `trust_anchor` in an entity statement | Decided: ignored, as section 13.4 of OpenID Federation 1.1 requires for a claim it does not define. Section 3.2 of OpenID Federation for OpenID Connect 1.1 asks a validator to refuse them outside explicit registration, which this library does not implement | [#172](https://github.com/MichaelFraser99/go-openid-federation/issues/172) |

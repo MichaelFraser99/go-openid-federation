@@ -114,3 +114,18 @@ func TestMergePolicyOperators_ComparesValueAndDefaultOperandsAsWritten(t *testin
 		})
 	}
 }
+
+func TestAdd_MergeIsAUnionWhateverTheArgumentRepeats(t *testing.T) {
+	operator, err := NewAdd([]any{"b"})
+	if err != nil {
+		t.Fatalf("failed to build the operator: %v", err)
+	}
+	merged, err := operator.Merge([]any{"a", "a"})
+	if err != nil {
+		t.Fatalf("expected the operators to merge, got %v", err)
+	}
+	values, _ := merged.OperatorValue().([]any)
+	if len(values) != 2 || !slices.Contains(values, "a") || !slices.Contains(values, "b") {
+		t.Errorf("[6.1.3.1.2] expected the union of the values to be a and b once each, got %#v", values)
+	}
+}

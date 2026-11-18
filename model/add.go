@@ -16,7 +16,7 @@ func NewAdd(operatorValue any) (*Add, error) {
 	}
 
 	return &Add{
-		operatorValue: DeduplicateSlice(anySlice),
+		operatorValue: anySlice,
 	}, nil
 }
 
@@ -40,7 +40,7 @@ func (a Add) String() string {
 }
 
 func (a Add) Resolve(metadataParameterValue any) (any, error) {
-	combined, err := a.combineArray(metadataParameterValue)
+	combined, err := a.combineArray(metadataParameterValue, true)
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +60,7 @@ func (a Add) ResolutionHierarchy() int {
 }
 
 func (a Add) Merge(valueToMerge any) (MetadataPolicyOperator, error) {
-	val, err := a.combineArray(valueToMerge)
+	val, err := a.combineArray(valueToMerge, false)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +95,7 @@ func (a Add) CheckForConflict(containsFunc func(policyType reflect.Type) (Metada
 	return nil
 }
 
-func (a Add) combineArray(metadataParameterValue any) (any, error) {
+func (a Add) combineArray(metadataParameterValue any, keepFirst bool) (any, error) {
 	if metadataParameterValue == nil {
 		return a.operatorValue, nil
 	}
@@ -117,7 +117,7 @@ func (a Add) combineArray(metadataParameterValue any) (any, error) {
 	for i := 0; i < sliceA.Len(); i++ {
 		elem := sliceA.Index(i).Interface()
 		if isValidElement(elem) {
-			if seen.add(elem) {
+			if seen.add(elem) || keepFirst {
 				result = reflect.Append(result, reflect.ValueOf(elem))
 			}
 		} else {

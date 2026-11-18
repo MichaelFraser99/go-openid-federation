@@ -70,22 +70,22 @@ func TestDeduplicateSlice(t *testing.T) {
 	}
 }
 
-func TestNewAdd_Deduplication(t *testing.T) {
+func TestNewAdd_KeepsItsOperandAsWritten(t *testing.T) {
 	tests := map[string]struct {
 		input    any
 		expected []any
 	}{
 		"string duplicates": {
 			input:    []string{"a", "b", "a", "c"},
-			expected: []any{"a", "b", "c"},
+			expected: []any{"a", "b", "a", "c"},
 		},
 		"int duplicates": {
 			input:    []int{1, 2, 1, 3},
-			expected: []any{1, 2, 3},
+			expected: []any{1, 2, 1, 3},
 		},
 		"mixed int types": {
 			input:    []any{1, 2, 1, 3, 2},
-			expected: []any{1, 2, 3},
+			expected: []any{1, 2, 1, 3, 2},
 		},
 		"no duplicates": {
 			input:    []string{"a", "b", "c"},
@@ -205,18 +205,18 @@ func TestNewSupersetOf_Deduplication(t *testing.T) {
 	}
 }
 
-func TestNewValue_Deduplication(t *testing.T) {
+func TestNewValue_KeepsItsOperandAsWritten(t *testing.T) {
 	tests := map[string]struct {
 		input    any
 		expected any
 	}{
 		"string slice with duplicates": {
 			input:    []string{"a", "b", "a", "c"},
-			expected: []any{"a", "b", "c"},
+			expected: []any{"a", "b", "a", "c"},
 		},
 		"int slice with duplicates": {
 			input:    []int{1, 2, 1, 3},
-			expected: []any{1, 2, 3},
+			expected: []any{1, 2, 1, 3},
 		},
 		"non-slice value": {
 			input:    "single_value",
@@ -245,18 +245,18 @@ func TestNewValue_Deduplication(t *testing.T) {
 	}
 }
 
-func TestNewDefault_Deduplication(t *testing.T) {
+func TestNewDefault_KeepsItsOperandAsWritten(t *testing.T) {
 	tests := map[string]struct {
 		input    any
 		expected any
 	}{
 		"string slice with duplicates": {
 			input:    []string{"default1", "default2", "default1"},
-			expected: []any{"default1", "default2"},
+			expected: []any{"default1", "default2", "default1"},
 		},
 		"int slice with duplicates": {
 			input:    []int{100, 200, 100, 300},
-			expected: []any{100, 200, 300},
+			expected: []any{100, 200, 100, 300},
 		},
 		"non-slice value": {
 			input:    "default_value",
@@ -353,7 +353,7 @@ func TestDeduplication_AllDataTypes(t *testing.T) {
 				return op.operatorValue, nil
 			},
 			input:       []int8{1, 2, 1, 3, 2},
-			expectedLen: 3,
+			expectedLen: 5,
 		},
 		"Add with int16": {
 			operator: "add",
@@ -365,7 +365,7 @@ func TestDeduplication_AllDataTypes(t *testing.T) {
 				return op.operatorValue, nil
 			},
 			input:       []int16{100, 200, 100, 300},
-			expectedLen: 3,
+			expectedLen: 4,
 		},
 		"Add with int32": {
 			operator: "add",
@@ -377,7 +377,7 @@ func TestDeduplication_AllDataTypes(t *testing.T) {
 				return op.operatorValue, nil
 			},
 			input:       []int32{1000, 2000, 1000, 3000},
-			expectedLen: 3,
+			expectedLen: 4,
 		},
 		"Add with int64": {
 			operator: "add",
@@ -389,7 +389,7 @@ func TestDeduplication_AllDataTypes(t *testing.T) {
 				return op.operatorValue, nil
 			},
 			input:       []int64{10000, 20000, 10000, 30000},
-			expectedLen: 3,
+			expectedLen: 4,
 		},
 		"Add with uint": {
 			operator: "add",
@@ -401,7 +401,7 @@ func TestDeduplication_AllDataTypes(t *testing.T) {
 				return op.operatorValue, nil
 			},
 			input:       []uint{1, 2, 1, 3},
-			expectedLen: 3,
+			expectedLen: 4,
 		},
 		"Add with float32": {
 			operator: "add",
@@ -413,7 +413,7 @@ func TestDeduplication_AllDataTypes(t *testing.T) {
 				return op.operatorValue, nil
 			},
 			input:       []float32{1.1, 2.2, 1.1, 3.3},
-			expectedLen: 3,
+			expectedLen: 4,
 		},
 		"OneOf with strings": {
 			operator: "one_of",

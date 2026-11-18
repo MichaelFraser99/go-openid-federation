@@ -18,7 +18,6 @@ func NewDefault(operatorValue any) (*Default, error) {
 			anySlice[i] = sliceValue.Index(i).Interface()
 		}
 
-		anySlice = DeduplicateSlice(anySlice)
 		operatorValue = anySlice
 	}
 

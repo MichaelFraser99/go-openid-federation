@@ -2,6 +2,7 @@ package model
 
 import (
 	"bytes"
+	"encoding"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -38,6 +39,7 @@ func scopeOperatorSlice(value any) []any {
 }
 
 func operandSliceFrom(operatorValue any) ([]any, error) {
+	operatorValue = asJSONOperand(operatorValue)
 	if operatorValue == nil {
 		return nil, fmt.Errorf("operator value cannot be nil")
 	}
@@ -154,6 +156,8 @@ func (w *operandWalk) clone(value any) any {
 			copied.Index(i).Set(w.cloneInto(original.Type().Elem(), original.Index(i)))
 		}
 		return copied.Interface()
+	case reflect.Pointer, reflect.Struct, reflect.Array:
+		return w.shape(original)
 	default:
 		return value
 	}
@@ -167,7 +171,200 @@ func (w *operandWalk) cloneInto(elementType reflect.Type, element reflect.Value)
 	if copied == nil {
 		return reflect.Zero(elementType)
 	}
-	return reflect.ValueOf(copied)
+	held := reflect.ValueOf(copied)
+	if held.Type().AssignableTo(elementType) {
+		return held
+	}
+	return w.decodeAs(elementType, element)
+}
+
+func (w *operandWalk) decodeAs(elementType reflect.Type, element reflect.Value) reflect.Value {
+	raw, ok := w.encode(element)
+	if !ok {
+		return element
+	}
+	decoded := reflect.New(elementType)
+	if err := json.Unmarshal(raw, decoded.Interface()); err != nil {
+		return element
+	}
+	return decoded.Elem()
+}
+
+var (
+	jsonMarshalerType = reflect.TypeFor[json.Marshaler]()
+	textMarshalerType = reflect.TypeFor[encoding.TextMarshaler]()
+)
+
+func encodesItself(valueType reflect.Type) bool {
+	for _, candidate := range []reflect.Type{valueType, reflect.PointerTo(valueType)} {
+		if candidate.Implements(jsonMarshalerType) || candidate.Implements(textMarshalerType) {
+			return true
+		}
+	}
+	return false
+}
+
+func jsonShape(value any) any {
+	return newOperandWalk().jsonShape(value)
+}
+
+func asJSONOperand(value any) any {
+	if newOperandWalk().isJSONShape(value) {
+		return value
+	}
+	return jsonShape(value)
+}
+
+func (w *operandWalk) isJSONShape(value any) bool {
+	if !w.step() {
+		return false
+	}
+	switch typed := value.(type) {
+	case nil, bool, string, json.Number, float64, float32, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		return true
+	case map[string]any:
+		for _, member := range typed {
+			if !w.isJSONShape(member) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		for _, member := range typed {
+			if !w.isJSONShape(member) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+func (w *operandWalk) jsonShape(value any) any {
+	switch typed := value.(type) {
+	case nil, bool, string, json.Number, float64, float32, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		return value
+	case map[string]any:
+		if typed == nil || !w.step() {
+			return value
+		}
+		shaped := make(map[string]any, len(typed))
+		for key, member := range typed {
+			shaped[key] = w.jsonShape(member)
+		}
+		return shaped
+	case []any:
+		if typed == nil || !w.step() {
+			return value
+		}
+		shaped := make([]any, len(typed))
+		for i, member := range typed {
+			shaped[i] = w.jsonShape(member)
+		}
+		return shaped
+	}
+	return w.shape(reflect.ValueOf(value))
+}
+
+func (w *operandWalk) shape(value reflect.Value) any {
+	if !w.step() {
+		return value.Interface()
+	}
+	if encodesItself(value.Type()) {
+		return w.viaJSON(value)
+	}
+	switch value.Kind() {
+	case reflect.Interface, reflect.Pointer:
+		if value.IsNil() {
+			return nil
+		}
+		return w.jsonShape(value.Elem().Interface())
+	case reflect.String:
+		return value.String()
+	case reflect.Bool:
+		return value.Bool()
+	case reflect.Map:
+		if value.Type().Key().Kind() != reflect.String {
+			return w.clone(value.Interface())
+		}
+		if value.IsNil() {
+			return nil
+		}
+		shaped := make(map[string]any, value.Len())
+		for entries := value.MapRange(); entries.Next(); {
+			shaped[entries.Key().String()] = w.jsonShape(entries.Value().Interface())
+		}
+		return shaped
+	case reflect.Slice:
+		if value.IsNil() {
+			return nil
+		}
+		fallthrough
+	case reflect.Array:
+		shaped := make([]any, value.Len())
+		for i := range value.Len() {
+			shaped[i] = w.jsonShape(value.Index(i).Interface())
+		}
+		return shaped
+	case reflect.Struct, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Float32, reflect.Float64:
+		return w.viaJSON(value)
+	}
+	return value.Interface()
+}
+
+func (w *operandWalk) viaJSON(value reflect.Value) any {
+	raw, ok := w.encode(value)
+	if !ok {
+		return value.Interface()
+	}
+	var decoded any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return value.Interface()
+	}
+	return decoded
+}
+
+func (w *operandWalk) encode(value reflect.Value) ([]byte, bool) {
+	if !w.fits(value) {
+		return nil, false
+	}
+	raw, err := json.Marshal(value.Interface())
+	if err != nil {
+		return nil, false
+	}
+	return raw, true
+}
+
+func (w *operandWalk) fits(value reflect.Value) bool {
+	if !w.step() {
+		return false
+	}
+	switch value.Kind() {
+	case reflect.Interface, reflect.Pointer:
+		if !value.IsNil() {
+			return w.fits(value.Elem())
+		}
+	case reflect.Slice, reflect.Array:
+		for i := range value.Len() {
+			if !w.fits(value.Index(i)) {
+				return false
+			}
+		}
+	case reflect.Map:
+		for entries := value.MapRange(); entries.Next(); {
+			if !w.fits(entries.Key()) || !w.fits(entries.Value()) {
+				return false
+			}
+		}
+	case reflect.Struct:
+		for i := range value.NumField() {
+			if !w.fits(value.Field(i)) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func normaliseOperand(value any) (any, bool) {

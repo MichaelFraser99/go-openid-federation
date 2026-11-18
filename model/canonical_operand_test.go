@@ -238,9 +238,10 @@ func TestOneOfResolve_UsesCanonicalOperandEquality(t *testing.T) {
 			resolves: true,
 		},
 		{
-			name:     "an object operand under a Go map type a JSON decode never produces",
+			name:     "an object operand under a Go map type, which the operator holds as its JSON",
 			operands: []any{map[string]string{"a": "b"}},
 			metadata: map[string]any{"a": "b"},
+			resolves: true,
 		},
 		{
 			name:     "a number operand carrying the same JSON under a different Go type",

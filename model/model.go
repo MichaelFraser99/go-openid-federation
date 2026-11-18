@@ -363,7 +363,7 @@ func (cfg *ServerConfiguration) GetSubordinate(ctx context.Context, identifier E
 		return nil, NewNotFoundError(fmt.Sprintf("subordinate entity %s not found", identifier))
 	}
 
-	stored := entity.clone()
+	stored := entity.asJSON()
 	stored.CachedAt = time.Now().UTC().Unix()
 	if i.SubordinateCacheTime < time.Second {
 		return stored, nil
@@ -466,7 +466,7 @@ func (i *IntermediateConfiguration) AddSubordinate(identifier EntityIdentifier, 
 	if subordinateConfiguration == nil {
 		return
 	}
-	stored := subordinateConfiguration.clone()
+	stored := subordinateConfiguration.asJSON()
 	stored.JWKs.Opts.EnforceUniqueKIDs = true
 	stored.CachedAt = time.Now().UTC().Unix()
 
@@ -479,11 +479,19 @@ func (i *IntermediateConfiguration) AddSubordinate(identifier EntityIdentifier, 
 }
 
 func (s *SubordinateConfiguration) clone() *SubordinateConfiguration {
+	return s.copyWith((*Metadata).deepClone)
+}
+
+func (s *SubordinateConfiguration) asJSON() *SubordinateConfiguration {
+	return s.copyWith((*Metadata).asJSON)
+}
+
+func (s *SubordinateConfiguration) copyWith(copyMetadata func(*Metadata) *Metadata) *SubordinateConfiguration {
 	copied := *s
 	copied.Policies = *s.Policies.deepClone()
 	copied.JWKs.Keys = cloneValue(s.JWKs.Keys).([]map[string]any)
 	if s.Metadata != nil {
-		copied.Metadata = s.Metadata.deepClone()
+		copied.Metadata = copyMetadata(s.Metadata)
 	}
 	if s.Constraints != nil {
 		copied.Constraints = s.Constraints.clone()
@@ -1634,6 +1642,34 @@ func (m *Metadata) deepClone() *Metadata {
 	}
 	if m.Extensions != nil {
 		copied.Extensions = cloneValue(m.Extensions).(map[string]map[string]any)
+	}
+	return copied
+}
+
+func (m *Metadata) asJSON() *Metadata {
+	typed := *m
+	typed.Extensions = nil
+	copied := &Metadata{}
+	for entityType, parameters := range typed.byEntityType() {
+		copied.setEntityType(entityType, parametersAsJSON(parameters))
+	}
+	if m.Extensions != nil {
+		copied.Extensions = make(map[string]map[string]any, len(m.Extensions))
+		for entityType, parameters := range m.Extensions {
+			copied.Extensions[entityType] = parametersAsJSON(parameters)
+		}
+	}
+	return copied
+}
+
+func parametersAsJSON(parameters map[string]any) map[string]any {
+	if parameters == nil {
+		return nil
+	}
+	walk := newOperandWalk()
+	copied := make(map[string]any, len(parameters))
+	for parameter, value := range parameters {
+		copied[parameter] = walk.jsonShape(value)
 	}
 	return copied
 }

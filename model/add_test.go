@@ -53,17 +53,17 @@ func TestAdd_Resolve(t *testing.T) {
 			metadataParameterValue: []map[string]any{
 				{
 					"foo": "bar",
-					"baz": []string{"bin", "bang"},
+					"baz": []any{"bin", "bang"},
 				},
 			},
 			operatorValue: []map[string]any{
 				{
 					"foo": "bar",
-					"baz": []string{"bin", "bang"},
+					"baz": []any{"bin", "bang"},
 				},
 				{
 					"bin":  "bar",
-					"bong": []string{"bin", "bang"},
+					"bong": []any{"bin", "bang"},
 				},
 			},
 			validate: func(t *testing.T, result any, err error) {
@@ -80,22 +80,22 @@ func TestAdd_Resolve(t *testing.T) {
 					[]map[string]any{
 						{
 							"foo": "bar",
-							"baz": []string{"bin", "bang"},
+							"baz": []any{"bin", "bang"},
 						},
 						{
 							"bin":  "bar",
-							"bong": []string{"bin", "bang"},
+							"bong": []any{"bin", "bang"},
 						},
 					}) {
 					t.Errorf("expected result to be '%v', got %q", []map[string]any{
 
 						{
 							"foo": "bar",
-							"baz": []string{"bin", "bang"},
+							"baz": []any{"bin", "bang"},
 						},
 						{
 							"bin":  "bar",
-							"bong": []string{"bin", "bang"},
+							"bong": []any{"bin", "bang"},
 						},
 					}, result)
 				}

@@ -10,19 +10,8 @@ var (
 )
 
 func NewValue(operatorValue any) (*Value, error) {
-	if operatorValue != nil && reflect.TypeOf(operatorValue).Kind() == reflect.Slice {
-		sliceValue := reflect.ValueOf(operatorValue)
-		anySlice := make([]any, sliceValue.Len())
-
-		for i := 0; i < sliceValue.Len(); i++ {
-			anySlice[i] = sliceValue.Index(i).Interface()
-		}
-
-		operatorValue = anySlice
-	}
-
 	return &Value{
-		operatorValue: operatorValue,
+		operatorValue: asJSONOperand(operatorValue),
 	}, nil
 }
 

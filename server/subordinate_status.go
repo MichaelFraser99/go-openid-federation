@@ -50,6 +50,11 @@ func (s *Server) SubordinateStatus(w http.ResponseWriter, r *http.Request) Respo
 		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("request missing required parameter 'sub'"))
 	}
 
+	if model.NamesTheSameEntity(*parsedSubject, s.cfg.EntityIdentifier) {
+		s.cfg.LogInfo(ctx, "provided 'sub' parameter matches server entity identifier")
+		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("an entity cannot issue a subordinate events statement for itself"))
+	}
+
 	status, err := s.cfg.Extensions.SubordinateStatus.MetadataRetriever.GetSubordinateStatus(ctx, *parsedSubject)
 	if err != nil {
 		classified := s.retrieverError(err, subordinateStatusUnavailableError)

@@ -19,6 +19,7 @@ import (
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/internal/boundedjson"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
+	"github.com/MichaelFraser99/go-openid-federation/internal/keyscan"
 	"github.com/MichaelFraser99/go-openid-federation/internal/peerclient"
 	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 	"github.com/MichaelFraser99/go-openid-federation/model"
@@ -123,7 +124,7 @@ func Accept(ctx context.Context, cfg model.Configuration, issuer model.EntitySta
 		return nil, nil, model.NewInvalidTrustChainError("'sub' claim does not match the requested subject entity identifier")
 	}
 
-	model.LogPrivateKeyMembersInRawSet(ctx, &cfg, subordinateStatement.Iss, subordinateStatement.Sub, rawJWKSClaim(signed))
+	keyscan.LogPrivateKeyMembersInRawSet(ctx, &cfg, subordinateStatement.Iss, subordinateStatement.Sub, rawJWKSClaim(signed))
 
 	return &signed, subordinateStatement, nil
 }
@@ -279,7 +280,7 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 			configuration.LogError(ctx, "dropping a registered key from a subordinate statement because it carries private key material", slog.String("subject", string(subjectIdentifier)), slog.String("kid", truncate.TruncateForResponse(sKid)), slog.String("error", err.Error()))
 			continue
 		}
-		if err := model.ValidateKeyOps(k); err != nil {
+		if err := keyscan.ValidateKeyOps(k); err != nil {
 			configuration.LogError(ctx, "dropping a registered key from a subordinate statement because its 'key_ops' is malformed", slog.String("subject", string(subjectIdentifier)), slog.String("kid", truncate.TruncateForResponse(sKid)), slog.String("error", err.Error()))
 			continue
 		}
@@ -288,7 +289,7 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 				configuration.LogError(ctx, "dropping a registered key from a subordinate statement because its modulus is outside the sizes this library verifies for the algorithm it is registered for", slog.String("subject", string(subjectIdentifier)), slog.String("kid", truncate.TruncateForResponse(sKid)), slog.String("error", err.Error()))
 				continue
 			}
-		} else if err := model.VerifyKeyStrengthForAnySignatureAlgorithm(k); err != nil {
+		} else if err := keyscan.VerifyKeyStrengthForAnySignatureAlgorithm(k); err != nil {
 			configuration.LogError(ctx, "dropping a registered key from a subordinate statement because it names no algorithm and its modulus is below the size every RSA signature algorithm requires", slog.String("subject", string(subjectIdentifier)), slog.String("kid", truncate.TruncateForResponse(sKid)), slog.String("error", err.Error()))
 			continue
 		}
@@ -346,7 +347,7 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		return nil, fmt.Errorf("failed to deserialize entity configuration: %s", err.Error())
 	}
 
-	if err = model.VerifyPublishableStatementKeys(subordinateStatementMap); err != nil {
+	if err = keyscan.VerifyPublishableStatementKeys(subordinateStatementMap); err != nil {
 		return nil, unusableRecord(fmt.Errorf("refusing to publish this subordinate statement because %s", err.Error()))
 	}
 

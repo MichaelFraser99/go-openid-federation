@@ -1,4 +1,4 @@
-package model
+package keyscan
 
 import (
 	"reflect"

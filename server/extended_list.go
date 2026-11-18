@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/MichaelFraser99/go-openid-federation/internal/keyscan"
 	"github.com/MichaelFraser99/go-openid-federation/internal/subordinate_statement"
 	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 	"github.com/MichaelFraser99/go-openid-federation/model"
@@ -131,13 +132,13 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 			continue
 		}
 
-		if model.NestsDeeperThanTheKeyScan(entity) {
+		if keyscan.NestsDeeperThanTheKeyScan(entity) {
 			s.cfg.LogError(ctx, "omitting a subordinate listing entry that nests deeper than the key scan reaches, so it cannot be checked for private key material", slog.String("sub", truncate.TruncateForResponse(identifier)))
 			continue
 		}
 
 		var dropped []string
-		model.StripUnpublishableKeys(entity, 0, &dropped)
+		keyscan.StripUnpublishableKeys(entity, 0, &dropped)
 		if len(dropped) > 0 {
 			s.cfg.LogError(ctx, "dropping keys carrying private key material from an extended listing entry", slog.String("sub", truncate.TruncateForResponse(identifier)), slog.Any("key_ids", dropped))
 		}

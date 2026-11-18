@@ -12,6 +12,7 @@ import (
 	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jws"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
+	"github.com/MichaelFraser99/go-openid-federation/internal/keyscan"
 	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
@@ -106,7 +107,7 @@ func verifyPublishedKeysArePublic(statement model.EntityStatement) error {
 	if err := json.Unmarshal(raw, &published); err != nil {
 		return nil
 	}
-	return model.VerifyPublishableStatementKeys(published)
+	return keyscan.VerifyPublishableStatementKeys(published)
 }
 
 func publishedMetadata(raw []byte) (*model.Metadata, error) {

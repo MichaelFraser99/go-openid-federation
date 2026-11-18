@@ -23,6 +23,7 @@ import (
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/internal/boundedjson"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
+	"github.com/MichaelFraser99/go-openid-federation/internal/keyscan"
 	"github.com/MichaelFraser99/go-openid-federation/internal/peerclient"
 	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
 	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
@@ -241,7 +242,7 @@ func validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 		return nil, fmt.Errorf("'sub' claim does not match the original entity identifier")
 	}
 
-	model.LogPrivateKeyMembersInRawSet(ctx, &cfg, entityConfiguration.Sub, entityConfiguration.Sub, jwks)
+	keyscan.LogPrivateKeyMembersInRawSet(ctx, &cfg, entityConfiguration.Sub, entityConfiguration.Sub, jwks)
 
 	if entityConfiguration.Metadata != nil {
 		if err = entityConfiguration.Metadata.Verify(cfg.EntityTypes, cfg.DiscardUnrecognisedEntityTypes); err != nil {
@@ -386,7 +387,7 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 		return nil, fmt.Errorf("failed to deserialize entity cfg: %s", err.Error())
 	}
 
-	if err = model.VerifyPublishableStatementKeys(entityConfigurationMap); err != nil {
+	if err = keyscan.VerifyPublishableStatementKeys(entityConfigurationMap); err != nil {
 		return nil, fmt.Errorf("refusing to publish this entity configuration because %s", err.Error())
 	}
 
@@ -579,13 +580,13 @@ func VerifySignerPublished(published josemodel.Jwks, signer model.SignerConfigur
 }
 
 func verifyConfiguredKey(key map[string]any, strength func(key map[string]any, alg string) error) error {
-	if err := model.ValidateKeyOps(key); err != nil {
+	if err := keyscan.ValidateKeyOps(key); err != nil {
 		return err
 	}
 	if declared, ok := key["alg"].(string); ok {
 		return strength(key, declared)
 	}
-	return model.VerifyKeyStrengthForAnySignatureAlgorithm(key)
+	return keyscan.VerifyKeyStrengthForAnySignatureAlgorithm(key)
 }
 
 type publicKeyComparer interface {
@@ -611,7 +612,7 @@ func publishedKeyUsableForSigning(existing, intended map[string]any, signerPubli
 			return fmt.Errorf("declares a 'use' of %v rather than \"sig\"", use)
 		}
 	}
-	if !model.KeyOpsPermitVerify(existing) {
+	if !keyscan.KeyOpsPermitVerify(existing) {
 		return fmt.Errorf("declares 'key_ops' without \"verify\"")
 	}
 	if alg, present := existing["alg"]; present {

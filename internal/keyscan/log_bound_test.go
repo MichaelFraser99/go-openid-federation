@@ -1,4 +1,4 @@
-package model
+package keyscan
 
 import (
 	"bytes"
@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	josemodel "github.com/MichaelFraser99/go-jose/model"
+	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
 func singleLogRecord(t *testing.T, raw string) map[string]any {
@@ -86,7 +87,7 @@ func TestLogPrivateKeyMembers_NamesTheMembersAndBoundsTheKeyIDs(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			var logs bytes.Buffer
-			cfg := &Configuration{Logger: slog.New(slog.NewJSONHandler(&logs, nil))}
+			cfg := &model.Configuration{Logger: slog.New(slog.NewJSONHandler(&logs, nil))}
 
 			LogPrivateKeyMembersInRawSet(context.Background(), cfg, "https://ta.example.com", "https://peer.example.com", rawSetOf(tc.keys...))
 
@@ -129,7 +130,7 @@ func TestLogPrivateKeyMembers_IsSilentWhenThereIsNothingToReport(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			var logs bytes.Buffer
-			cfg := &Configuration{Logger: slog.New(slog.NewJSONHandler(&logs, nil))}
+			cfg := &model.Configuration{Logger: slog.New(slog.NewJSONHandler(&logs, nil))}
 
 			LogPrivateKeyMembersInRawSet(context.Background(), cfg, "https://ta.example.com", "https://peer.example.com", tc.raw)
 
@@ -146,7 +147,7 @@ func TestLogPrivateKeyMembers_WithNoConfigurationDoesNotPanic(t *testing.T) {
 			t.Fatalf("logging with no configuration panicked: %v", recovered)
 		}
 	}()
-	LogPrivateKeyMembers(context.Background(), nil, "https://ta.example.com", "https://peer.example.com", josemodel.Jwks{
+	logPrivateKeyMembers(context.Background(), nil, "https://ta.example.com", "https://peer.example.com", josemodel.Jwks{
 		Keys: []map[string]any{{"kid": "one", "kty": "oct", "k": "AQAB"}},
 	})
 }

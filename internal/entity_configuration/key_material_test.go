@@ -373,6 +373,40 @@ func TestNew_RefusesToPublishMetadataKeysCarryingPrivateMembers(t *testing.T) {
 			expectType: "openid_relying_party",
 		},
 		{
+			name:      "a custom entity type whose jwks is a bare public JWK",
+			reference: "RFC 7517 4",
+			metadata: func() *model.Metadata {
+				return &model.Metadata{Extensions: map[string]map[string]any{"x_custom": {"jwks": map[string]any(*publicRSA)}}}
+			},
+		},
+		{
+			name:      "a custom entity type whose jwks is a bare private JWK",
+			reference: "RFC 7518 6.3.2",
+			metadata: func() *model.Metadata {
+				return &model.Metadata{Extensions: map[string]map[string]any{"x_custom": {"jwks": privateRSA}}}
+			},
+			expectErr:  "private key members",
+			expectType: "x_custom",
+		},
+		{
+			name:      "a custom entity type whose jwks is an array holding a private key",
+			reference: "RFC 7518 6.2.2",
+			metadata: func() *model.Metadata {
+				return &model.Metadata{Extensions: map[string]map[string]any{"x_custom": {"jwks": []any{*publicRSA, privateEC}}}}
+			},
+			expectErr:  "private key members",
+			expectType: "x_custom",
+		},
+		{
+			name:      "a custom entity type whose jwks keys member is an object",
+			reference: "RFC 7518 6.2.2",
+			metadata: func() *model.Metadata {
+				return &model.Metadata{Extensions: map[string]map[string]any{"x_custom": {"jwks": map[string]any{"keys": map[string]any{"0": privateEC}}}}}
+			},
+			expectErr:  "private key members",
+			expectType: "x_custom",
+		},
+		{
 			name:      "a private key held beside the public one",
 			reference: "RFC 7518 6.3.2",
 			metadata: func() *model.Metadata {

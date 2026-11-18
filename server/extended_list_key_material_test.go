@@ -49,6 +49,36 @@ func TestServer_ExtendedList_DoesNotRepublishARegistrantsPrivateKey(t *testing.T
 				"metadata_policy": map[string]any{"openid_relying_party": map[string]any{"jwks": map[string]any{"value": map[string]any{"keys": []any{leaked}}}}},
 			},
 		},
+		{
+			name:      "a custom entity type whose jwks is a bare private JWK",
+			reference: "RFC 7518 6.2.2",
+			claims:    "metadata",
+			entity: map[string]any{
+				"id": "https://rp.example.com",
+				"metadata": map[string]any{
+					"x_custom":             map[string]any{"jwks": leaked},
+					"openid_relying_party": map[string]any{"jwks": map[string]any{"keys": []any{good}}},
+				},
+			},
+		},
+		{
+			name:      "a jwks claim that is an array of keys",
+			reference: "RFC 7518 6.2.2",
+			claims:    "jwks",
+			entity: map[string]any{
+				"id":   "https://rp.example.com",
+				"jwks": []any{good, leaked},
+			},
+		},
+		{
+			name:      "a jwks claim whose keys member is an object",
+			reference: "RFC 7518 6.2.2",
+			claims:    "jwks",
+			entity: map[string]any{
+				"id":   "https://rp.example.com",
+				"jwks": map[string]any{"keys": map[string]any{"0": leaked, "1": good}},
+			},
+		},
 	}
 
 	for _, tc := range tests {

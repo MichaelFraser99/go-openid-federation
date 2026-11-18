@@ -61,6 +61,9 @@ Each change you may have to act on is marked **Breaking change** in the README s
 - [Metadata policy](README.md#metadata-policy): `subset_of` and `one_of` operands count towards the merged-policy bound, and one statement's `scope` operands may hold at most `MaxStatementValues` scope values.
 - [Metadata policy](README.md#metadata-policy): an array element of a `value` or `default` operand on `scope` is split into scope values, as for the other operators.
 - [Metadata policy](README.md#metadata-policy): policies merge from the trust anchor down, as section 6.1.4.1 requires, so the values of a merged `add` resolve in a different order.
+- [Trust chains](README.md#trust-chains): a route whose statements fail validation, by an expiry, a link signed with an unregistered key, or a constraint, gives way to another `authority_hints` route, as a failed fetch already did.
+- [Limits](README.md#limits): reaching `MaxResolveTime` answers 404 `invalid_trust_anchor` with `model.ErrLimitReached`, not 503. A deadline on your own context still answers `model.ErrTemporarilyUnavailable`.
+- [Errors](README.md#errors): `model.ErrPeerUnreachable`, `model.ErrPeerTimeout` and `model.ErrExpired` mark why a peer or a chain failed, and `model.CarryMarkers` keeps them when you rebuild an error. No class or response changed.
 
 ## From v0.11.0-rc.2
 

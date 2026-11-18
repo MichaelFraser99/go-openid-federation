@@ -230,7 +230,7 @@ func processAndExtractPolicy(trustChain []EntityStatement, operandLimit int) (*M
 
 	var finalisedPolicy *MetadataPolicy
 
-	for i := range trustChain {
+	for i := len(trustChain) - 1; i >= 0; i-- {
 		if trustChain[i].Iss == trustChain[i].Sub {
 			continue
 		}

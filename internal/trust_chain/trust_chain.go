@@ -261,11 +261,7 @@ const (
 )
 
 func subordinateStatementFailure(err error) error {
-	described := describeSubordinateStatementFailure(err)
-	if errors.Is(err, model.ErrLimitReached) && !errors.Is(described, model.ErrLimitReached) {
-		return fmt.Errorf("%w%w", model.ErrLimitReached, described)
-	}
-	return described
+	return model.CarryMarkers(err, describeSubordinateStatementFailure(err))
 }
 
 func describeSubordinateStatementFailure(err error) error {
@@ -557,12 +553,12 @@ func chainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 			return signedPath, path, false, model.NewInvalidMetadataError(fmt.Sprintf("entity configuration for %s failed validation", subject))
 		}
 		if errors.Is(err, model.ErrInvalidTrustChain) {
-			return signedPath, path, false, model.NewInvalidTrustChainError(fmt.Sprintf("entity configuration for %s failed validation", subject))
+			return signedPath, path, false, model.CarryMarkers(err, model.NewInvalidTrustChainError(fmt.Sprintf("entity configuration for %s failed validation", subject)))
 		}
 		if classified := model.ClassifiedError(err); classified != nil && len(path) == 0 {
 			return signedPath, path, false, classified
 		}
-		return signedPath, path, false, model.NewNotFoundError(fmt.Sprintf("failed to retrieve entity configuration for %s", subject))
+		return signedPath, path, false, model.CarryMarkers(err, model.NewNotFoundError(fmt.Sprintf("failed to retrieve entity configuration for %s", subject)))
 	}
 
 	path = append(path, *subjectEntityStatement)
@@ -678,7 +674,7 @@ func retrieveTrustAnchor(ctx context.Context, cfg model.Configuration, trustAnch
 		if errors.Is(err, model.ErrServerError) || errors.Is(err, model.ErrTemporarilyUnavailable) {
 			return nil, nil, err
 		}
-		return nil, nil, model.NewInvalidTrustAnchorError("the entity configuration of the requested trust anchor could not be retrieved")
+		return nil, nil, model.CarryMarkers(err, model.NewInvalidTrustAnchorError("the entity configuration of the requested trust anchor could not be retrieved"))
 	}
 	return signedEntityConfiguration, entityConfiguration, nil
 }

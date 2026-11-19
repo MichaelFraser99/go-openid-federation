@@ -13,13 +13,13 @@ Each change you may have to act on is marked **Breaking change** in the README s
 - [Query parameters](README.md#query-parameters): `/extended-list` removes a `subordinate_statement` from your retriever when `claims` is present without it, or when this server cannot issue one.
 - [Query parameters](README.md#query-parameters): `/trust-mark` answers 500 for a value from `IssueTrustMark` that is not a trust mark for the requested subject and type.
 - [Query parameters](README.md#query-parameters): `/trust-mark-status` answers 404 for a trust mark whose `iss` is not this server, without asking your retriever.
-- [Query parameters](README.md#query-parameters): `/resolve` with `entity_type` judges only the named types, so a broken type that the request does not name no longer refuses the resolution.
+- [Custom entity types](README.md#custom-entity-types): `/resolve` with `entity_type` judges only the named types, so a broken type that the request does not name no longer refuses the resolution.
 - [Query parameters](README.md#query-parameters): on `/extended-list` with `claims=subordinate_statement`, a store's 4xx answer for one subordinate lists that subordinate without its statement, where the whole page answered 500.
 - [Query parameters](README.md#query-parameters): `/trust-mark-status` answers 404 for a trust mark with no `iss`, and `/subordinate-status` answers 400 `invalid_request` for this server's own identifier.
 - [ServerConfiguration](README.md#serverconfiguration): a redirect from a peer to a URL that does not use `https` is refused, whatever client you supply.
 - [ServerConfiguration](README.md#serverconfiguration): `server.NewServer` returns an error, and refuses a configuration that would fail every request.
 - [ServerConfiguration](README.md#serverconfiguration): `Server.AddAuthorityHint` returns an `error`, and refuses a hint that is not an entity identifier or that names this server itself.
-- [ServerConfiguration](README.md#serverconfiguration): `NewServer` refuses a signer whose key cannot sign with its `Algorithm`, an `AuthorityHints` entry that names this server, and a private key member in the metadata or trust mark owners it would publish. It accepts a metadata `jwks` held as a `josemodel.Jwks` again.
+- [ServerConfiguration](README.md#serverconfiguration): `NewServer` refuses a signer whose key cannot sign with its `Algorithm`, an `AuthorityHints` entry that names this server, and a private key member in the metadata or trust mark owners it would publish.
 - [Limits](README.md#limits): a trust mark of a type the trust anchor does not trust no longer counts against `MaxTrustMarks`, and no longer writes a log line of its own. The summary line counts them as `untrusted_types`.
 - [Limits](README.md#limits): reaching `MaxResolveTime` answers 404 `invalid_trust_anchor` with `model.ErrLimitReached`, not 503. A deadline on your own context still answers `model.ErrTemporarilyUnavailable`.
 - [Retriever interfaces](README.md#retriever-interfaces): a temporary outage in `GetSubordinateSigners` or `ListTrustMarkIssuers` answers 503, and `/extended-list` no longer drops a statement silently over it.
@@ -32,20 +32,20 @@ Each change you may have to act on is marked **Breaking change** in the README s
 - [Entity statements and metadata](README.md#entity-statements-and-metadata): a `nil` member below a metadata parameter is written as `null`, not left out.
 - [Entity statements and metadata](README.md#entity-statements-and-metadata): an `Extensions` entry under a built-in entity type is refused when written.
 - [Entity statements and metadata](README.md#entity-statements-and-metadata): resolved `oauth_authorization_server` metadata must hold the endpoints and signing algorithm lists that RFC 8414 section 2 makes conditional.
-- [Entity statements and metadata](README.md#entity-statements-and-metadata): `openid_credential_verifier_provider` is a built-in entity type with its own field, and its resolved metadata must hold `jwks`.
+- [Entity statements and metadata](README.md#entity-statements-and-metadata): `openid_credential_verifier_provider` is a built-in entity type with its own field, and its resolved metadata must hold `jwks`. The new field breaks a `Metadata{…}` or `MetadataPolicy{…}` literal that sets its fields by position.
 - [Entity statements and metadata](README.md#entity-statements-and-metadata): `openid_credential_verifier` metadata must follow Wallet Architectures draft 06 section 6.4.1.
 - [Entity statements and metadata](README.md#entity-statements-and-metadata): an entity identifier must be an RFC 3986 URI, so a raw space, a raw non-ASCII character or a port above 65535 is refused.
 - [Entity statements and metadata](README.md#entity-statements-and-metadata): a credential issuer's `authorization_servers` must be a non-empty array of entity identifiers.
 - [Entity statements and metadata](README.md#entity-statements-and-metadata): a statement, trust mark or delegation that repeats a name in its header or its claims is refused.
 - [Entity statements and metadata](README.md#entity-statements-and-metadata): a metadata value that is a `json.Marshaler` or a `[]byte` is written as `encoding/json` writes it, not as an array of numbers, so a published statement can change.
 - [Entity statements and metadata](README.md#entity-statements-and-metadata): a trust mark typed `application/trust-mark+jwt` is accepted, and every `typ` header is compared with ASCII-only case folding.
-- [Entity statements and metadata](README.md#entity-statements-and-metadata): a private key member inside a `jwks` value of any shape, such as a bare JWK or an array, is found. `/.well-known` and `/fetch` refuse the statement, and `/extended-list` removes the key.
+- [Claim validators](README.md#claim-validators): a private key member inside a `jwks` value of any shape, such as a bare JWK or an array, is found. `/.well-known` and `/fetch` refuse the statement, and `/extended-list` removes the key.
 - [Metadata policy](README.md#metadata-policy): an entity type policy or a parameter policy whose value is `null` is refused.
 - [Metadata policy](README.md#metadata-policy): a merged policy whose `add` and `superset_of` operators hold more operands in total than `MaxStatementValues` is refused.
 - [Metadata policy](README.md#metadata-policy): a `metadata_policy` that repeats a member name at any of its three levels is refused.
 - [Metadata policy](README.md#metadata-policy): `SubordinateConfiguration` has new `Metadata` and `Constraints` fields, so a literal that sets its fields by position no longer compiles.
 - [Metadata policy](README.md#metadata-policy): a `value` operator replaces a parameter of another JSON type, so a resolved parameter can have a type the subject did not publish. Check the types in a custom entity type's `VerifyResolvedMetadata`, and in any `Extensions` type before you use it.
-- [Metadata policy](README.md#metadata-policy): `value` and `default` assign their operand as written, repeats included, and refuse to merge with an operand that differs only by a repeat. `add` keeps a repeat the subject published, and initialises an absent parameter with its operand as written.
+- [Metadata policy](README.md#metadata-policy): `value` and `default` assign their operand as written, repeats included, and refuse to merge with an operand that differs only by a repeat. `add` keeps a repeat the subject published, and initialises an absent parameter with its operand as written. On `scope`, repeated values are kept once, because `scope` is rejoined from its split values.
 - [Metadata policy](README.md#metadata-policy): an element of any operand on `scope` is split into scope values, so `subset_of: ["openid profile"]` permits both, and a `superset_of` or `one_of` element that holds whitespace is no longer refused when the policy is processed. A `one_of` on a `scope` that is present is still a policy error.
 - [Metadata policy](README.md#metadata-policy): a resolved `scope` that holds no scope value is refused as `invalid_metadata` for `openid_relying_party` and `oauth_client`.
 - [Metadata policy](README.md#metadata-policy): a `subset_of` that leaves no value resolves to `[]`, not `null`.
@@ -62,11 +62,19 @@ Each change you may have to act on is marked **Breaking change** in the README s
 - [Errors](README.md#errors): `/resolve` builds this server's own statements in process, and a fault in them answers 5xx.
 - [Errors](README.md#errors): a transport error that wraps `model.ErrServerError` for one peer no longer ends a trust chain walk that has another route.
 - [Errors](README.md#errors): a failure to fetch the subject's own entity configuration answers with the class your `HttpClient`'s transport error carries, not 404 `not_found`.
-- [Errors](README.md#errors): `Client.BuildTrustChain` and `Client.ResolveMetadata` refuse a malformed leaf, trust anchor or subject with `ErrInvalidRequest`, where they returned an error that matched no sentinel.
+- [Errors](README.md#errors): `Client.BuildTrustChain` refuses a malformed leaf or trust anchor, and `Client.ResolveMetadata` a malformed subject, with `ErrInvalidRequest`, where they returned an error that matched no sentinel. `Client.ResolveMetadata` already refused a malformed trust anchor that way.
 - [Errors](README.md#errors): an error that carries two classes answers in the order of the response table, whether or not a transport path reclassified it, and `ErrLimitReached` survives reclassification.
 - [Errors](README.md#errors): `page_not_found` from your `HttpClient`'s transport is an unclassified error, so `/resolve` no longer answers 404 `page_not_found`.
 - [Errors](README.md#errors): `model.ErrPeerUnreachable`, `model.ErrPeerTimeout` and `model.ErrExpired` mark why a peer or a chain failed, and `model.CarryMarkers` keeps them when you rebuild an error. No class or response changed.
 - [Extensions](README.md#extensions): a `SubordinateStatus.ResponseLifetime` under one second answers 500 instead of signing an expired response.
+- [Errors](README.md#errors): `/resolve` answers a 500 with a fixed description, and logs its cause at error level, where the description carried the cause and the log was at Info.
+- [ServerConfiguration](README.md#serverconfiguration): an `EntityIdentifierResolver` error that wraps no `model.Err*` class, or a resolver that returns no identifier and no error, answers 500 with a fixed description.
+
+## From v0.11.0
+
+Every change listed under [From v0.11.1](#from-v0111) applies, and so does this one:
+
+- [Anchoring a chain a caller supplies](README.md#anchoring-a-chain-a-caller-supplies): a trust anchor resolves as its own subject, where v0.11.0 refused that request with `invalid_request` (#275).
 
 ## From v0.11.0-rc.2
 
@@ -77,7 +85,7 @@ Each change you may have to act on is marked **Breaking change** in the README s
 > - **Stricter keys from peers.** An EC key whose `x` or `y` is not the full size of its curve, and an RSA key whose `n` or `e` carries a leading zero octet, are now refused, as RFC 7518 sections 6.2.1.2 and 2 require. A peer publishing one can no longer be verified.
 > - **Expiry is exclusive.** A statement, trust mark or delegation has expired once the current time reaches its `exp` plus `model.ClockSkewLeeway`, as RFC 7519 section 4.1.4 requires ("MUST be before"). Earlier releases accepted it for one more second.
 
-- [Installation](README.md#installation): this release requires `go-jose` v0.11.0 and Go 1.27.
+- v0.11.0 requires `go-jose` v0.11.0 and Go 1.27, as the note below describes.
 - [Query parameters](README.md#query-parameters): a `sub` that spells the server's own identifier differently is refused.
 - [Limits](README.md#limits): `MaxRequestPeerBytes`, `MaxPeerResponseTime`, `MaxResolveTime`, `MaxTrustMarks`, `MaxStatementValues` and `MaxAuthorityHints` are new, and `Server.Configure` no longer installs `http.DefaultClient`.
 - [Retriever interfaces](README.md#retriever-interfaces): a subordinate added with `AddSubordinate` and no `Retriever` no longer expires.
@@ -91,7 +99,7 @@ Each change you may have to act on is marked **Breaking change** in the README s
 
 ## From v0.10.0
 
-Every change listed under [From v0.11.0-rc.2](#from-v0110-rc2) applies, and so do these:
+Every change listed under [From v0.11.0](#from-v0110), and so under [From v0.11.1](#from-v0111) and [From v0.11.0-rc.2](#from-v0110-rc2), applies, and so do these:
 
 - [Limits](README.md#limits): `MaxTrustChainDepth` defaults to 10, and `MaxEntitiesTraversed` and `MaxTrustMarkIssuers` are new.
 - [Retriever interfaces](README.md#retriever-interfaces): a bare `error` for an unknown subject answers 500.

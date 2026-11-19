@@ -16,7 +16,7 @@ go get github.com/MichaelFraser99/go-openid-federation
 
 Requires Go 1.27 or later.
 
-This release requires `go-jose` v0.12.0. Minimal version selection lifts every consumer to v0.12.0, so if your own code imports `go-jose`, read its [Upgrading from 0.11.x to 0.12.0](https://github.com/MichaelFraser99/go-jose#upgrading-from-011x-to-0120) notes. Two changes reach most callers: `jwt.Validate` takes a `model.Retriever`, decrypters and JWE options and returns two values, and an Ed25519 key is an `ed25519.PublicKey` or `ed25519.PrivateKey` value rather than a pointer.
+> **Breaking change.** This release requires `go-jose` v0.12.0. Minimal version selection lifts every consumer to v0.12.0, so if your own code imports `go-jose`, apply its [Upgrading from 0.11.x to 0.12.0](https://github.com/MichaelFraser99/go-jose#upgrading-from-011x-to-0120) notes. Three changes there break a build: `jwt.Validate` also takes decrypters and a `*josemodel.JWEOptions` and returns a `*jwt.Token` in place of a header and a body; `jws.GetValidatorFromJwk` takes a `*josemodel.JoseOptions` as a third argument; and `josemodel.Mode`, `josemodel.JWS` and `josemodel.JWE` are removed. One more compiles but fails at run time: an Ed25519 key is an `ed25519.PublicKey` or `ed25519.PrivateKey` value rather than a pointer. `josemodel` is `github.com/MichaelFraser99/go-jose/model`.
 
 ## Upgrading
 
@@ -672,7 +672,7 @@ When the library resolves a trust chain, it follows federation endpoints derived
 
 The library refuses a redirect to a URL that does not use `https` on every fetch from a peer, whatever `HttpClient` you supply. The refused request is never sent. After that check, the library applies your client's own `CheckRedirect`, or Go's default limit of ten redirects when you set none. Your client is not changed.
 
-> **Breaking change.** A peer whose entity configuration or fetch endpoint redirects to plain `http` is now refused, as a peer that cannot be reached. Section 1.2 requires an `https` Entity Identifier, and section 5.1.1 requires an `https` fetch endpoint. Earlier releases followed the redirect when the client allowed it, so the request and the statement crossed the network in plaintext.
+> **Breaking change.** A peer whose entity configuration or fetch endpoint redirects to plain `http` is now refused, as a peer that cannot be reached. Section 1.2 requires an `https` Entity Identifier, and section 5.1.1 requires an `https` fetch endpoint. In v0.11.1, the library followed the redirect when the client allowed it, so the request and the statement crossed the network in plaintext.
 
 ### IntermediateConfiguration
 
@@ -893,7 +893,7 @@ Parsing applies the claim rules from section 3.2 of the specification. Earlier r
 
 - A statement is rejected when it is expired or future-dated. Both comparisons allow `model.ClockSkewLeeway`, 60 seconds, of clock skew. The trust chain expiry check allows none: a chain whose earliest `exp` is not in the future is refused, because a resolve response must carry an `exp` in the future (section 8.3.2). So a statement up to 60 seconds past its `exp` parses, but a chain that includes it is refused. The `iat` claim must be before the `exp` claim. A trust mark and its `delegation` are judged with the same allowance, which earlier releases did not do: they were compared against the current time exactly, so an issuer whose clock ran a few seconds fast had its marks dropped from resolve responses with no error while an entity statement in the same state was accepted. One limit is worth knowing: a trust mark whose `exp` has already passed is still left out of a resolve response, however small the margin, because section 8.3.2 makes the response's `exp` the minimum over the marks it carries and a response whose `exp` has passed is unusable. The allowance decides whether such a mark is *valid*, not whether it can be carried.
 - A statement that carries a `crit` claim is rejected, with no opt-in. The library has no way to carry the critical extension claims themselves. See issue #132.
-- The `typ` header of an entity statement, a trust mark and a trust mark delegation is compared as a media type, with one rule for all three. A value with no `/` is read with `application/` before it, as RFC 7515 section 4.1.9 requires. Case is ignored for ASCII letters only, so `entity-ſtatement+jwt` is refused. Earlier releases accepted that spelling for entity statements and delegations, and dropped a trust mark typed `application/trust-mark+jwt` or `TRUST-MARK+JWT` from resolve responses.
+- The `typ` header of an entity statement, a trust mark and a trust mark delegation is compared as a media type, with one rule for all three. A value with no `/` is read with `application/` before it, as RFC 7515 section 4.1.9 requires. Case is ignored for ASCII letters only, so `entity-ſtatement+jwt` is refused. **Breaking change.** In v0.11.1, the library accepted that spelling for entity statements and delegations, and dropped a trust mark typed `application/trust-mark+jwt` or `TRUST-MARK+JWT` from resolve responses.
 - A statement that carries a `metadata_policy_crit` claim is rejected. The claim names metadata policy operators that an implementation must understand, and this library understands none beyond the seven standard operators.
 - A metadata policy operator the library does not know is ignored when the statement does not list it in `metadata_policy_crit`, as section 6.1.3.2 requires. The other operators on the same parameter still apply. Earlier releases refused the whole statement, so a federation using any additional operator could not be resolved. Names are matched exactly, so `Add` is an unknown operator and not `add`. `PolicyOperators.Unrecognised` records the names it skipped.
 - A policy you configure for a subordinate that holds an unknown operator is refused when its subordinate statement is issued, naming the operator. Ignoring is for reading other entities' statements. Publishing a statement without an operator you wrote would silently weaken your policy.
@@ -937,7 +937,7 @@ Each is a `map[string]any` with its own validation, split across two points in t
 
 A type that is not in this table goes in `Metadata.Extensions`, and its policy in `MetadataPolicy.Extensions`, keyed by its identifier. A built-in type must use its field. `MarshalJSON` refuses an `Extensions` entry under a built-in identifier, because it would replace the typed field's entry when written. For example, `Extensions["federation_entity"]` would remove the `federation_fetch_endpoint`, `federation_list_endpoint` and `federation_resolve_endpoint` that the library adds for an intermediate. An entity configuration that holds such an entry answers 500 `server_error` on `/.well-known/openid-federation`, and the cause, naming the field to use, is logged at error level. A subordinate record whose policy holds one fails for that subordinate alone, as an unusable record.
 
-> **Breaking change.** Earlier releases wrote such an entry over the typed field without an error. Move it to the field the error names.
+> **Breaking change.** In v0.11.1, such an entry was written over the typed field without an error. Move it to the field the error names.
 
 When metadata is unmarshalled, every statement is checked for claim shape: URL claims are HTTPS with no fragment component, string array claims are arrays of strings, object claims are objects, and signing algorithm claims exclude `none` where an algorithm is required. `issuer` and `credential_issuer` also refuse a query. An empty object is accepted, so an entity may declare a type without asserting anything about it.
 
@@ -974,7 +974,7 @@ Resolved `openid_credential_verifier_provider` metadata must hold `jwks`. Wallet
 
 The `kid` rule is a MUST in the draft. The array rules are the types that the draft gives each parameter. The source is a draft, so these rules follow it if it changes. The library does not check that a Credential Verifier lists a Credential Verifier Provider in `credential_verifier_providers`. A wallet makes that check when it verifies a Verifier Attestation JWT.
 
-> **Breaking change.** `openid_credential_verifier_provider` is now a built-in entity type. Earlier releases put it in `Metadata.Extensions` and `MetadataPolicy.Extensions`. Read it from the `OpenIDCredentialVerifierProviderMetadata` field instead. An `Extensions` entry with this name is now refused when it is written. If you registered your own entity type with this identifier, the built-in rules now apply to it as well as yours. Resolved metadata of this type without `jwks` now gets `invalid_metadata`.
+> **Breaking change.** `openid_credential_verifier_provider` is now a built-in entity type. In v0.11.1, it went in `Metadata.Extensions` and `MetadataPolicy.Extensions`. The new `OpenIDCredentialVerifierProviderMetadata` field on `Metadata` and `MetadataPolicy` means that a `Metadata{…}` or `MetadataPolicy{…}` literal that sets its fields by position no longer compiles; name the fields. Read it from the `OpenIDCredentialVerifierProviderMetadata` field instead. An `Extensions` entry with this name is now refused when it is written. If you registered your own entity type with this identifier, the built-in rules now apply to it as well as yours. Resolved metadata of this type without `jwks` now gets `invalid_metadata`.
 
 > **Breaking change.** `openid_credential_verifier` metadata that does not follow the rules above was accepted, and is now refused when it is parsed. Examples are a `jwks` key with no `kid`, an empty array, an `http` URL and a `dcql_queries` entry that is not an object. An entity configuration or a subordinate statement that holds such metadata is refused, so a chain through it does not resolve.
 
@@ -1072,6 +1072,8 @@ The validators the built-in types use are exported for custom types to reuse.
 
 The private-member check is a denylist of the member names the JOSE specifications define, applied to every JSON object inside a value under the member name `jwks`, whatever its shape: a `keys` array, a bare JWK, an array of keys, or a `keys` member that is an object. Three things are therefore not caught: a vendor extension that stores private material under another member name, or inside `x5c`; a bare JWK under a name other than `jwks`, such as a `cnf.jwk` in a custom entity type; and a statement nested deeper than the scan goes, which is refused rather than published. A resolver also still republishes a peer's leaked key verbatim in the `trust_chain` claim and in resolved metadata, because stripping it would break the chain's signatures.
 
+> **Breaking change.** In v0.11.1, the check looked only inside a `keys` array under `jwks`, so a private key in a `jwks` of another shape, such as a bare JWK or an array of keys, was published. Such a key is now refused in this server's own statements and removed from a registrant's.
+
 `ParseJWKSet(v)` reads a JWK Set from a decoded JSON value. Use it rather than unmarshalling into a `jwks` struct field: Go matches struct fields with Unicode simple folding, so a member named `keyſ` decodes as `keys` and the keys a conforming parser reads are not the keys you get. It takes the keys from the exact `keys` member and leaves out an entry that `ValidateJWKShape` finds unusable, which RFC 7517 section 5 asks of an implementation. `ParseFederationEntityKeys(v)` is the stricter reading for a `jwks` claim: it adds section 3.1.1's rule that every key in the set carry a unique `kid`.
 
 `MetadataStringSlice(v)` returns a `[]string` from either a `[]string` or a `[]any`. JSON unmarshalling produces the latter and Go-constructed metadata the former, so a validator handling only one will reject valid input.
@@ -1088,6 +1090,10 @@ The `value` operator assigns its operand whatever the type of the parameter it r
 
 `value` and `default` keep their operand as written, repeated values included, because sections 6.1.3.1.1 and 6.1.3.1.3 assign the operator's value. `add` keeps every value the subject published, repeats included, and adds only the values that are not already present (section 6.1.3.1.2). If the parameter is absent, `add` initialises it with its operand as written, repeats included. `one_of`, `subset_of` and `superset_of` only test membership, so a repeat in their operand changes nothing.
 
+A `subset_of` that leaves no value resolves the parameter to `[]`, the empty array section 6.1.3.1.5 describes, and not to `null`. For `scope`, an empty result is refused, as [scope](#metadata-policy) describes below.
+
+> **Breaking change.** In v0.11.1, a `subset_of` that left no value stored a nil slice, which a caller marshalling the resolved metadata map saw as `null`.
+
 Two levels of a chain merge a `value`, or a `default`, only when their operands are equal as written. `["a","a"]` and `["a"]` are different arrays, so merging them is a policy error. Two `add` operators merge into the union of their values, which holds each value once.
 
 > **Breaking change.** A `value`, `default` or `add` operand that repeats a value was deduplicated, so `["a","a"]` assigned `["a"]`, and `add` dropped a repeat the subject published. `value` and `default` now assign `["a","a"]`, as does `add` on an absent parameter. Two levels whose `value` or `default` operands differ only by a repeated value no longer merge.
@@ -1095,6 +1101,8 @@ Two levels of a chain merge a `value`, or a `default`, only when their operands 
 ### How operand values are compared
 
 An operand you build in Go is held in JSON shape. `NewAdd` and the other constructors encode and decode an operand of another Go type, such as a struct, a pointer or a typed slice, so `OperatorValue` returns `map[string]any` and `[]any`.
+
+> **Breaking change.** In v0.11.1, `OperatorValue` returned the Go value you passed, such as a `josemodel.Jwks` or a `*[]string`. Read it as `map[string]any` and `[]any`.
 
 Operand equality is defined on the JSON value, and it is defined for the shapes a JSON decode produces: `nil`, `bool`, `string`, `float64`, `[]any` and `map[string]any`, plus the Go integer types. Such a value is compared by its canonical JSON encoding, which `encoding/json` writes with object member names sorted at every level.
 
@@ -1132,9 +1140,9 @@ Without this bound, each merge processed every union again. A chain of statement
 
 > **Breaking change.** `essential` takes a boolean only, which section 6.1.3.1.7 lists as its one operand type. `"essential": null` was read as `false`, and it now produces a policy error, as section 6.1.3 requires for an operand type the operator does not support. Omitting `essential` is still the same as `false`.
 
-Policies are combined down a trust chain by `model.ProcessAndExtractPolicy` and applied to a subject's metadata by `model.ApplyPolicy`. They are merged from the trust anchor's statement down to the immediate superior's, as section 6.1.4.1 requires, so a merged `add` lists the subject's values, then the trust anchor's, then each level's below it.
+Policies are combined down a trust chain by `model.ProcessAndExtractPolicy` and applied to a subject's metadata by `model.ApplyPolicy`. They are merged from the trust anchor's statement down to the immediate superior's, as section 6.1.4.1 requires, so a merged `add` lists the subject's values, then the trust anchor's, then each level's below it. Section 6.1.3 leaves the order of a merged operator's values undefined, and the order this library gives follows the merge: the operands of a merged `subset_of`, `one_of` or `superset_of` come in the order of the statements that set them, and where two levels give values that are equal but spelled differently, such as `0` and `-0`, the lower statement's spelling is the one kept.
 
-> **Breaking change.** In v0.11.1, policies were merged from the immediate superior up, so the values of a merged `add` came out in the reverse order of levels. Which values resolve is unchanged; only their order is.
+> **Breaking change.** In v0.11.1, policies were merged from the immediate superior up. Which values resolve is unchanged, but the order of a merged operator's values, and which spelling of two equal values is kept, can differ.
 
  Operators resolve in a fixed order: `value`, `add`, `default`, `one_of`, `subset_of`, `superset_of`, then `essential`. Combinations that cannot be satisfied, such as a `subset_of` and a `superset_of` with no overlap, are rejected when the policies are merged.
 
@@ -1185,7 +1193,7 @@ Calling `ApplyPolicy` on a policy that has not been through `ProcessAndExtractPo
 
 Two consequences are worth knowing. Irregular spacing does not make a chain unresolvable, so a superior writing `"openid profile "` tokenises the same way as one writing `"openid profile"`. And a character the ABNF excludes is not a delimiter, so `"openid\u00a0profile"` is one value rather than two: it does not match an allow-list that permits `openid` and `profile` separately. Nothing validates the characters of a token, in an operand or in a subject's own `scope`, so a value holding a `"` or a `\`, which the ABNF also excludes, is compared like any other.
 
-An element of an array operand is split into scope values the same way, for every operator, because RFC 6749 section 3.3 does not let a scope value hold a space. So `{"value": ["openid", "openid accounts"]}` resolves to `openid accounts`, `{"subset_of": ["openid profile"]}` permits both `openid` and `profile`, and `{"superset_of": ["openid profile"]}` requires both. An element that is empty, or holds only spaces, holds no scope value, so it permits or requires nothing. Splitting applies to `scope` only. An element of another parameter's operand is one value, so `"code id_token"` in a `response_types` policy is a single response type.
+An element of an array operand is split into scope values the same way, for every operator, because RFC 6749 section 3.3 does not let a scope value hold a space. So `{"value": ["openid", "openid accounts"]}` resolves to `openid accounts`, `{"subset_of": ["openid profile"]}` permits both `openid` and `profile`, and `{"superset_of": ["openid profile"]}` requires both. An element that is empty, or holds only spaces, holds no scope value, so it permits or requires nothing. Splitting applies to `scope` only. Whenever any policy touches `scope`, its value is rejoined from the split values, so a repeated scope value is kept once and extra spaces are dropped. Repeats are kept as written for every other parameter, not for `scope`. An element of another parameter's operand is one value, so `"code id_token"` in a `response_types` policy is a single response type.
 
 > **Breaking change.** An element of a `subset_of`, `superset_of` or `one_of` operand on `scope` that held a space was compared as one value. A `subset_of` element such as `"openid profile"` matched nothing and emptied `scope`. A `superset_of` or `one_of` element that held whitespace, or held nothing, was refused when the policy was processed. Each element is now split into scope values, and none is refused.
 
@@ -1393,7 +1401,7 @@ A fetched subordinate statement whose metadata is unusable answers 400 `invalid_
 
 The description a caller receives carries no free text this server was given by a peer: a peer's error, a value from a peer's statement, or a key a superior registered. The one peer-chosen value it can carry is an entity identifier, such as an issuer named in `authority_hints`, and only after it has been validated as an https URL with no fragment; it is truncated with the rest of the description. The detail goes to the log instead, so an operator can still tell one fetch failure from another while a caller cannot read a third party's internals out of a response. What a peer chooses is bounded before it reaches a log, so a peer cannot turn one request into megabytes of records.
 
-The same holds for an entry of a chain you pass to `Client.ResolveMetadata` that fails validation. The error's text names the entry and its kind, such as `trust chain entry 2 is not a valid entity configuration`, and keeps the class the validation gave it. The reason is the error's cause, so a Go caller reads it with `errors.Unwrap(err)`. Earlier releases put the reason in the error's own text, so a value from a statement in the chain reached anything that printed the error.
+The same holds for an entry of a chain you pass to `Client.ResolveMetadata` that fails validation. The error's text names the entry and its kind, such as `trust chain entry 2 is not a valid entity configuration`, and keeps the class the validation gave it. The reason is the error's cause, so a Go caller reads it with `errors.Unwrap(err)`. In v0.11.1, the reason was in the error's own text, so a value from a statement in the chain reached anything that printed the error.
 
 > **Breaking change.** A malformed `metadata` or `metadata_policy` claim in the subject's entity configuration, or in a subordinate statement of a chain you pass to `Client.ResolveMetadata`, is now `invalid_metadata` alone, which section 8.9 defines as "Metadata or Metadata Policy values are invalid or conflict". It also matched `invalid_trust_chain` before, so `errors.Is(err, model.ErrInvalidTrustChain)` was true for it. The same fault in the trust anchor's entity configuration was already `invalid_metadata`. `/resolve` is unaffected, because a chain it builds has already passed the same validation.
 
@@ -1407,7 +1415,7 @@ Two endpoints beyond the core specification are available. Both are disabled by 
 
 `ResponseLifetime` sets the response's `exp` to its `iat` plus the lifetime. Leave it nil for a response with no `exp`, which section 2.3.2 of the Subordinate Events draft makes optional. A value under one second, including zero, can only sign a response that has already expired. Such a value answers 500 `server_error` with the endpoint's fixed description, and the value is logged at error level. Unlike the other lifetimes, zero does not select a default here, because nil already means "no `exp`".
 
-> **Breaking change.** Earlier releases signed the response with any `ResponseLifetime`, so a zero or negative value produced an `exp` at or before `iat`. Set a lifetime of at least one second, or leave it nil.
+> **Breaking change.** In v0.11.1, the response was signed with any `ResponseLifetime`, so a zero or negative value produced an `exp` at or before `iat`. Set a lifetime of at least one second, or leave it nil.
 
 ## Testing
 
@@ -1447,7 +1455,7 @@ Entity statements and configurations, subordinate statements, trust chain constr
 
 | Area | Status | Issue |
 |---|---|---|
-| Internationalised hosts under `naming_constraints` | Decided: refused by default, and matched only when `Configuration.HostToASCII` is set | [#50](https://github.com/MichaelFraser99/go-openid-federation/issues/50) |
+| Internationalised hosts under `naming_constraints` | Decided: refused by default, and matched only when `Configuration.HostToASCII` is set | [#229](https://github.com/MichaelFraser99/go-openid-federation/pull/229) |
 | Clock skew tolerance | `model.ClockSkewLeeway` is a constant and cannot be configured | [#141](https://github.com/MichaelFraser99/go-openid-federation/issues/141) |
 | Extension claims | Dropped on parse and cannot be issued | [#132](https://github.com/MichaelFraser99/go-openid-federation/issues/132) |
 | `trust_chain` and `peer_trust_chain` JOSE headers | Decided: not read or written. An entity configuration or subordinate statement that carries either header is refused, as sections 4.3 and 4.4 require | [#139](https://github.com/MichaelFraser99/go-openid-federation/issues/139) |

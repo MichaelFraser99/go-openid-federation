@@ -53,10 +53,7 @@ func operandSliceFrom(operatorValue any) ([]any, error) {
 
 func operandElements(operatorValue any) ([]any, error) {
 	held := reflect.ValueOf(operatorValue)
-	for held.Kind() == reflect.Pointer && !held.IsNil() && !encodesItself(held.Type()) {
-		held = held.Elem()
-	}
-	if (held.Kind() == reflect.Slice || held.Kind() == reflect.Array) && !encodesItself(held.Type()) {
+	if held.Kind() == reflect.Slice && !encodesItself(held.Type()) {
 		elements := make([]any, held.Len())
 		for i := range held.Len() {
 			element, err := storedValue(held.Index(i).Interface())
@@ -300,20 +297,13 @@ func (w *operandWalk) storedValue(value any) (any, error) {
 	held := reflect.ValueOf(value)
 	if !encodesItself(held.Type()) {
 		switch held.Kind() {
-		case reflect.Pointer, reflect.Interface:
-			if held.IsNil() {
-				return nil, nil
-			}
-			return w.storedValue(held.Elem().Interface())
 		case reflect.Slice:
 			if held.Type().Elem().Kind() == reflect.Uint8 {
 				break
 			}
 			if held.IsNil() {
-				return nil, nil
+				return []any(nil), nil
 			}
-			return w.storedElements(held)
-		case reflect.Array:
 			return w.storedElements(held)
 		case reflect.Map:
 			if held.Type().Key().Kind() != reflect.String {
@@ -401,10 +391,7 @@ func exactNumber(number json.Number) any {
 	if integer, err := strconv.ParseUint(string(number), 10, 64); err == nil {
 		return integer
 	}
-	float, err := strconv.ParseFloat(string(number), 64)
-	if err != nil {
-		return number
-	}
+	float, _ := strconv.ParseFloat(string(number), 64)
 	if encoded, err := json.Marshal(float); err != nil || string(encoded) != string(number) {
 		return number
 	}

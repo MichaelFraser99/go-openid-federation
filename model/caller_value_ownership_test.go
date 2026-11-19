@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+
+	josemodel "github.com/MichaelFraser99/go-jose/model"
 )
 
 const ownershipIdentifier = EntityIdentifier("https://leaf.example.com")
@@ -177,20 +179,8 @@ func TestSubordinateStore_RebuildsAnOperatorHeldThroughAPointer(t *testing.T) {
 	}
 }
 
-type pointerOperator struct{ operand string }
-
-func (o *pointerOperator) String() string                            { return "x_pointer" }
-func (o *pointerOperator) Resolve(value any) (any, error)            { return value, nil }
-func (o *pointerOperator) ResolutionHierarchy() int                  { return 98 }
-func (o *pointerOperator) Merge(any) (MetadataPolicyOperator, error) { return o, nil }
-func (o *pointerOperator) OperatorValue() any                        { return o.operand }
-func (o *pointerOperator) ToSlice(string) MetadataPolicyOperator     { return o }
-func (o *pointerOperator) CheckForConflict(func(reflect.Type) (MetadataPolicyOperator, bool)) error {
-	return nil
-}
-
 func TestSubordinateStore_KeepsAConsumerOperatorAsItIs(t *testing.T) {
-	own := &pointerOperator{operand: "x"}
+	own := &scopeCarryingOperator{operand: "x"}
 	intermediate := &IntermediateConfiguration{}
 	intermediate.AddSubordinate(ownershipIdentifier, &SubordinateConfiguration{Policies: MetadataPolicy{
 		OpenIDRelyingPartyMetadata: map[string]PolicyOperators{"x_param": {Metadata: []MetadataPolicyOperator{own}}},
@@ -247,6 +237,16 @@ func TestSubordinateStore_RefusesAValueThatCannotBeHeldAsJSON(t *testing.T) {
 			intermediate.AddSubordinate(ownershipIdentifier, &SubordinateConfiguration{})
 			if _, err := cfg.GetSubordinate(context.Background(), ownershipIdentifier); err != nil {
 				t.Errorf("expected a later storable record to replace the refusal, got %v", err)
+			}
+
+			for where, subordinate := range map[string]*SubordinateConfiguration{
+				"a key":        {JWKs: josemodel.Jwks{Keys: []map[string]any{{"kty": "EC", "x_member": value}}}},
+				"an extension": {Metadata: &Metadata{Extensions: map[string]map[string]any{"x_type": {"x_param": value}}}},
+			} {
+				intermediate.AddSubordinate(ownershipIdentifier, subordinate)
+				if _, err := cfg.GetSubordinate(context.Background(), ownershipIdentifier); !errors.Is(err, ErrServerError) {
+					t.Errorf("expected %s the store cannot hold to drop the record, got %v", where, err)
+				}
 			}
 
 			retrieved := ServerConfiguration{IntermediateConfiguration: &IntermediateConfiguration{}, MetadataRetriever: fixedRetriever{subordinate: &SubordinateConfiguration{Metadata: &Metadata{OpenIDRelyingPartyMetadata: &OpenIDRelyingPartyMetadata{"x_param": value}}}}}

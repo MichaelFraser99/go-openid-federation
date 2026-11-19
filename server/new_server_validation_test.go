@@ -2,6 +2,9 @@ package server
 
 import (
 	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"errors"
 	"io"
 	"log/slog"
@@ -10,6 +13,7 @@ import (
 	"time"
 
 	"github.com/MichaelFraser99/go-jose/jwa"
+	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jws"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
@@ -33,6 +37,16 @@ func validServerConfiguration(t *testing.T) model.ServerConfiguration {
 func TestNewServer_RefusesAConfigurationThatCannotServe(t *testing.T) {
 	ownerKey := map[string]any{"kty": "EC", "crv": "P-256", "kid": "owner", "x": "x", "y": "y"}
 	privateKey := map[string]any{"kty": "EC", "crv": "P-256", "kid": "leaked", "x": "x", "y": "y", "d": "PRIVATE-MEMBER-VALUE"}
+	signerKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate the signer key: %v", err)
+	}
+	signerJWK, err := jwk.PrivateJwk(signerKey)
+	if err != nil {
+		t.Fatalf("failed to write the signer as a jwk: %v", err)
+	}
+	signerPrivateJWK := *signerJWK
+	signerPrivateJWK["kid"] = "own"
 
 	tests := map[string]struct {
 		change func(cfg *model.ServerConfiguration)
@@ -87,6 +101,19 @@ func TestNewServer_RefusesAConfigurationThatCannotServe(t *testing.T) {
 		"a private key held by a trust mark owner": {change: func(cfg *model.ServerConfiguration) {
 			cfg.EntityConfiguration.TrustMarkOwners = map[string]model.TrustMarkOwner{"https://tm.example.com/a": {Sub: "https://owner.example.com", JWKs: josemodel.Jwks{Keys: []map[string]any{ownerKey, privateKey}}}}
 		}, says: "EntityConfiguration would publish private key material"},
+		"a private key in this entity's own jwks": {change: func(cfg *model.ServerConfiguration) {
+			cfg.EntityConfiguration.JWKs = josemodel.Jwks{Keys: []map[string]any{ownerKey, privateKey}}
+		}, says: `EntityConfiguration would publish private key material: the "jwks" key set`},
+		"the signer's own private key in this entity's own jwks": {change: func(cfg *model.ServerConfiguration) {
+			cfg.SignerConfiguration.Signer = signerKey
+			cfg.EntityConfiguration.JWKs = josemodel.Jwks{Keys: []map[string]any{signerPrivateJWK}}
+		}, says: `EntityConfiguration would publish private key material: the "jwks" key set holds a key with key ID "own"`},
+		"a private key in this entity's own jwks whose member name encoding/json reads as d": {change: func(cfg *model.ServerConfiguration) {
+			cfg.EntityConfiguration.JWKs = josemodel.Jwks{Keys: []map[string]any{{"kty": "EC", "crv": "P-256", "kid": "folded", "x": "x", "y": "y", "D": "PRIVATE-MEMBER-VALUE"}}}
+		}, says: `EntityConfiguration would publish private key material: the "jwks" key set holds a key with key ID "folded"`},
+		"a public key in this entity's own jwks": {change: func(cfg *model.ServerConfiguration) {
+			cfg.EntityConfiguration.JWKs = josemodel.Jwks{Keys: []map[string]any{ownerKey}}
+		}},
 		"a public key in published metadata": {change: func(cfg *model.ServerConfiguration) {
 			cfg.EntityConfiguration.Metadata = &model.Metadata{OpenIDRelyingPartyMetadata: &model.OpenIDRelyingPartyMetadata{
 				"redirect_uris": []any{"https://entity.example.com/cb"},

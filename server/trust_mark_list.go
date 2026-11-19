@@ -43,8 +43,9 @@ func (s *Server) TrustMarkList(w http.ResponseWriter, r *http.Request) ResponseF
 
 	statusBytes, err := json.Marshal(status)
 	if err != nil {
-		s.cfg.LogInfo(ctx, "error marshalling trust mark status", slog.String("error", err.Error()))
-		return s.respondWithError(ctx, w, model.NewServerError(trustMarkListingUnavailableError))
+		failure := model.NewServerError(trustMarkListingUnavailableError)
+		s.logFailure(ctx, "error marshalling trust mark list", failure, slog.String("error", err.Error()))
+		return s.respondWithError(ctx, w, failure)
 	}
 
 	return s.respondWithJSON(w, statusBytes)

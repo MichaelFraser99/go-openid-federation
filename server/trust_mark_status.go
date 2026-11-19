@@ -38,14 +38,16 @@ func (s *Server) TrustMarkStatus(w http.ResponseWriter, r *http.Request) Respons
 
 	statusBytes, err := json.Marshal(status)
 	if err != nil {
-		s.cfg.LogInfo(ctx, "error marshalling trust mark status", slog.String("error", err.Error()))
-		return s.respondWithError(ctx, w, model.NewServerError(trustMarkStatusUnavailableError))
+		failure := model.NewServerError(trustMarkStatusUnavailableError)
+		s.logFailure(ctx, "error marshalling trust mark status response", failure, slog.String("error", err.Error()))
+		return s.respondWithError(ctx, w, failure)
 	}
 
 	var statusMap map[string]any
 	if err = json.Unmarshal(statusBytes, &statusMap); err != nil {
-		s.cfg.LogInfo(ctx, "error unmarshalling subordinate status response", slog.String("error", err.Error()))
-		return s.respondWithError(ctx, w, model.NewServerError(trustMarkStatusUnavailableError))
+		failure := model.NewServerError(trustMarkStatusUnavailableError)
+		s.logFailure(ctx, "error unmarshalling trust mark status response", failure, slog.String("error", err.Error()))
+		return s.respondWithError(ctx, w, failure)
 	}
 	statusMap["iss"] = s.cfg.EntityIdentifier
 	statusMap["iat"] = time.Now().UTC().Unix()
@@ -61,8 +63,9 @@ func (s *Server) TrustMarkStatus(w http.ResponseWriter, r *http.Request) Respons
 		"alg": s.cfg.SignerConfiguration.Algorithm,
 	}, statusMap, jwt.Opts{Algorithm: jwa.GetAlgorithm(s.cfg.SignerConfiguration.Algorithm)})
 	if err != nil {
-		s.cfg.LogInfo(ctx, "error creating resolve response", slog.String("error", err.Error()))
-		return s.respondWithError(ctx, w, errclass.ClassifySignerError(err, trustMarkStatusUnavailableError))
+		classified := errclass.ClassifySignerError(err, trustMarkStatusUnavailableError)
+		s.logFailure(ctx, "error signing the trust mark status response", classified, slog.String("error", err.Error()))
+		return s.respondWithError(ctx, w, classified)
 	}
 
 	return s.respondWithTrustMarkStatusResponse(w, []byte(*token))

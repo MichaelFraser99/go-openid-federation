@@ -93,6 +93,35 @@ func TestNew_DropsARegisteredKeyItCannotPublish(t *testing.T) {
 			kept:    []string{"good"},
 		},
 		{
+			name:      "a registered EC key carrying its private exponent under a name encoding/json reads as d is dropped",
+			reference: "RFC 7518 6.2.2",
+			registered: []map[string]any{
+				good,
+				{"kid": "leaked-folded", "kty": "EC", "crv": "P-256", "x": "AQAB", "y": "AQAB", "D": "SECRETEXPONENT"},
+			},
+			dropped: []string{"leaked-folded", "SECRETEXPONENT"},
+			kept:    []string{"good"},
+		},
+		{
+			name:      "a registered symmetric key whose k is spelled with the KELVIN SIGN is dropped",
+			reference: "RFC 7518 6.4.1",
+			registered: []map[string]any{
+				good,
+				{"kid": "leaked-kelvin", "kty": "oct", "\u212a": "SECRETSYMMETRIC"},
+			},
+			dropped: []string{"leaked-kelvin", "SECRETSYMMETRIC"},
+			kept:    []string{"good"},
+		},
+		{
+			name:      "a registered key with a member whose name only contains private member letters is published",
+			reference: "RFC 7517 4",
+			registered: []map[string]any{
+				good,
+				{"kid": "lookalike", "kty": "EC", "crv": "P-256", "x": "AQAB", "y": "AQAB", "x_dp": "AQAB", "Dd": "AQAB", "\uff44": "AQAB"},
+			},
+			kept: []string{"good", "lookalike"},
+		},
+		{
 			name:      "a registered RSA key below the minimum modulus for the algorithm it is registered for is dropped",
 			reference: "RFC 7518 3.3",
 			registered: []map[string]any{

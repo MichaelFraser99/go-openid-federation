@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entityid"
 	"github.com/MichaelFraser99/go-openid-federation/internal/errclass"
+	"github.com/MichaelFraser99/go-openid-federation/internal/keyops"
 	"github.com/MichaelFraser99/go-openid-federation/internal/keyscan"
 	"github.com/MichaelFraser99/go-openid-federation/internal/peerclient"
 	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
@@ -282,7 +284,7 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 			configuration.LogError(ctx, "dropping a registered key from a subordinate statement because it carries private key material", slog.String("subject", string(subjectIdentifier)), slog.String("kid", truncate.TruncateForResponse(sKid)), slog.String("error", err.Error()))
 			continue
 		}
-		if err := keyscan.ValidateKeyOps(k); err != nil {
+		if err := keyops.Validate(k); err != nil {
 			configuration.LogError(ctx, "dropping a registered key from a subordinate statement because its 'key_ops' is malformed", slog.String("subject", string(subjectIdentifier)), slog.String("kid", truncate.TruncateForResponse(sKid)), slog.String("error", err.Error()))
 			continue
 		}
@@ -291,7 +293,7 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 				configuration.LogError(ctx, "dropping a registered key from a subordinate statement because its modulus is outside the sizes this library verifies for the algorithm it is registered for", slog.String("subject", string(subjectIdentifier)), slog.String("kid", truncate.TruncateForResponse(sKid)), slog.String("error", err.Error()))
 				continue
 			}
-		} else if err := keyscan.VerifyKeyStrengthForAnySignatureAlgorithm(k); err != nil {
+		} else if err := model.VerifyKeyStrengthForAnySignatureAlgorithm(k); err != nil {
 			configuration.LogError(ctx, "dropping a registered key from a subordinate statement because it names no algorithm and its modulus is below the size every RSA signature algorithm requires", slog.String("subject", string(subjectIdentifier)), slog.String("kid", truncate.TruncateForResponse(sKid)), slog.String("error", err.Error()))
 			continue
 		}
@@ -317,9 +319,6 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 
 	if unrecognised := subjectSubordinateConfiguration.Policies.UnrecognisedOperators(); len(unrecognised) > 0 {
 		return nil, unusableRecord(fmt.Errorf("the metadata policy configured for %s holds operators this library does not understand, so it cannot publish them: %s", truncate.TruncateForResponse(string(subjectIdentifier)), truncate.TruncateForResponse(strings.Join(unrecognised, ", "))))
-	}
-	if entityTypes := subjectSubordinateConfiguration.Policies.OneOfOnScope(); len(entityTypes) > 0 {
-		configuration.LogError(ctx, "the metadata policy configured for a subordinate puts one_of on scope, which fails whenever scope is present because policy operators process scope as an array; use subset_of to limit scope values", slog.String("subject", string(subjectIdentifier)), slog.String("entity_types", strings.Join(entityTypes, ", ")))
 	}
 	if policy := subjectSubordinateConfiguration.Policies; policy.HasParameterPolicies() {
 		subordinateStatement.MetadataPolicy = &policy
@@ -347,6 +346,10 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 	err = json.Unmarshal(subordinateStatementBytes, &subordinateStatementMap)
 	if err != nil {
 		return nil, fmt.Errorf("failed to deserialize entity configuration: %s", err.Error())
+	}
+
+	if entityTypes := oneOfOnScope(subordinateStatementMap["metadata_policy"]); len(entityTypes) > 0 {
+		configuration.LogError(ctx, "the metadata policy configured for a subordinate puts one_of on scope, which fails whenever scope is present because policy operators process scope as an array; use subset_of to limit scope values", slog.String("subject", string(subjectIdentifier)), slog.String("entity_types", strings.Join(entityTypes, ", ")))
 	}
 
 	if err = keyscan.VerifyPublishableStatementKeys(subordinateStatementMap); err != nil {
@@ -415,4 +418,18 @@ func fetchEnded(ctx, fetchCtx context.Context, cfg model.Configuration, issuer m
 	}
 	cfg.LogInfo(ctx, "the issuer's federation fetch response did not arrive within the peer deadline", slog.String("issuer", string(issuer.Sub)))
 	return fmt.Errorf("%w%w", model.ErrPeerTimeout, model.NewInvalidTrustChainError("the issuer's federation fetch response did not arrive within the peer deadline"))
+}
+
+func oneOfOnScope(policy any) []string {
+	entityTypes, _ := policy.(map[string]any)
+	var named []string
+	for entityType, parameters := range entityTypes {
+		parameterPolicies, _ := parameters.(map[string]any)
+		operators, _ := parameterPolicies["scope"].(map[string]any)
+		if _, present := operators["one_of"]; present {
+			named = append(named, entityType)
+		}
+	}
+	slices.Sort(named)
+	return named
 }

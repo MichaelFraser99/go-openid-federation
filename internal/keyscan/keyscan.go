@@ -2,11 +2,9 @@ package keyscan
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"maps"
-	"math/big"
 	"slices"
 	"strings"
 
@@ -181,62 +179,6 @@ func VerifyPublishableStatementKeys(statement map[string]any) error {
 		}
 	}
 	return nil
-}
-
-func VerifyKeyStrengthForAnySignatureAlgorithm(key map[string]any) error {
-	if kty, _ := key["kty"].(string); kty != "RSA" {
-		return nil
-	}
-	if use, present := key["use"]; present && use != nil && use != "sig" {
-		return nil
-	}
-	if !KeyOpsPermitVerify(key) {
-		return nil
-	}
-	modulus, ok := key["n"].(string)
-	if !ok || modulus == "" {
-		return nil
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(modulus)
-	if err != nil {
-		return nil
-	}
-	if bits := new(big.Int).SetBytes(raw).BitLen(); bits < model.MinimumRSAKeyBits {
-		return fmt.Errorf("has a %d bit RSA modulus and names no 'alg', so it can be selected to verify a signature, and RFC 7518 sections 3.3 and 3.5 require a key of size %d bits or larger with every RSA signature algorithm", bits, model.MinimumRSAKeyBits)
-	}
-	return nil
-}
-
-func ValidateKeyOps(key map[string]any) error {
-	member, present := key["key_ops"]
-	if !present {
-		return nil
-	}
-	ops, ok := member.([]any)
-	if !ok {
-		return fmt.Errorf("has a 'key_ops' member that is not an array")
-	}
-	seen := make(map[string]struct{}, len(ops))
-	for _, op := range ops {
-		named, ok := op.(string)
-		if !ok {
-			return fmt.Errorf("has a 'key_ops' member holding a value that is not a string")
-		}
-		if _, duplicate := seen[named]; duplicate {
-			return fmt.Errorf("lists %q more than once in 'key_ops', which RFC 7517 section 4.3 forbids", truncate.TruncateForResponse(named))
-		}
-		seen[named] = struct{}{}
-	}
-	return nil
-}
-
-func KeyOpsPermitVerify(key map[string]any) bool {
-	member, present := key["key_ops"]
-	if !present {
-		return true
-	}
-	ops, _ := member.([]any)
-	return slices.Contains(ops, any("verify"))
 }
 
 func LogPrivateKeyMembersInRawSet(ctx context.Context, cfg *model.Configuration, issuer, subject model.EntityIdentifier, raw any) {

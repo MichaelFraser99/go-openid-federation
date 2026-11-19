@@ -4,8 +4,10 @@ import (
 	"encoding/base64"
 	"fmt"
 	"math/big"
+	"strings"
 
 	josemodel "github.com/MichaelFraser99/go-jose/model"
+	"github.com/MichaelFraser99/go-openid-federation/internal/keyops"
 )
 
 const MinimumRSAKeyBits = 2048
@@ -15,9 +17,17 @@ const MaximumRSAKeyBits = 8192
 var privateJWKMembers = []string{"d", "p", "q", "dp", "dq", "qi", "oth", "k", "priv"}
 
 func PrivateJWKMembers(key map[string]any) []string {
+	found := map[string]bool{}
+	for name := range key {
+		for _, member := range privateJWKMembers {
+			if strings.EqualFold(name, member) {
+				found[member] = true
+			}
+		}
+	}
 	var members []string
 	for _, member := range privateJWKMembers {
-		if _, present := key[member]; present {
+		if found[member] {
 			members = append(members, member)
 		}
 	}
@@ -71,6 +81,19 @@ func VerifyKeyStrength(key map[string]any, alg string) error {
 	}
 	if bits, ok := rsaSignatureModulusBits(key, alg); ok && bits > MaximumRSAKeyBits {
 		return fmt.Errorf("has a %d bit RSA modulus, more than the %d bits this library will verify with %q", bits, MaximumRSAKeyBits, alg)
+	}
+	return nil
+}
+
+func VerifyKeyStrengthForAnySignatureAlgorithm(key map[string]any) error {
+	if use, present := key["use"]; present && use != nil && use != "sig" {
+		return nil
+	}
+	if !keyops.PermitVerify(key) {
+		return nil
+	}
+	if bits, ok := rsaSignatureModulusBits(key, "RS256"); ok && bits < MinimumRSAKeyBits {
+		return fmt.Errorf("has a %d bit RSA modulus and names no 'alg', so it can be selected to verify a signature, and RFC 7518 sections 3.3 and 3.5 require a key of size %d bits or larger with every RSA signature algorithm", bits, MinimumRSAKeyBits)
 	}
 	return nil
 }

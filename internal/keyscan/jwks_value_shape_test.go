@@ -86,6 +86,49 @@ func TestVerifyPublishableStatementKeys_FindsAPrivateKeyAnywhereInsideAJwksValue
 			expectErr: "trust_mark_owners.https://tm.example.com/a.jwks",
 		},
 		{
+			name:      "a jwks member inside an object held in an array of a custom entity type",
+			reference: "RFC 7518 6.4.1",
+			statement: func() map[string]any {
+				return map[string]any{"metadata": map[string]any{"custom": map[string]any{"list": []any{map[string]any{"jwks": map[string]any{"keys": []any{map[string]any{"kty": "oct", "kid": "x", "k": "c2VjcmV0"}}}}}}}}
+			},
+			expectErr: "metadata.custom.list.jwks",
+		},
+		{
+			name:      "a jwks keys array holding a key whose private exponent is named D, which encoding/json reads as d",
+			reference: "RFC 7518 6.2.2",
+			statement: func() map[string]any {
+				return map[string]any{"jwks": map[string]any{"keys": []any{publicKey("good"), leakedKey("upper", "D")}}}
+			},
+			expectErr: "jwks",
+		},
+		{
+			name:      "a metadata jwks holding a symmetric key whose k is spelled with the KELVIN SIGN",
+			reference: "RFC 7518 6.4.1",
+			statement: func() map[string]any {
+				return map[string]any{"metadata": map[string]any{"openid_relying_party": map[string]any{"jwks": map[string]any{"keys": []any{leakedKey("kelvin", "\u212a")}}}}}
+			},
+			expectErr: "metadata.openid_relying_party.jwks",
+		},
+		{
+			name:      "a trust_mark_owners entry holding an AKP key whose private member is named Priv",
+			reference: "RFC 9964",
+			statement: func() map[string]any {
+				return map[string]any{"trust_mark_owners": map[string]any{"https://tm.example.com/a": map[string]any{"jwks": map[string]any{"keys": []any{leakedKey("mixed", "Priv")}}}}}
+			},
+			expectErr: "trust_mark_owners.https://tm.example.com/a.jwks",
+		},
+		{
+			name:      "a jwks holding a public key with members whose names only contain private member letters",
+			reference: "RFC 7517 4",
+			statement: func() map[string]any {
+				key := publicKey("lookalike")
+				key["x_d"] = "AQAB"
+				key["Dd"] = "AQAB"
+				key["\uff4b"] = "AQAB"
+				return map[string]any{"jwks": map[string]any{"keys": []any{key}}}
+			},
+		},
+		{
 			name:      "a custom entity type whose jwks is a bare public JWK",
 			reference: "RFC 7517 4",
 			statement: func() map[string]any {
@@ -213,6 +256,15 @@ func TestStripUnpublishableKeys_RemovesEveryPrivateKeyInsideAJwksValue(t *testin
 			dropped: []string{"deep"},
 		},
 		{
+			name:      "a jwks member inside an object held in an array of a custom entity type",
+			reference: "RFC 7518 6.4.1",
+			entity: func() map[string]any {
+				return map[string]any{"metadata": map[string]any{"custom": map[string]any{"list": []any{map[string]any{"jwks": map[string]any{"keys": []any{publicKey("good"), map[string]any{"kty": "oct", "kid": "x", "k": "c2VjcmV0"}}}}}}}}
+			},
+			expect:  map[string]any{"metadata": map[string]any{"custom": map[string]any{"list": []any{map[string]any{"jwks": map[string]any{"keys": []any{publicKey("good")}}}}}}},
+			dropped: []string{"x"},
+		},
+		{
 			name:      "a jwks that is an array of arrays",
 			reference: "RFC 7518 6.2.2",
 			entity: func() map[string]any {
@@ -220,6 +272,26 @@ func TestStripUnpublishableKeys_RemovesEveryPrivateKeyInsideAJwksValue(t *testin
 			},
 			expect:  map[string]any{"jwks": []any{[]any{publicKey("good")}}},
 			dropped: []string{"nested"},
+		},
+		{
+			name:      "a jwks keys array holding keys whose private members are spelled as encoding/json folds them",
+			reference: "RFC 7518 6",
+			entity: func() map[string]any {
+				return map[string]any{"jwks": map[string]any{"keys": []any{publicKey("good"), leakedKey("upper", "D"), leakedKey("kelvin", "\u212a"), leakedKey("mixed", "oTh"), leakedKey("akp", "PRIV")}}}
+			},
+			expect:  map[string]any{"jwks": map[string]any{"keys": []any{publicKey("good")}}},
+			dropped: []string{"akp", "kelvin", "mixed", "upper"},
+		},
+		{
+			name:      "a jwks holding a public key with members whose names only contain private member letters",
+			reference: "RFC 7517 4",
+			entity: func() map[string]any {
+				key := publicKey("lookalike")
+				key["x_d"] = "AQAB"
+				key["qq"] = "AQAB"
+				return map[string]any{"jwks": map[string]any{"keys": []any{key}}}
+			},
+			expect: map[string]any{"jwks": map[string]any{"keys": []any{map[string]any{"kid": "lookalike", "kty": "EC", "crv": "P-256", "x": "AQAB", "y": "AQAB", "x_d": "AQAB", "qq": "AQAB"}}}},
 		},
 		{
 			name:      "a jwks that is a bare public JWK",

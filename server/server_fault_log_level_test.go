@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jws"
+	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -102,11 +104,32 @@ func TestServer_AFaultOfThisServersOwnIsLoggedAtErrorOnceAndACallersFaultIsNot(t
 		}
 	}
 
+	withRefusingSigner := func(err error) func(*model.ServerConfiguration) {
+		return func(cfg *model.ServerConfiguration) {
+			cfg.SignerConfiguration.Signer = refusingSigner{public: signer.Public(), err: err}
+		}
+	}
+	withSubordinateStatus := func(cfg *model.ServerConfiguration) {
+		cfg.Extensions.SubordinateStatus = model.SubordinateStatusConfiguration{Enabled: true, MetadataRetriever: sharedStatusRetriever{shared: &model.SubordinateStatusResponse{}}}
+	}
+	withTrustMarkStatus := func(cfg *model.ServerConfiguration) {
+		cfg.TrustMarkRetriever = testTrustMarkRetriever{status: josemodel.Pointer("active")}
+	}
+	both := func(changes ...func(*model.ServerConfiguration)) func(*model.ServerConfiguration) {
+		return func(cfg *model.ServerConfiguration) {
+			for _, change := range changes {
+				change(cfg)
+			}
+		}
+	}
+
 	tests := []struct {
 		name      string
 		reference string
 		configure func(*model.ServerConfiguration)
+		method    string
 		path      string
+		form      url.Values
 		status    int
 		errors    int
 		cause     string
@@ -173,6 +196,44 @@ func TestServer_AFaultOfThisServersOwnIsLoggedAtErrorOnceAndACallersFaultIsNot(t
 			status:    http.StatusNotFound,
 		},
 		{
+			name:      "a subordinate status response when this server's signer fails",
+			reference: "8.9 server_error",
+			configure: both(withSubordinateStatus, withRefusingSigner(errors.New("hsm.internal refused the signature"))),
+			path:      "/subordinate-status?sub=https://leaf.example.com",
+			status:    http.StatusInternalServerError,
+			errors:    1,
+			cause:     "hsm.internal",
+		},
+		{
+			name:      "a subordinate status response while this server's signer is temporarily unavailable",
+			reference: "8.9 temporarily_unavailable",
+			configure: both(withSubordinateStatus, withRefusingSigner(model.NewTemporarilyUnavailableError("hsm.internal is busy"))),
+			path:      "/subordinate-status?sub=https://leaf.example.com",
+			status:    http.StatusServiceUnavailable,
+			cause:     "hsm.internal",
+		},
+		{
+			name:      "a trust mark status response when this server's signer fails",
+			reference: "8.9 server_error",
+			configure: both(withTrustMarkStatus, withRefusingSigner(errors.New("hsm.internal refused the signature"))),
+			method:    http.MethodPost,
+			path:      "/trust-mark-status",
+			form:      url.Values{"trust_mark": {markIssuedBy(t, "https://ta.example.com")}},
+			status:    http.StatusInternalServerError,
+			errors:    1,
+			cause:     "hsm.internal",
+		},
+		{
+			name:      "a trust mark status response while this server's signer is temporarily unavailable",
+			reference: "8.9 temporarily_unavailable",
+			configure: both(withTrustMarkStatus, withRefusingSigner(model.NewTemporarilyUnavailableError("hsm.internal is busy"))),
+			method:    http.MethodPost,
+			path:      "/trust-mark-status",
+			form:      url.Values{"trust_mark": {markIssuedBy(t, "https://ta.example.com")}},
+			status:    http.StatusServiceUnavailable,
+			cause:     "hsm.internal",
+		},
+		{
 			name:      "an extended listing with subordinate statements when the subordinate store fails",
 			reference: "8.9 server_error",
 			configure: func(cfg *model.ServerConfiguration) {
@@ -220,7 +281,13 @@ func TestServer_AFaultOfThisServersOwnIsLoggedAtErrorOnceAndACallersFaultIsNot(t
 			tc.configure(&cfg)
 			ts := startFetchServer(t, cfg)
 
-			response, err := ts.Client().Get(ts.URL + tc.path)
+			var response *http.Response
+			var err error
+			if tc.method == http.MethodPost {
+				response, err = ts.Client().PostForm(ts.URL+tc.path, tc.form)
+			} else {
+				response, err = ts.Client().Get(ts.URL + tc.path)
+			}
 			if err != nil {
 				t.Fatalf("request failed: %v", err)
 			}

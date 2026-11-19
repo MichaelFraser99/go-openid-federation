@@ -68,7 +68,7 @@ func (s *Server) SetHttpClient(client *http.Client) {
 //	Adds an authority hint to a running server
 func (s *Server) AddAuthorityHint(hint model.EntityIdentifier) error {
 	if _, err := model.ValidateEntityIdentifier(string(hint)); err != nil {
-		return fmt.Errorf("the AuthorityHint is not an entity identifier: %s", err.Error())
+		return fmt.Errorf("the AuthorityHint is not an entity identifier: %w", err)
 	}
 	if entityid.NamesTheSameEntity(hint, s.cfg.EntityIdentifier) {
 		return fmt.Errorf("the AuthorityHint names this server's own EntityIdentifier, and section 3.1.2 makes authority_hints the identifiers of the entity's immediate superiors")

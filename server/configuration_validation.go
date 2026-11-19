@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,7 +40,9 @@ func validateConfiguration(cfg model.ServerConfiguration) error {
 	if err := entity_statement.VerifyIssuanceAlgorithm(cfg.SignerConfiguration.Algorithm); err != nil {
 		fault("SignerConfiguration.Algorithm cannot be used: %s", err.Error())
 	} else if cfg.SignerConfiguration.Signer != nil {
-		if _, err := jws.GetValidator(jwa.GetAlgorithm(cfg.SignerConfiguration.Algorithm), cfg.SignerConfiguration.Signer.Public()); err != nil {
+		if public, err := signerPublicKey(cfg.SignerConfiguration.Signer); err != nil {
+			fault("SignerConfiguration.Signer cannot give its public key: %s", err.Error())
+		} else if _, err := jws.GetValidator(jwa.GetAlgorithm(cfg.SignerConfiguration.Algorithm), public); err != nil {
 			fault("SignerConfiguration.Signer holds a key that cannot sign with SignerConfiguration.Algorithm %s: %s", cfg.SignerConfiguration.Algorithm, err.Error())
 		}
 	}
@@ -95,6 +98,15 @@ func validateConfiguration(cfg model.ServerConfiguration) error {
 		fault("EntityConfiguration would publish private key material: %s", err.Error())
 	}
 	return errors.Join(faults...)
+}
+
+func signerPublicKey(signer crypto.Signer) (public crypto.PublicKey, err error) {
+	defer func() {
+		if recover() != nil {
+			public, err = nil, errors.New("its Public method panicked")
+		}
+	}()
+	return signer.Public(), nil
 }
 
 func verifyPublishedKeysArePublic(statement model.EntityStatement) error {

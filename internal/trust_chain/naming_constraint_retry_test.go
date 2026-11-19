@@ -220,3 +220,46 @@ func TestConstraintRefusal_ANamingFailureRefusesTheLinkOnlyBeneathTheEntityOutsi
 		})
 	}
 }
+
+func TestBuildTrustChain_ARouteRefusedBeneathOneEntityDoesNotStopTheWalkRememberingTheRoutesBesideIt(t *testing.T) {
+	const levels = 8
+	hints := map[string][]string{"e": {"x"}, "x": {"ta"}, "t1": {"t2"}, "t2": {"t3"}, "t3": {"ta"}, "ta": {}}
+	hints["leaf"] = []string{"e", "a1", "b1"}
+	below := []string{"a1", "b1"}
+	for level := 2; level <= levels; level++ {
+		pair := []string{fmt.Sprintf("a%d", level), fmt.Sprintf("b%d", level)}
+		for _, name := range below {
+			hints[name] = pair
+		}
+		below = pair
+	}
+	for _, name := range below {
+		hints[name] = []string{"t1"}
+	}
+	f := newRouteFederation(t, chainSigningKey(t), chainSigningKey(t), hints)
+	f.onHosts(hostsFor(hints, "e"))
+	f.claims["ta>x"] = excludingTheBadDomain()
+	cfg := model.Configuration{HttpClient: f.client, MaxTrustChainDepth: levels + 2, MaxEntitiesTraversed: len(hints) + 4}
+
+	_, _, _, err := BuildTrustChain(t.Context(), cfg, f.entity("leaf"), f.entity("ta"), resolvecache.New())
+	want := fmt.Sprintf("the entity identifier %s is outside the naming constraints set by %s", f.entity("e"), f.entity("ta"))
+	if !errors.Is(err, model.ErrInvalidTrustChain) || !strings.Contains(err.Error(), want) {
+		t.Errorf("[6.2.2, 18.1] the only route to the anchor passes through e and every other route is too deep, so the constraint is the answer, not the walk budget; expected invalid_trust_chain with %q, got %v", want, err)
+	}
+}
+
+func TestWalkMemo_ALinkRefusedOnEveryRouteIsRefusedWhateverElseIsRefusedBeneathIt(t *testing.T) {
+	link := resolvecache.Link{Issuer: "https://ta.example", Subject: "https://x.example"}
+	path := []model.EntityStatement{{Sub: "https://leaf.example"}, {Sub: "https://e.example"}, {Sub: "https://x.example"}}
+	for name, refusals := range map[string][]routeRefusal{
+		"the route-dependent refusal first":   {{link: link, within: "https://e.example"}, {link: link}},
+		"the route-independent refusal first": {{link: link}, {link: link, within: "https://e.example"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			refused, dependsOn := newWalkMemo(map[resolvecache.Link][]routeRefusal{link: refusals}).refuses(link, path)
+			if !refused || dependsOn != independentOfPath {
+				t.Errorf("a link refused on every route is refused however the walk arrives, so the verdict may be remembered, expected refused and independent of the route, got refused %v depending on entry %d", refused, dependsOn)
+			}
+		})
+	}
+}

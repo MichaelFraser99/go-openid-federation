@@ -111,6 +111,9 @@ func verifyRoute(ctx context.Context, cfg model.Configuration, route []model.Ent
 	}
 
 	if entry, err := verifyChainLinks(ctx, cfg, trustChain, parsedTrustChain); err != nil {
+		if walkMustStop(err) {
+			return 0, nil, err
+		}
 		return 0, routeLink(route, max(entry, 1)), err
 	}
 
@@ -250,6 +253,9 @@ func verifyTrustAnchor(ctx context.Context, cfg model.Configuration, expected mo
 	}
 
 	if err := entity_statement.VerifyAgainstAnyKey(ctx, signedAnchor, usable, cfg.AcceptedSigningAlgorithms()); err != nil {
+		if ended := verificationInterrupted(ctx, cfg, "the trust anchor's entity configuration"); ended != nil {
+			return ended
+		}
 		cfg.LogError(ctx, "trust anchor entity configuration not signed by any key configured for it", slog.String("trust_anchor", string(expected)), slog.String("error", truncate.TruncateForResponse(err.Error())))
 		return model.NewInvalidTrustAnchorError("the trust anchor entity configuration is not signed by any key configured for it")
 	}
@@ -287,6 +293,9 @@ func verifyChainLinks(ctx context.Context, cfg model.Configuration, signedChain 
 			return i, model.NewInvalidTrustChainError(fmt.Sprintf("entry %d in the trust chain is malformed", i))
 		}
 		if err = entity_statement.VerifyAgainstJwks(ctx, signedChain[i], *kid, parsedChain[i+1].JWKs, cfg.AcceptedSigningAlgorithms()); err != nil {
+			if ended := verificationInterrupted(ctx, cfg, fmt.Sprintf("entry %d", i)); ended != nil {
+				return i, ended
+			}
 			cfg.LogInfo(ctx, "trust chain entry not signed by a key published in the statement above it", slog.Int("entry", i), slog.String("kid", truncate.TruncateForResponse(*kid)), slog.String("error", truncate.TruncateForResponse(err.Error())))
 			return i, model.NewInvalidTrustChainError(fmt.Sprintf("entry %d in the trust chain is not signed by a key published for it in the statement above it", i))
 		}
@@ -383,6 +392,14 @@ func walkNotCompleted(ctx context.Context, own bool) error {
 		return limit
 	}
 	return fmt.Errorf("%w%s: %w", model.ErrTemporarilyUnavailable, "trust chain walk did not complete", ctx.Err())
+}
+
+func verificationInterrupted(ctx context.Context, cfg model.Configuration, entry string) error {
+	if ctx.Err() == nil {
+		return nil
+	}
+	cfg.LogInfo(ctx, "the request ended before a trust chain entry was verified", slog.String("entry", entry))
+	return walkNotCompleted(ctx, false)
 }
 
 var errBudgetExhausted = errors.New("")
@@ -744,6 +761,9 @@ func ResolveMetadataForEntityTypes(ctx context.Context, cfg model.Configuration,
 		}
 		response, err := entity_configuration.Validate(ctx, cfg, *parsedSub, trustChain[len(trustChain)-1])
 		if err != nil {
+			if ended := verificationInterrupted(ctx, cfg, "the last entry"); ended != nil {
+				return nil, ended
+			}
 			cfg.LogInfo(ctx, "failed to validate self-signed entity configuration", slog.String("entity", string(*parsedSub)), slog.String("error", truncate.TruncateForResponse(err.Error())))
 			return nil, suppliedEntryRefused(err, len(trustChain)-1, "entity configuration")
 		}
@@ -808,6 +828,9 @@ func ResolveMetadataForEntityTypes(ctx context.Context, cfg model.Configuration,
 		cfg.LogInfo(ctx, "validating chain step", slog.Int("step", i), slog.String("issuer", string(previousStatement.Iss)))
 		nextStep, err := subordinate_statement.Validate(ctx, cfg, previousStatement, trustChain[i])
 		if err != nil {
+			if ended := verificationInterrupted(ctx, cfg, fmt.Sprintf("entry %d", i)); ended != nil {
+				return nil, ended
+			}
 			cfg.LogInfo(ctx, "failed to validate chain step", slog.Int("step", i), slog.String("error", truncate.TruncateForResponse(err.Error())))
 			return nil, suppliedEntryRefused(err, i, "subordinate statement")
 		}
@@ -823,6 +846,9 @@ func ResolveMetadataForEntityTypes(ctx context.Context, cfg model.Configuration,
 	cfg.LogInfo(ctx, "validating subject entity configuration", slog.String("subject", string(immediateSuperiorStatement.Sub)))
 	subjectEntityConfiguration, err := entity_configuration.Validate(ctx, cfg, immediateSuperiorStatement.Sub, trustChain[0])
 	if err != nil {
+		if ended := verificationInterrupted(ctx, cfg, "the subject's entity configuration"); ended != nil {
+			return nil, ended
+		}
 		cfg.LogInfo(ctx, "failed to validate subject entity configuration", slog.String("error", truncate.TruncateForResponse(err.Error())))
 		return nil, suppliedEntryRefused(err, 0, "entity configuration")
 	}
@@ -844,6 +870,9 @@ func ResolveMetadataForEntityTypes(ctx context.Context, cfg model.Configuration,
 
 	cfg.LogInfo(ctx, "verifying subject entity configuration against the key published by its superior", slog.String("kid", *subjectKid))
 	if err = entity_statement.VerifyAgainstJwks(ctx, trustChain[0], *subjectKid, processedChain[1].JWKs, cfg.AcceptedSigningAlgorithms()); err != nil {
+		if ended := verificationInterrupted(ctx, cfg, "the subject's entity configuration"); ended != nil {
+			return nil, ended
+		}
 		cfg.LogInfo(ctx, "subject entity configuration not signed by a key published for it by its superior", slog.String("kid", truncate.TruncateForResponse(*subjectKid)), slog.String("error", truncate.TruncateForResponse(err.Error())))
 		return nil, model.NewInvalidTrustChainError("the subject's entity configuration is not signed by the key registered for it in the subordinate statement above it")
 	}

@@ -411,6 +411,9 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 		AllowedSigningAlgorithms: cfg.AcceptedSigningAlgorithms(),
 	}, nil)
 	if err != nil {
+		if ended := signatureCheckInterrupted(ctx, cfg, "trust mark"); ended != nil {
+			return nil, ended
+		}
 		cfg.LogInfo(ctx, "failed to validate trust mark", slog.String("error", err.Error()), slog.String("trust_mark", truncate.TruncateForResponse(trustMark)))
 		return nil, fmt.Errorf("failed to validate trust mark: %v", err)
 	}
@@ -420,4 +423,12 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 	}
 
 	return &body, nil
+}
+
+func signatureCheckInterrupted(ctx context.Context, cfg model.Configuration, token string) error {
+	if ctx.Err() == nil {
+		return nil
+	}
+	cfg.LogInfo(ctx, "the request ended before a signature was checked", slog.String("token", token))
+	return fmt.Errorf("the %s signature check did not complete: %w", token, ctx.Err())
 }

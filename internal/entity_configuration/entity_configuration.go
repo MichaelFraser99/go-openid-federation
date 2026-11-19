@@ -143,7 +143,7 @@ func Accept(ctx context.Context, cfg model.Configuration, entityIdentifier model
 func Validate(ctx context.Context, cfg model.Configuration, entityIdentifier model.EntityIdentifier, entityConfigurationJwt string) (*model.EntityStatement, error) {
 	entityConfiguration, err := validate(ctx, cfg, entityIdentifier, entityConfigurationJwt)
 	if err != nil {
-		if errors.Is(err, model.ErrInvalidMetadata) || errors.Is(err, model.ErrInvalidTrustChain) {
+		if errors.Is(err, model.ErrInvalidMetadata) || errors.Is(err, model.ErrInvalidTrustChain) || entity_statement.VerificationInterrupted(err) {
 			return nil, err
 		}
 		return nil, model.NewInvalidTrustChainError(err.Error())
@@ -429,6 +429,9 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 	}
 
 	if err = entity_statement.VerifyIssuedSignature(ctx, *token, cfg.SignerConfiguration.KeyID, cfg.SignerConfiguration.Algorithm, cfg.SignerConfiguration.Signer); err != nil {
+		if entity_statement.VerificationInterrupted(err) {
+			return nil, fmt.Errorf("%w%w", model.ErrTemporarilyUnavailable, err)
+		}
 		return nil, fmt.Errorf("refusing to publish an entity configuration this implementation would reject: %s", err.Error())
 	}
 

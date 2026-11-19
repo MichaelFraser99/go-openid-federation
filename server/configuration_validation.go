@@ -11,6 +11,7 @@ import (
 
 	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jws"
+	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entityid"
 	"github.com/MichaelFraser99/go-openid-federation/internal/keyscan"
@@ -98,9 +99,10 @@ func validateConfiguration(cfg model.ServerConfiguration) error {
 
 func verifyPublishedKeysArePublic(statement model.EntityStatement) error {
 	raw, err := json.Marshal(struct {
+		JWKs            josemodel.Jwks                  `json:"jwks"`
 		Metadata        *model.Metadata                 `json:"metadata,omitempty"`
 		TrustMarkOwners map[string]model.TrustMarkOwner `json:"trust_mark_owners,omitempty"`
-	}{statement.Metadata, statement.TrustMarkOwners})
+	}{statement.JWKs, statement.Metadata, statement.TrustMarkOwners})
 	if err != nil {
 		return nil
 	}

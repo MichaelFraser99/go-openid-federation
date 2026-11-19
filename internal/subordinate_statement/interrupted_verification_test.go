@@ -88,13 +88,29 @@ func TestValidate_AVerificationTheRequestsEndInterruptsKeepsTheContextError(t *t
 		t.Fatalf("the fixture is wrong: the subordinate statement does not validate on a live request, %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	_, err = Validate(ctx, cfg.Configuration, issuer, *token)
-	if !errors.Is(err, context.Canceled) {
-		t.Errorf("[8.9] a verification the request's end interrupted says nothing about the statement, so it must carry context.Canceled, got %v", err)
-	}
-	if errors.Is(err, model.ErrInvalidTrustChain) {
-		t.Errorf("[8.9] a verification the request's end interrupted is not the statement failing validation, got %v", err)
+	for name, ending := range map[string]struct {
+		ctx   func() (context.Context, context.CancelFunc)
+		cause error
+	}{
+		"a cancelled request": {ctx: func() (context.Context, context.CancelFunc) {
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
+			return ctx, cancel
+		}, cause: context.Canceled},
+		"a request past its deadline": {ctx: func() (context.Context, context.CancelFunc) {
+			return context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+		}, cause: context.DeadlineExceeded},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := ending.ctx()
+			defer cancel()
+			_, err := Validate(ctx, cfg.Configuration, issuer, *token)
+			if !errors.Is(err, ending.cause) {
+				t.Errorf("[8.9] a verification the request's end interrupted says nothing about the statement, so it must carry %v, got %v", ending.cause, err)
+			}
+			if errors.Is(err, model.ErrInvalidTrustChain) {
+				t.Errorf("[8.9] a verification the request's end interrupted is not the statement failing validation, got %v", err)
+			}
+		})
 	}
 }

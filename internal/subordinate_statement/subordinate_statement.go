@@ -1,6 +1,7 @@
 package subordinate_statement
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -17,8 +19,14 @@ import (
 	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
+	"github.com/MichaelFraser99/go-openid-federation/internal/boundedjson"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
+	"github.com/MichaelFraser99/go-openid-federation/internal/entityid"
+	"github.com/MichaelFraser99/go-openid-federation/internal/errclass"
+	"github.com/MichaelFraser99/go-openid-federation/internal/keyops"
+	"github.com/MichaelFraser99/go-openid-federation/internal/keyscan"
 	"github.com/MichaelFraser99/go-openid-federation/internal/peerclient"
+	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -58,7 +66,7 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 
 	request, err := fetchRequest(fetchCtx, fetchEndpoint, subject)
 	if err != nil {
-		cfg.LogInfo(ctx, "the issuer's federation fetch endpoint is not a usable url", slog.String("issuer", string(issuer.Sub)), slog.String("endpoint", model.TruncateForResponse(fetchEndpoint)), slog.String("error", model.TruncateForResponse(err.Error())))
+		cfg.LogInfo(ctx, "the issuer's federation fetch endpoint is not a usable url", slog.String("issuer", string(issuer.Sub)), slog.String("endpoint", truncate.TruncateForResponse(fetchEndpoint)), slog.String("error", truncate.TruncateForResponse(err.Error())))
 		return nil, nil, model.NewInvalidTrustChainError("the issuer's federation fetch endpoint is not a usable url")
 	}
 	request.Header.Set("Accept", "application/entity-statement+jwt")
@@ -68,11 +76,11 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 		if ended := fetchEnded(ctx, fetchCtx, cfg, issuer); ended != nil {
 			return nil, nil, ended
 		}
-		cfg.LogInfo(ctx, "failed to reach the issuer's federation fetch endpoint", slog.String("issuer", string(issuer.Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
+		cfg.LogInfo(ctx, "failed to reach the issuer's federation fetch endpoint", slog.String("issuer", string(issuer.Sub)), slog.String("error", truncate.TruncateForResponse(err.Error())))
 		if classified := model.ReclassifyWithDescription(err, "failed to reach the issuer's federation fetch endpoint"); classified != nil {
 			return nil, nil, classified
 		}
-		return nil, nil, model.NewInvalidTrustChainError("failed to reach the issuer's federation fetch endpoint")
+		return nil, nil, fmt.Errorf("%w%w", model.ErrPeerUnreachable, model.NewInvalidTrustChainError("failed to reach the issuer's federation fetch endpoint"))
 	}
 	defer response.Body.Close() //nolint:errcheck
 
@@ -81,21 +89,21 @@ func Retrieve(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 	}
 
 	if response.StatusCode != http.StatusOK {
-		cfg.LogInfo(ctx, "non-200 response from the issuer's federation fetch endpoint", slog.String("issuer", string(issuer.Sub)), slog.String("status", model.TruncateForResponse(response.Status)))
+		cfg.LogInfo(ctx, "non-200 response from the issuer's federation fetch endpoint", slog.String("issuer", string(issuer.Sub)), slog.String("status", truncate.TruncateForResponse(response.Status)))
 		return nil, nil, model.NewInvalidTrustChainError("non-200 response from the issuer's federation fetch endpoint")
 	}
 
-	if !model.IsEntityStatementMediaType(response.Header.Get("Content-Type")) {
-		cfg.LogInfo(ctx, "invalid Content-Type response from the issuer's federation fetch response", slog.String("issuer", string(issuer.Sub)), slog.String("content_type", model.TruncateForResponse(response.Header.Get("Content-Type"))))
+	if !entity_statement.IsEntityStatementMediaType(response.Header.Get("Content-Type")) {
+		cfg.LogInfo(ctx, "invalid Content-Type response from the issuer's federation fetch response", slog.String("issuer", string(issuer.Sub)), slog.String("content_type", truncate.TruncateForResponse(response.Header.Get("Content-Type"))))
 		return nil, nil, model.NewInvalidTrustChainError("invalid Content-Type response from the issuer's federation fetch response")
 	}
 
 	limit := cfg.PeerResponseLimit()
 	responseBytes, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
 	if err != nil {
-		cfg.LogInfo(ctx, "failed to read the issuer's federation fetch response body", slog.String("issuer", string(issuer.Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, nil, fmt.Errorf("%w%s: %w", model.ErrTemporarilyUnavailable, "this server did not complete the request", ctxErr)
+		cfg.LogInfo(ctx, "failed to read the issuer's federation fetch response body", slog.String("issuer", string(issuer.Sub)), slog.String("error", truncate.TruncateForResponse(err.Error())))
+		if ended := fetchEnded(ctx, fetchCtx, cfg, issuer); ended != nil {
+			return nil, nil, ended
 		}
 		return nil, nil, model.NewInvalidTrustChainError("failed to read the issuer's federation fetch response body")
 	}
@@ -121,7 +129,7 @@ func Accept(ctx context.Context, cfg model.Configuration, issuer model.EntitySta
 		return nil, nil, model.NewInvalidTrustChainError("'sub' claim does not match the requested subject entity identifier")
 	}
 
-	model.LogPrivateKeyMembersInRawSet(ctx, &cfg, subordinateStatement.Iss, subordinateStatement.Sub, rawJWKSClaim(signed))
+	keyscan.LogPrivateKeyMembersInRawSet(ctx, &cfg, subordinateStatement.Iss, subordinateStatement.Sub, rawJWKSClaim(signed))
 
 	return &signed, subordinateStatement, nil
 }
@@ -129,7 +137,7 @@ func Accept(ctx context.Context, cfg model.Configuration, issuer model.EntitySta
 func Validate(ctx context.Context, cfg model.Configuration, issuer model.EntityStatement, subordinateStatementJwt string) (*model.EntityStatement, error) {
 	subordinateStatement, err := validate(ctx, cfg, issuer, subordinateStatementJwt)
 	if err != nil {
-		if errors.Is(err, model.ErrInvalidMetadata) || errors.Is(err, model.ErrInvalidTrustChain) {
+		if errors.Is(err, model.ErrInvalidMetadata) || errors.Is(err, model.ErrInvalidTrustChain) || entity_statement.VerificationInterrupted(err) {
 			return nil, err
 		}
 		return nil, model.NewInvalidTrustChainError(err.Error())
@@ -147,7 +155,7 @@ func validate(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode JWT header: %s", err.Error())
 	}
-	if err := model.VerifyJSONValueCount(head, cfg.StatementValuesLimit()); err != nil {
+	if err := boundedjson.VerifyJSONValueCount(head, cfg.StatementValuesLimit()); err != nil {
 		return nil, fmt.Errorf("the JWT header %s", err.Error())
 	}
 	var headMap map[string]any
@@ -160,7 +168,7 @@ func validate(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode JWT body: %s", err.Error())
 	}
-	if err := model.VerifyJSONValueCount(body, cfg.StatementValuesLimit()); err != nil {
+	if err := boundedjson.VerifyJSONValueCount(body, cfg.StatementValuesLimit()); err != nil {
 		return nil, fmt.Errorf("the JWT body %s", err.Error())
 	}
 	var bodyMap map[string]any
@@ -168,7 +176,7 @@ func validate(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JWT body: %s", err.Error())
 	}
-	if err := model.VerifyTrustMarkValueCount(bodyMap, cfg.StatementValuesLimit()); err != nil {
+	if err := boundedjson.VerifyTrustMarkValueCount(bodyMap, cfg.StatementValuesLimit()); err != nil {
 		return nil, fmt.Errorf("the JWT body %s", err.Error())
 	}
 
@@ -200,7 +208,7 @@ func validate(ctx context.Context, cfg model.Configuration, issuer model.EntityS
 		if errors.Is(err, model.ErrInvalidMetadata) {
 			return nil, fmt.Errorf("invalid entity statement: %w", err)
 		}
-		return nil, model.NewInvalidTrustChainError(fmt.Sprintf("invalid entity statement: %s", err.Error()))
+		return nil, model.CarryMarkers(err, model.NewInvalidTrustChainError(fmt.Sprintf("invalid entity statement: %s", err.Error())))
 	}
 
 	if subordinateStatement.Iss == subordinateStatement.Sub {
@@ -241,7 +249,7 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		return nil, fmt.Errorf("no intermediate configuration provided")
 	}
 
-	if model.NamesTheSameEntity(subjectIdentifier, configuration.EntityIdentifier) {
+	if entityid.NamesTheSameEntity(subjectIdentifier, configuration.EntityIdentifier) {
 		return nil, model.NewInvalidSubjectError("an entity cannot issue a subordinate statement about itself, as a statement whose 'iss' and 'sub' claims match is an entity configuration")
 	}
 
@@ -274,20 +282,20 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		seen[sKid] = struct{}{}
 
 		if err := model.VerifyPublishableJWK(k); err != nil {
-			configuration.LogError(ctx, "dropping a registered key from a subordinate statement because it carries private key material", slog.String("subject", string(subjectIdentifier)), slog.String("kid", model.TruncateForResponse(sKid)), slog.String("error", err.Error()))
+			configuration.LogError(ctx, "dropping a registered key from a subordinate statement because it carries private key material", slog.String("subject", string(subjectIdentifier)), slog.String("kid", truncate.TruncateForResponse(sKid)), slog.String("error", err.Error()))
 			continue
 		}
-		if err := model.ValidateKeyOps(k); err != nil {
-			configuration.LogError(ctx, "dropping a registered key from a subordinate statement because its 'key_ops' is malformed", slog.String("subject", string(subjectIdentifier)), slog.String("kid", model.TruncateForResponse(sKid)), slog.String("error", err.Error()))
+		if err := keyops.Validate(k); err != nil {
+			configuration.LogError(ctx, "dropping a registered key from a subordinate statement because its 'key_ops' is malformed", slog.String("subject", string(subjectIdentifier)), slog.String("kid", truncate.TruncateForResponse(sKid)), slog.String("error", err.Error()))
 			continue
 		}
 		if declared, ok := k["alg"].(string); ok {
 			if err := model.VerifyKeyStrength(k, declared); err != nil {
-				configuration.LogError(ctx, "dropping a registered key from a subordinate statement because its modulus is outside the sizes this library verifies for the algorithm it is registered for", slog.String("subject", string(subjectIdentifier)), slog.String("kid", model.TruncateForResponse(sKid)), slog.String("error", err.Error()))
+				configuration.LogError(ctx, "dropping a registered key from a subordinate statement because its modulus is outside the sizes this library verifies for the algorithm it is registered for", slog.String("subject", string(subjectIdentifier)), slog.String("kid", truncate.TruncateForResponse(sKid)), slog.String("error", err.Error()))
 				continue
 			}
 		} else if err := model.VerifyKeyStrengthForAnySignatureAlgorithm(k); err != nil {
-			configuration.LogError(ctx, "dropping a registered key from a subordinate statement because it names no algorithm and its modulus is below the size every RSA signature algorithm requires", slog.String("subject", string(subjectIdentifier)), slog.String("kid", model.TruncateForResponse(sKid)), slog.String("error", err.Error()))
+			configuration.LogError(ctx, "dropping a registered key from a subordinate statement because it names no algorithm and its modulus is below the size every RSA signature algorithm requires", slog.String("subject", string(subjectIdentifier)), slog.String("kid", truncate.TruncateForResponse(sKid)), slog.String("error", err.Error()))
 			continue
 		}
 		publishable.Keys = append(publishable.Keys, k)
@@ -297,7 +305,7 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		return nil, model.NewInvalidSubjectError("every key registered for this subject is unpublishable, so no usable subordinate statement can be issued for it")
 	}
 
-	subordinateStatementLifetime, err := model.ResolveStatementLifetime("SubordinateStatementLifetime", configuration.IntermediateConfiguration.SubordinateStatementLifetime, model.DefaultSubordinateStatementLifetime)
+	subordinateStatementLifetime, err := entity_statement.ResolveStatementLifetime("SubordinateStatementLifetime", configuration.IntermediateConfiguration.SubordinateStatementLifetime, model.DefaultSubordinateStatementLifetime)
 	if err != nil {
 		return nil, err
 	}
@@ -311,10 +319,7 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 	}
 
 	if unrecognised := subjectSubordinateConfiguration.Policies.UnrecognisedOperators(); len(unrecognised) > 0 {
-		return nil, unusableRecord(fmt.Errorf("the metadata policy configured for %s holds operators this library does not understand, so it cannot publish them: %s", model.TruncateForResponse(string(subjectIdentifier)), model.TruncateForResponse(strings.Join(unrecognised, ", "))))
-	}
-	if entityTypes := subjectSubordinateConfiguration.Policies.OneOfOnScope(); len(entityTypes) > 0 {
-		configuration.LogError(ctx, "the metadata policy configured for a subordinate puts one_of on scope, which fails whenever scope is present because policy operators process scope as an array; use subset_of to limit scope values", slog.String("subject", string(subjectIdentifier)), slog.String("entity_types", strings.Join(entityTypes, ", ")))
+		return nil, unusableRecord(fmt.Errorf("the metadata policy configured for %s holds operators this library does not understand, so it cannot publish them: %s", truncate.TruncateForResponse(string(subjectIdentifier)), truncate.TruncateForResponse(strings.Join(unrecognised, ", "))))
 	}
 	if policy := subjectSubordinateConfiguration.Policies; policy.HasParameterPolicies() {
 		subordinateStatement.MetadataPolicy = &policy
@@ -339,20 +344,26 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 	}
 
 	var subordinateStatementMap map[string]any
-	err = json.Unmarshal(subordinateStatementBytes, &subordinateStatementMap)
+	decoder := json.NewDecoder(bytes.NewReader(subordinateStatementBytes))
+	decoder.UseNumber()
+	err = decoder.Decode(&subordinateStatementMap)
 	if err != nil {
 		return nil, fmt.Errorf("failed to deserialize entity configuration: %s", err.Error())
 	}
 
-	if err = model.VerifyPublishableStatementKeys(subordinateStatementMap); err != nil {
+	if entityTypes := oneOfOnScope(subordinateStatementMap["metadata_policy"]); len(entityTypes) > 0 {
+		configuration.LogError(ctx, "the metadata policy configured for a subordinate puts one_of on scope, which fails whenever scope is present because policy operators process scope as an array; use subset_of to limit scope values", slog.String("subject", string(subjectIdentifier)), slog.String("entity_types", strings.Join(entityTypes, ", ")))
+	}
+
+	if err = keyscan.VerifyPublishableStatementKeys(subordinateStatementMap); err != nil {
 		return nil, unusableRecord(fmt.Errorf("refusing to publish this subordinate statement because %s", err.Error()))
 	}
 
-	if err = model.VerifyIssuedStatement(subordinateStatementBytes, configuration.EntityTypes); err != nil {
+	if err = entity_statement.VerifyIssuedStatement(subordinateStatementBytes, configuration.EntityTypes); err != nil {
 		return nil, unusableRecord(fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %s", err.Error()))
 	}
 
-	if err := model.VerifyIssuanceAlgorithm(signerConfiguration.Algorithm); err != nil {
+	if err := entity_statement.VerifyIssuanceAlgorithm(signerConfiguration.Algorithm); err != nil {
 		return nil, signerFault(fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %s", err.Error()))
 	}
 
@@ -365,11 +376,11 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 		if errors.Is(err, joseerror.ErrUnsupportedAlgorithm) || errors.Is(err, joseerror.ErrInvalidPrivateKey) {
 			return nil, signerFault(fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %s", err.Error()))
 		}
-		classified := model.ClassifySignerError(err, signingFailureError)
+		classified := errclass.ClassifySignerError(err, signingFailureError)
 		if errors.Is(classified, model.ErrTemporarilyUnavailable) {
-			configuration.LogInfo(ctx, "the signer could not sign the subordinate statement", slog.String("sub", model.TruncateForResponse(string(subjectIdentifier))), slog.String("error", model.TruncateForResponse(err.Error())))
+			configuration.LogInfo(ctx, "the signer could not sign the subordinate statement", slog.String("sub", truncate.TruncateForResponse(string(subjectIdentifier))), slog.String("error", truncate.TruncateForResponse(err.Error())))
 		} else {
-			configuration.LogError(ctx, "the signer could not sign the subordinate statement", slog.String("sub", model.TruncateForResponse(string(subjectIdentifier))), slog.String("error", model.TruncateForResponse(err.Error())))
+			configuration.LogError(ctx, "the signer could not sign the subordinate statement", slog.String("sub", truncate.TruncateForResponse(string(subjectIdentifier))), slog.String("error", truncate.TruncateForResponse(err.Error())))
 		}
 		if errors.Is(classified, model.ErrTemporarilyUnavailable) || ctx.Err() != nil {
 			return nil, classified
@@ -378,6 +389,9 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 	}
 
 	if err = entity_statement.VerifyIssuedSignature(ctx, *token, signerConfiguration.KeyID, signerConfiguration.Algorithm, signerConfiguration.Signer); err != nil {
+		if entity_statement.VerificationInterrupted(err) {
+			return nil, fmt.Errorf("%w%w", model.ErrTemporarilyUnavailable, err)
+		}
 		return nil, signerFault(fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %s", err.Error()))
 	}
 
@@ -409,5 +423,19 @@ func fetchEnded(ctx, fetchCtx context.Context, cfg model.Configuration, issuer m
 		return fmt.Errorf("%w%s: %w", model.ErrTemporarilyUnavailable, "this server did not complete the request", ctxErr)
 	}
 	cfg.LogInfo(ctx, "the issuer's federation fetch response did not arrive within the peer deadline", slog.String("issuer", string(issuer.Sub)))
-	return model.NewInvalidTrustChainError("the issuer's federation fetch response did not arrive within the peer deadline")
+	return fmt.Errorf("%w%w", model.ErrPeerTimeout, model.NewInvalidTrustChainError("the issuer's federation fetch response did not arrive within the peer deadline"))
+}
+
+func oneOfOnScope(policy any) []string {
+	entityTypes, _ := policy.(map[string]any)
+	var named []string
+	for entityType, parameters := range entityTypes {
+		parameterPolicies, _ := parameters.(map[string]any)
+		operators, _ := parameterPolicies["scope"].(map[string]any)
+		if _, present := operators["one_of"]; present {
+			named = append(named, entityType)
+		}
+	}
+	slices.Sort(named)
+	return named
 }

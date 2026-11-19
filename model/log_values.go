@@ -4,28 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"unicode/utf8"
+
+	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 )
 
 const MaxLoggedValueBytes = 1024
 
-func TruncateAtCharacter(value string, limit int) string {
-	limit = max(limit, 0)
-	if len(value) <= limit {
-		return value
-	}
-	cut := limit
-	for step := 0; step < utf8.UTFMax-1 && cut > 0 && !utf8.RuneStart(value[cut]); step++ {
-		cut--
-	}
-	if !utf8.RuneStart(value[cut]) {
-		cut = limit
-	}
-	return value[:cut] + "..."
-}
-
 func truncateLoggedValue(value string) string {
-	return TruncateAtCharacter(value, MaxLoggedValueBytes)
+	return truncate.TruncateAtCharacter(value, MaxLoggedValueBytes)
 }
 
 func boundLogArgs(args []any) []any {

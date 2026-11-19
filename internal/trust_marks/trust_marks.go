@@ -17,8 +17,11 @@ import (
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
+	"github.com/MichaelFraser99/go-openid-federation/internal/boundedjson"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
+	"github.com/MichaelFraser99/go-openid-federation/internal/errclass"
 	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
+	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 	"github.com/MichaelFraser99/go-openid-federation/internal/trust_chain"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
@@ -55,7 +58,7 @@ func issuedBy(trustMark string, issuer model.EntityIdentifier, valueLimit int) b
 	if err != nil {
 		return false
 	}
-	if model.VerifyJSONValueCount(payload, valueLimit) != nil {
+	if boundedjson.VerifyJSONValueCount(payload, valueLimit) != nil {
 		return false
 	}
 	var claims map[string]any
@@ -63,7 +66,7 @@ func issuedBy(trustMark string, issuer model.EntityIdentifier, valueLimit int) b
 		return false
 	}
 	iss, _ := claims["iss"].(string)
-	return iss == string(issuer)
+	return iss != "" && iss == string(issuer)
 }
 
 func List(ctx context.Context, cfg model.ServerConfiguration, trustMarkIdentifier string, subjectEntityIdentifier *model.EntityIdentifier) ([]model.EntityIdentifier, error) {
@@ -231,25 +234,25 @@ func FilterByTrusted(ctx context.Context, cfg model.Configuration, resolved *mod
 			if errors.Is(err, resolvecache.ErrOwnIssuedFault) {
 				statement, description = "subordinate statement", ownSubordinateStatementUnavailable
 			}
-			classified := model.ClassifySignerError(err, description)
+			classified := errclass.ClassifySignerError(err, description)
 			if !errors.Is(err, resolvecache.ErrLogged) {
 				msg := "this resolver could not produce its own " + statement + " for a trust mark issuer walk"
 				if errors.Is(classified, model.ErrTemporarilyUnavailable) {
-					cfg.LogInfo(ctx, msg, slog.String("trust_mark_type", model.TruncateForResponse(tm.TrustMarkType)), slog.String("error", model.TruncateForResponse(err.Error())))
+					cfg.LogInfo(ctx, msg, slog.String("trust_mark_type", truncate.TruncateForResponse(tm.TrustMarkType)), slog.String("error", truncate.TruncateForResponse(err.Error())))
 				} else {
-					cfg.LogError(ctx, msg, slog.String("trust_mark_type", model.TruncateForResponse(tm.TrustMarkType)), slog.String("error", model.TruncateForResponse(err.Error())))
+					cfg.LogError(ctx, msg, slog.String("trust_mark_type", truncate.TruncateForResponse(tm.TrustMarkType)), slog.String("error", truncate.TruncateForResponse(err.Error())))
 				}
 			}
 			resolved.TrustMarks = nil
 			return fmt.Errorf("%w%w", resolvecache.ErrLogged, classified)
 		}
 		if err != nil {
-			cfg.LogInfo(ctx, "failed to validate trust mark", slog.String("trust_mark_type", model.TruncateForResponse(tm.TrustMarkType)), slog.String("error", model.TruncateForResponse(err.Error())))
+			cfg.LogInfo(ctx, "failed to validate trust mark", slog.String("trust_mark_type", truncate.TruncateForResponse(tm.TrustMarkType)), slog.String("error", truncate.TruncateForResponse(err.Error())))
 			continue
 		}
 
 		if validated.Expiry != nil && *validated.Expiry <= time.Now().UTC().Unix() {
-			cfg.LogInfo(ctx, "omitting a trust mark whose expiry has passed, because the response expiry is the minimum over the marks it carries", slog.String("trust_mark_type", model.TruncateForResponse(tm.TrustMarkType)), slog.Int64("exp", *validated.Expiry))
+			cfg.LogInfo(ctx, "omitting a trust mark whose expiry has passed, because the response expiry is the minimum over the marks it carries", slog.String("trust_mark_type", truncate.TruncateForResponse(tm.TrustMarkType)), slog.Int64("exp", *validated.Expiry))
 			continue
 		}
 
@@ -285,7 +288,7 @@ func issuerFederationKeys(ctx context.Context, cfg model.Configuration, issuer m
 }
 
 func Validate(ctx context.Context, cfg model.Configuration, trustMark string, opts ValidateOptions, cache *resolvecache.Cache) (*model.TrustMark, error) {
-	cfg.LogInfo(ctx, "validating trust mark", slog.String("trust_mark", model.TruncateForResponse(trustMark)))
+	cfg.LogInfo(ctx, "validating trust mark", slog.String("trust_mark", truncate.TruncateForResponse(trustMark)))
 
 	if opts.ExpectedType == "" {
 		return nil, fmt.Errorf("an expected trust mark type must be supplied to validate a trust mark")
@@ -296,16 +299,16 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 
 	parts := strings.Split(trustMark, ".")
 	if len(parts) != 3 {
-		cfg.LogInfo(ctx, "invalid JWT structure", slog.String("trust_mark", model.TruncateForResponse(trustMark)), slog.Int("parts_count", len(parts)))
+		cfg.LogInfo(ctx, "invalid JWT structure", slog.String("trust_mark", truncate.TruncateForResponse(trustMark)), slog.Int("parts_count", len(parts)))
 		return nil, fmt.Errorf("invalid JWT structure")
 	}
 
 	headBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
-		cfg.LogInfo(ctx, "failed to decode JWT header", slog.String("error", err.Error()), slog.String("trust_mark", model.TruncateForResponse(trustMark)))
+		cfg.LogInfo(ctx, "failed to decode JWT header", slog.String("error", err.Error()), slog.String("trust_mark", truncate.TruncateForResponse(trustMark)))
 		return nil, fmt.Errorf("failed to decode JWT header: %v", err)
 	}
-	if err := model.VerifyJSONValueCount(headBytes, cfg.StatementValuesLimit()); err != nil {
+	if err := boundedjson.VerifyJSONValueCount(headBytes, cfg.StatementValuesLimit()); err != nil {
 		cfg.LogInfo(ctx, "trust mark header exceeds the value limit", slog.Int("limit", cfg.StatementValuesLimit()))
 		return nil, fmt.Errorf("the trust mark's JWT header %s", err.Error())
 	}
@@ -335,21 +338,21 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 
 	bodyBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		cfg.LogInfo(ctx, "failed to decode JWT body", slog.String("error", err.Error()), slog.String("trust_mark", model.TruncateForResponse(trustMark)))
+		cfg.LogInfo(ctx, "failed to decode JWT body", slog.String("error", err.Error()), slog.String("trust_mark", truncate.TruncateForResponse(trustMark)))
 		return nil, fmt.Errorf("failed to decode JWT body: %v", err)
 	}
-	if err := model.VerifyJSONValueCount(bodyBytes, cfg.StatementValuesLimit()); err != nil {
+	if err := boundedjson.VerifyJSONValueCount(bodyBytes, cfg.StatementValuesLimit()); err != nil {
 		cfg.LogInfo(ctx, "trust mark body exceeds the value limit", slog.Int("limit", cfg.StatementValuesLimit()))
 		return nil, fmt.Errorf("the trust mark's JWT body %s", err.Error())
 	}
 	var body model.TrustMark
 	if err = json.Unmarshal(bodyBytes, &body); err != nil {
-		cfg.LogInfo(ctx, "failed to unmarshal JWT body", slog.String("error", err.Error()), slog.String("body", model.TruncateForResponse(string(bodyBytes))))
+		cfg.LogInfo(ctx, "failed to unmarshal JWT body", slog.String("error", err.Error()), slog.String("body", truncate.TruncateForResponse(string(bodyBytes))))
 		return nil, fmt.Errorf("failed to unmarshal JWT body: %v", err)
 	}
 
 	if body.Issuer == "" {
-		cfg.LogInfo(ctx, "trust mark issuer is missing", slog.String("trust_mark", model.TruncateForResponse(trustMark)))
+		cfg.LogInfo(ctx, "trust mark issuer is missing", slog.String("trust_mark", truncate.TruncateForResponse(trustMark)))
 		return nil, fmt.Errorf("trust mark issuer is missing")
 	}
 
@@ -387,28 +390,31 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 	selectedKey, err := entity_statement.SelectKey(*issuerKeys, kid)
 	if err != nil {
 		cfg.LogInfo(ctx, "trust mark kid does not match a key published for the issuer", slog.String("kid", kid), slog.String("issuer", string(*parsedIssuer)), slog.String("error", err.Error()))
-		return nil, fmt.Errorf("trust mark 'kid' %q does not match a federation entity key published by issuer %s: %s", model.TruncateForResponse(kid), *parsedIssuer, err.Error())
+		return nil, fmt.Errorf("trust mark 'kid' %q does not match a federation entity key published by issuer %s: %s", truncate.TruncateForResponse(kid), *parsedIssuer, err.Error())
 	}
 
 	if err = entity_statement.VerifySelectedKey(trustMark, selectedKey, cfg.AcceptedSigningAlgorithms()); err != nil {
 		cfg.LogInfo(ctx, "the key published for the trust mark issuer cannot verify this trust mark", slog.String("kid", kid), slog.String("issuer", string(*parsedIssuer)), slog.String("error", err.Error()))
-		return nil, fmt.Errorf("the trust mark 'kid' %q names a key published by issuer %s that cannot verify it: %s", model.TruncateForResponse(kid), *parsedIssuer, model.TruncateForResponse(err.Error()))
+		return nil, fmt.Errorf("the trust mark 'kid' %q names a key published by issuer %s that cannot verify it: %s", truncate.TruncateForResponse(kid), *parsedIssuer, truncate.TruncateForResponse(err.Error()))
 	}
 
-	_, _, err = jwt.Validate(ctx, trustMark, func() ([]crypto.PublicKey, error) {
+	_, err = jwt.Validate(ctx, trustMark, func() ([]crypto.PublicKey, error) {
 		pubKey, err := jwk.PublicFromJwk(selectedKey)
 		if err != nil {
 			cfg.LogInfo(ctx, "the key published for the trust mark issuer cannot be read", slog.String("kid", kid), slog.String("issuer", string(*parsedIssuer)), slog.Any("members", slices.Sorted(maps.Keys(selectedKey))), slog.String("error", err.Error()))
 			return nil, fmt.Errorf("failed to parse JWK as a valid public key: %w", err)
 		}
 		return []crypto.PublicKey{pubKey}, nil
-	}, &josemodel.JoseOptions{
+	}, nil, &josemodel.JoseOptions{
 		UseTokenProvidedKeys:     false,
 		ClockSkewLeeway:          model.ClockSkewLeeway,
 		AllowedSigningAlgorithms: cfg.AcceptedSigningAlgorithms(),
-	})
+	}, nil)
 	if err != nil {
-		cfg.LogInfo(ctx, "failed to validate trust mark", slog.String("error", err.Error()), slog.String("trust_mark", model.TruncateForResponse(trustMark)))
+		if ended := signatureCheckInterrupted(ctx, cfg, "trust mark"); ended != nil {
+			return nil, ended
+		}
+		cfg.LogInfo(ctx, "failed to validate trust mark", slog.String("error", err.Error()), slog.String("trust_mark", truncate.TruncateForResponse(trustMark)))
 		return nil, fmt.Errorf("failed to validate trust mark: %v", err)
 	}
 
@@ -417,4 +423,12 @@ func Validate(ctx context.Context, cfg model.Configuration, trustMark string, op
 	}
 
 	return &body, nil
+}
+
+func signatureCheckInterrupted(ctx context.Context, cfg model.Configuration, token string) error {
+	if ctx.Err() == nil {
+		return nil
+	}
+	cfg.LogInfo(ctx, "the request ended before a signature was checked", slog.String("token", token))
+	return fmt.Errorf("the %s signature check did not complete: %w", token, ctx.Err())
 }

@@ -1,4 +1,4 @@
-package model
+package truncate
 
 import (
 	"strings"

@@ -11,7 +11,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/MichaelFraser99/go-openid-federation/internal/keyscan"
 	"github.com/MichaelFraser99/go-openid-federation/internal/subordinate_statement"
+	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -32,13 +34,13 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 
 	if err := r.ParseForm(); err != nil {
 		s.cfg.LogInfo(ctx, "error parsing request", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("failed to parse request form"))
+		return s.respondWithError(ctx, w, model.NewInvalidRequestError("failed to parse request form"))
 	}
 
 	filter, subordinateStatement, err := parseExtendedListingFilter(r.URL.Query(), s.cfg.Extensions.ExtendedListing.SizeLimit)
 	if err != nil {
 		s.cfg.LogInfo(ctx, "received extended list request with malformed filter", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, err)
+		return s.respondWithError(ctx, w, err)
 	}
 	_, claimsPresent := r.URL.Query()["claims"]
 	statementExcluded := claimsPresent && !subordinateStatement
@@ -50,12 +52,12 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 			classified = s.retrieverError(err, extendedListingUnavailableError)
 		}
 		s.logFailure(ctx, "error getting subordinates", classified, slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, classified)
+		return s.respondWithError(ctx, w, classified)
 	}
 
 	if subordinates == nil {
 		s.cfg.LogError(ctx, "extended listing retriever returned a nil response with no error, this is a result of mis-configuration")
-		return s.RespondWithError(ctx, w, model.NewServerError(extendedListingUnavailableError))
+		return s.respondWithError(ctx, w, model.NewServerError(extendedListingUnavailableError))
 	}
 
 	response := *subordinates
@@ -93,9 +95,9 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 				if status >= http.StatusInternalServerError && !errors.As(err, new(signerNotPublished)) && !errors.Is(err, subordinate_statement.ErrUnusableRecord) {
 					s.logFailure(ctx, "error creating subordinate statement", err, slog.String("sub", identifier), slog.String("error", err.Error()))
 					if errors.Is(err, model.ErrTemporarilyUnavailable) {
-						return s.RespondWithError(ctx, w, model.NewTemporarilyUnavailableError(extendedListingUnavailableError))
+						return s.respondWithError(ctx, w, model.NewTemporarilyUnavailableError(extendedListingUnavailableError))
 					}
-					return s.RespondWithError(ctx, w, model.NewServerError(extendedListingUnavailableError))
+					return s.respondWithError(ctx, w, model.NewServerError(extendedListingUnavailableError))
 				}
 				delete(response.ImmediateSubordinateEntities[i], "subordinate_statement")
 				if errors.Is(err, subordinate_statement.ErrUnusableRecord) {
@@ -121,24 +123,24 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 
 		serialised, err := json.Marshal(subordinateEntity)
 		if err != nil {
-			s.cfg.LogError(ctx, "omitting a subordinate listing entry that cannot be serialised", slog.String("sub", model.TruncateForResponse(identifier)), slog.String("error", err.Error()))
+			s.cfg.LogError(ctx, "omitting a subordinate listing entry that cannot be serialised", slog.String("sub", truncate.TruncateForResponse(identifier)), slog.String("error", err.Error()))
 			continue
 		}
 		var entity map[string]any
 		if err := json.Unmarshal(serialised, &entity); err != nil {
-			s.cfg.LogError(ctx, "omitting a subordinate listing entry that cannot be read back once serialised", slog.String("sub", model.TruncateForResponse(identifier)), slog.String("error", err.Error()))
+			s.cfg.LogError(ctx, "omitting a subordinate listing entry that cannot be read back once serialised", slog.String("sub", truncate.TruncateForResponse(identifier)), slog.String("error", err.Error()))
 			continue
 		}
 
-		if model.NestsDeeperThanTheKeyScan(entity) {
-			s.cfg.LogError(ctx, "omitting a subordinate listing entry that nests deeper than the key scan reaches, so it cannot be checked for private key material", slog.String("sub", model.TruncateForResponse(identifier)))
+		if keyscan.NestsDeeperThanTheKeyScan(entity) {
+			s.cfg.LogError(ctx, "omitting a subordinate listing entry that nests deeper than the key scan reaches, so it cannot be checked for private key material", slog.String("sub", truncate.TruncateForResponse(identifier)))
 			continue
 		}
 
 		var dropped []string
-		model.StripUnpublishableKeys(entity, 0, &dropped)
+		keyscan.StripUnpublishableKeys(entity, 0, &dropped)
 		if len(dropped) > 0 {
-			s.cfg.LogError(ctx, "dropping keys carrying private key material from an extended listing entry", slog.String("sub", model.TruncateForResponse(identifier)), slog.Any("key_ids", dropped))
+			s.cfg.LogError(ctx, "dropping keys carrying private key material from an extended listing entry", slog.String("sub", truncate.TruncateForResponse(identifier)), slog.Any("key_ids", dropped))
 		}
 		publishable = append(publishable, entity)
 	}
@@ -147,9 +149,9 @@ func (s *Server) ExtendedList(w http.ResponseWriter, r *http.Request) ResponseFu
 	entitiesJSON, err := json.Marshal(response)
 	if err != nil {
 		s.cfg.LogError(ctx, "error marshalling subordinate entities", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, model.NewServerError(extendedListingUnavailableError))
+		return s.respondWithError(ctx, w, model.NewServerError(extendedListingUnavailableError))
 	}
-	return s.RespondWithJSON(w, entitiesJSON)
+	return s.respondWithJSON(w, entitiesJSON)
 }
 
 const (

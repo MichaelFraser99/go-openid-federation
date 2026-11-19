@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -80,7 +81,7 @@ func TestServer_TrustMark_InvalidRequests(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			retriever := &capturingTrustMarkRetriever{issued: model.Pointer("issued.trust.mark")}
+			retriever := &capturingTrustMarkRetriever{issued: josemodel.Pointer("issued.trust.mark")}
 			s := startTrustMarkStatusServer(t, retriever)
 
 			resp, err := s.Client().Get(s.URL + "/trust-mark?" + tt.query)

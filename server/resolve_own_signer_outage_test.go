@@ -466,7 +466,9 @@ func TestServer_Resolve_AnIntermediateBuildsItsOwnEntityConfigurationWithItsAuth
 				signer = refusingSigner{public: intermediateSigner.Public(), err: tc.signerFault}
 			}
 			intermediate, intermediateServer, counter := newAuthority(t, signer, "ia")
-			intermediate.AddAuthorityHint(model.EntityIdentifier(anchorServer.URL))
+			if err := intermediate.AddAuthorityHint(model.EntityIdentifier(anchorServer.URL)); err != nil {
+				t.Fatalf("failed to add the authority hint: %v", err)
+			}
 			intermediate.cfg.MaxRequestPeerBytes = tc.peerBytes
 			anchor.cfg.IntermediateConfiguration.AddSubordinate(model.EntityIdentifier(intermediateServer.URL), &model.SubordinateConfiguration{
 				JWKs: josemodel.Jwks{Keys: []map[string]any{publicKey(t, intermediateSigner, "ia")}},

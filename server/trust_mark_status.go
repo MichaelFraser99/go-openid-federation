@@ -8,6 +8,8 @@ import (
 
 	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwt"
+	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
+	"github.com/MichaelFraser99/go-openid-federation/internal/errclass"
 	"github.com/MichaelFraser99/go-openid-federation/internal/trust_marks"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
@@ -19,39 +21,41 @@ func (s *Server) TrustMarkStatus(w http.ResponseWriter, r *http.Request) Respons
 
 	if err := r.ParseForm(); err != nil {
 		s.cfg.LogInfo(ctx, "error parsing request", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("failed to parse request parameters"))
+		return s.respondWithError(ctx, w, model.NewInvalidRequestError("failed to parse request parameters"))
 	}
 	trustMark := r.PostForm.Get("trust_mark")
 
 	if trustMark == "" {
-		return s.RespondWithError(ctx, w, model.NewInvalidRequestError("request missing required parameter 'trust_mark'"))
+		return s.respondWithError(ctx, w, model.NewInvalidRequestError("request missing required parameter 'trust_mark'"))
 	}
 
 	status, err := trust_marks.Status(ctx, s.cfg, trustMark)
 	if err != nil {
 		classified := s.retrieverError(err, trustMarkStatusUnavailableError)
 		s.logFailure(ctx, "error determining trust mark status", classified, slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, classified)
+		return s.respondWithError(ctx, w, classified)
 	}
 
 	statusBytes, err := json.Marshal(status)
 	if err != nil {
-		s.cfg.LogInfo(ctx, "error marshalling trust mark status", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, model.NewServerError(trustMarkStatusUnavailableError))
+		failure := model.NewServerError(trustMarkStatusUnavailableError)
+		s.logFailure(ctx, "error marshalling trust mark status response", failure, slog.String("error", err.Error()))
+		return s.respondWithError(ctx, w, failure)
 	}
 
 	var statusMap map[string]any
 	if err = json.Unmarshal(statusBytes, &statusMap); err != nil {
-		s.cfg.LogInfo(ctx, "error unmarshalling subordinate status response", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, model.NewServerError(trustMarkStatusUnavailableError))
+		failure := model.NewServerError(trustMarkStatusUnavailableError)
+		s.logFailure(ctx, "error unmarshalling trust mark status response", failure, slog.String("error", err.Error()))
+		return s.respondWithError(ctx, w, failure)
 	}
 	statusMap["iss"] = s.cfg.EntityIdentifier
 	statusMap["iat"] = time.Now().UTC().Unix()
 	statusMap["trust_mark"] = trustMark
 
-	if err := model.VerifyIssuanceAlgorithm(s.cfg.SignerConfiguration.Algorithm); err != nil {
+	if err := entity_statement.VerifyIssuanceAlgorithm(s.cfg.SignerConfiguration.Algorithm); err != nil {
 		s.cfg.LogError(ctx, "the configured signing algorithm cannot be signed with", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, model.NewServerError(trustMarkStatusUnavailableError))
+		return s.respondWithError(ctx, w, model.NewServerError(trustMarkStatusUnavailableError))
 	}
 	token, err := jwt.New(s.cfg.SignerConfiguration.Signer, map[string]any{
 		"kid": s.cfg.SignerConfiguration.KeyID,
@@ -59,9 +63,10 @@ func (s *Server) TrustMarkStatus(w http.ResponseWriter, r *http.Request) Respons
 		"alg": s.cfg.SignerConfiguration.Algorithm,
 	}, statusMap, jwt.Opts{Algorithm: jwa.GetAlgorithm(s.cfg.SignerConfiguration.Algorithm)})
 	if err != nil {
-		s.cfg.LogInfo(ctx, "error creating resolve response", slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, model.ClassifySignerError(err, trustMarkStatusUnavailableError))
+		classified := errclass.ClassifySignerError(err, trustMarkStatusUnavailableError)
+		s.logFailure(ctx, "error signing the trust mark status response", classified, slog.String("error", err.Error()))
+		return s.respondWithError(ctx, w, classified)
 	}
 
-	return s.RespondWithTrustMarkStatusResponse(w, []byte(*token))
+	return s.respondWithTrustMarkStatusResponse(w, []byte(*token))
 }

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 )
 
 func base64RawURL(body string) string {
@@ -342,7 +344,7 @@ func TestTrustMarkHolder_TheMismatchErrorIsBounded(t *testing.T) {
 	if !strings.Contains(err.Error(), "does not match") {
 		t.Fatalf("expected the type mismatch to be named, got %v", err)
 	}
-	if limit := 2*MaxErrorDescriptionBytes + 512; len(err.Error()) > limit {
+	if limit := 2*truncate.MaxErrorDescriptionBytes + 512; len(err.Error()) > limit {
 		t.Errorf("a peer chooses both values, so the error must stay within %d bytes, got %d", limit, len(err.Error()))
 	}
 }

@@ -6,19 +6,12 @@ import (
 )
 
 func NewDefault(operatorValue any) (*Default, error) {
+	operatorValue, err := storedValue(operatorValue)
+	if err != nil {
+		return nil, err
+	}
 	if operatorValue == nil {
 		return nil, fmt.Errorf("operator value cannot be nil")
-	}
-
-	if reflect.TypeOf(operatorValue).Kind() == reflect.Slice {
-		sliceValue := reflect.ValueOf(operatorValue)
-		anySlice := make([]any, sliceValue.Len())
-
-		for i := 0; i < sliceValue.Len(); i++ {
-			anySlice[i] = sliceValue.Index(i).Interface()
-		}
-
-		operatorValue = anySlice
 	}
 
 	return &Default{
@@ -42,8 +35,19 @@ func (d Default) ToSlice(key string) MetadataPolicyOperator {
 	if d.operatorValue == nil {
 		return d
 	}
+	if values, ok := d.operatorValue.([]any); ok {
+		if key == "scope" {
+			return Default{
+				operatorValue: scopeTokenSlice(values),
+			}
+		}
+		return d
+	}
 	if reflect.TypeOf(d.operatorValue).Kind() != reflect.Slice {
 		if key == "scope" {
+			if _, isString := d.operatorValue.(string); !isString {
+				return d
+			}
 			return Default{
 				operatorValue: scopeOperatorSlice(d.operatorValue),
 			}
@@ -64,7 +68,7 @@ func (d Default) Resolve(metadataParameterValue any) (any, error) {
 		return metadataParameterValue, nil // special case to catch any slice but specifically empty slices which count as a value and should not be processed as nil
 	}
 	if metadataParameterValue == nil {
-		return d.operatorValue, nil
+		return cloneValue(d.operatorValue), nil
 	}
 	return metadataParameterValue, nil
 }

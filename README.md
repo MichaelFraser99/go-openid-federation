@@ -16,82 +16,11 @@ go get github.com/MichaelFraser99/go-openid-federation
 
 Requires Go 1.27 or later.
 
-> **Breaking change.** This release requires `go-jose` v0.11.0, which requires Go 1.27. Minimal version selection lifts every consumer to v0.11.0, so read its "Upgrading from 0.10.x" notes if your own code imports `go-jose`. The changes that reach a consumer of this library:
->
-> - **`kid` values.** `jwk.PublicJwk` now derives a `kid` as the key's RFC 7638 thumbprint. If you compute your signing key's `KeyID` that way at startup, it changes on upgrade, and every superior that registered your old `kid` must be given the new one, or your entity configuration no longer verifies against its subordinate statement.
-> - **`josemodel.Jwks`.** It appears in `SubordinateConfiguration.JWKs`, `TrustMarkOwner.JWKs` and `Configuration.TrustAnchors`. An empty set now serialises as `{"keys":[]}` rather than `{"keys":null}`, decoding JSON into one refuses a missing or `null` `keys`, and `RetrieveByKeyID` returns every key carrying the `kid`.
-> - **Stricter keys from peers.** An EC key whose `x` or `y` is not the full size of its curve, and an RSA key whose `n` or `e` carries a leading zero octet, are now refused, as RFC 7518 sections 6.2.1.2 and 2 require. A peer publishing one can no longer be verified.
-> - **Expiry is exclusive.** A statement, trust mark or delegation has expired once the current time reaches its `exp` plus `model.ClockSkewLeeway`, as RFC 7519 section 4.1.4 requires ("MUST be before"). Earlier releases accepted it for one more second.
+> **Breaking change.** This release requires `go-jose` v0.12.0. Minimal version selection lifts every consumer to v0.12.0, so if your own code imports `go-jose`, apply its [Upgrading from 0.11.x to 0.12.0](https://github.com/MichaelFraser99/go-jose#upgrading-from-011x-to-0120) notes. Three changes there break a build: `jwt.Validate` also takes decrypters and a `*josemodel.JWEOptions` and returns a `*jwt.Token` in place of a header and a body; `jws.GetValidatorFromJwk` takes a `*josemodel.JoseOptions` as a third argument; and `josemodel.Mode`, `josemodel.JWS` and `josemodel.JWE` are removed. One more compiles but fails at run time: an Ed25519 key is an `ed25519.PublicKey` or `ed25519.PrivateKey` value rather than a pointer. `josemodel` is `github.com/MichaelFraser99/go-jose/model`.
 
 ## Upgrading
 
-Each change you may have to act on is marked **Breaking change** in the section it concerns. The lists below link to those sections.
-
-### From v0.11.1
-
-- [Errors](#errors): `/resolve` builds this server's own statements in process, and a fault in them answers 5xx.
-- [Trust chains](#trust-chains): a walk logs once for each entity, and several Info messages are replaced by one summary line.
-- [Retriever interfaces](#retriever-interfaces): a temporary outage in `GetSubordinateSigners` or `ListTrustMarkIssuers` answers 503, and `/extended-list` no longer drops a statement silently over it.
-- [Query parameters](#query-parameters): one subordinate's unusable record or signer no longer takes down `/extended-list` or `/.well-known/openid-federation`.
-- [ServerConfiguration](#serverconfiguration): a redirect from a peer to a URL that does not use `https` is refused, whatever client you supply.
-- [Entity statements and metadata](#entity-statements-and-metadata): resolved `openid_credential_issuer` metadata must name the subject as its `credential_issuer`.
-- [Entity statements and metadata](#entity-statements-and-metadata): a `nil` member below a metadata parameter is written as `null`, not left out.
-- [An intermediate or trust anchor](#an-intermediate-or-trust-anchor): a leaf no longer publishes a `federation_fetch_endpoint` or `federation_list_endpoint` typed into its metadata.
-- [Extensions](#extensions): a `SubordinateStatus.ResponseLifetime` under one second answers 500 instead of signing an expired response.
-- [Errors](#errors): a transport error that wraps `model.ErrServerError` for one peer no longer ends a trust chain walk that has another route.
-- [Retriever interfaces](#retriever-interfaces): a retriever error that wraps `model.ErrServerError` or `model.ErrTemporarilyUnavailable` answers with the endpoint's fixed description, not its own text.
-- [Errors](#errors): a failure to fetch the subject's own entity configuration answers with the class your `HttpClient`'s transport error carries, not 404 `not_found`.
-- [Retriever interfaces](#retriever-interfaces): a `SubordinateCacheTime` under one second caches nothing.
-- [Trust chains](#trust-chains): a subordinate statement that cannot be fetched no longer ends a resolve that another route can complete.
-- [Entity statements and metadata](#entity-statements-and-metadata): an `Extensions` entry under a built-in entity type is refused when written.
-- [Query parameters](#query-parameters): `/list` and `/extended-list` leave out a store value that is not an entity identifier, and serve a repeated one once.
-- [Query parameters](#query-parameters): `/extended-list` removes a `subordinate_statement` from your retriever when `claims` is present without it, or when this server cannot issue one.
-- [Query parameters](#query-parameters): `/trust-mark` answers 500 for a value from `IssueTrustMark` that is not a trust mark for the requested subject and type.
-- [Limits](#limits): a trust mark of a type the trust anchor does not trust no longer counts against `MaxTrustMarks`, and no longer writes a log line of its own. The summary line counts them as `untrusted_types`.
-- [Query parameters](#query-parameters): `/trust-mark-status` answers 404 for a trust mark whose `iss` is not this server, without asking your retriever.
-- [Anchoring a chain a caller supplies](#anchoring-a-chain-a-caller-supplies): an entity configuration or subordinate statement that carries a `trust_chain` or `peer_trust_chain` header is refused.
-- [Metadata policy](#metadata-policy): an entity type policy or a parameter policy whose value is `null` is refused.
-- [Entity statements and metadata](#entity-statements-and-metadata): resolved `oauth_authorization_server` metadata must hold the endpoints and signing algorithm lists that RFC 8414 section 2 makes conditional.
-- [Entity statements and metadata](#entity-statements-and-metadata): `openid_credential_verifier_provider` is a built-in entity type with its own field, and its resolved metadata must hold `jwks`.
-- [Entity statements and metadata](#entity-statements-and-metadata): `openid_credential_verifier` metadata must follow Wallet Architectures draft 06 section 6.4.1.
-- [Retriever interfaces](#retriever-interfaces): `AddSubordinate`, `GetSubordinate` and `GetSubordinates` copy the configuration, so a write to it no longer changes what `/fetch` signs.
-- [Entity statements and metadata](#entity-statements-and-metadata): an entity identifier must be an RFC 3986 URI, so a raw space, a raw non-ASCII character or a port above 65535 is refused.
-- [Entity statements and metadata](#entity-statements-and-metadata): a credential issuer's `authorization_servers` must be a non-empty array of entity identifiers.
-- [Metadata policy](#metadata-policy): a merged policy whose `add` and `superset_of` operators hold more operands in total than `MaxStatementValues` is refused.
-- [Metadata policy](#metadata-policy): a `metadata_policy` that repeats a member name at any of its three levels is refused.
-- [Entity statements and metadata](#entity-statements-and-metadata): a statement, trust mark or delegation that repeats a name in its header or its claims is refused.
-- [Metadata policy](#metadata-policy): `SubordinateConfiguration` has new `Metadata` and `Constraints` fields, so a literal that sets its fields by position no longer compiles.
-- [ServerConfiguration](#serverconfiguration): `server.NewServer` returns an error, and refuses a configuration that would fail every request.
-- [Metadata policy](#metadata-policy): a `value` operator replaces a parameter of another JSON type, so a resolved parameter can have a type the subject did not publish. Check the types in a custom entity type's `VerifyResolvedMetadata`, and in any `Extensions` type before you use it.
-- [Metadata policy](#metadata-policy): `value` and `default` assign their operand as written, repeats included, and refuse to merge with an operand that differs only by a repeat. `add` keeps a repeat the subject published, and initialises an absent parameter with its operand as written.
-- [Query parameters](#query-parameters): `/resolve` with `entity_type` judges only the named types, so a broken type that the request does not name no longer refuses the resolution.
-- [Metadata policy](#metadata-policy): an element of any operand on `scope` is split into scope values, so `subset_of: ["openid profile"]` permits both, and a `superset_of` or `one_of` element that holds whitespace is no longer refused.
-- [Metadata policy](#metadata-policy): a resolved `scope` that holds no scope value is refused as `invalid_metadata` for `openid_relying_party` and `oauth_client`.
-
-### From v0.11.0-rc.2
-
-- [Installation](#installation): this release requires `go-jose` v0.11.0 and Go 1.27.
-- [Query parameters](#query-parameters): a `sub` that spells the server's own identifier differently is refused.
-- [Limits](#limits): `MaxRequestPeerBytes`, `MaxPeerResponseTime`, `MaxResolveTime`, `MaxTrustMarks`, `MaxStatementValues` and `MaxAuthorityHints` are new, and `Server.Configure` no longer installs `http.DefaultClient`.
-- [Retriever interfaces](#retriever-interfaces): a subordinate added with `AddSubordinate` and no `Retriever` no longer expires.
-- [Per-subordinate signing keys](#per-subordinate-signing-keys): a signer whose `KeyID` is already published for a different key is left out, and `/.well-known/openid-federation` no longer answers 500.
-- [Entity statements and metadata](#entity-statements-and-metadata): more statements are refused, `PolicyOperators` has an `Unrecognised` field, and `Metadata.VerifyResolved` applies the shape rules and takes the subject's identifier.
-- [How operand values are compared](#how-operand-values-are-compared): `essential` takes a boolean only, operator combinations are checked across levels, and the four list operators are held to their element types.
-- [Trust chains](#trust-chains): the fetch endpoint is requested as published, and trust mark refusals are logged at Info.
-- [Constraints](#constraints): `EntityStatement.Constraints` is typed, and constraints are enforced.
-- [Anchoring a chain a caller supplies](#anchoring-a-chain-a-caller-supplies): with no `TrustAnchors`, `Client.ResolveMetadata` fetches the anchor's entity configuration itself.
-- [Errors](#errors): signer errors are classified, and `/list` keeps every class a retriever gives.
-
-### From v0.10.0
-
-Every change in the list above applies, and so do these:
-
-- [Limits](#limits): `MaxTrustChainDepth` defaults to 10, and `MaxEntitiesTraversed` and `MaxTrustMarkIssuers` are new.
-- [Retriever interfaces](#retriever-interfaces): a bare `error` for an unknown subject answers 500.
-- [Entity statements and metadata](#entity-statements-and-metadata): three `EntityStatement` fields changed type or were removed, and the required-claim checks moved out of `VerifyMetadata`.
-- [Custom entity types](#custom-entity-types): a subject whose entity type is incomplete after resolution is refused.
-- [How operand values are compared](#how-operand-values-are-compared): `ProcessAndExtractPolicy` skips self-issued statements, and the superior's `metadata` claim is applied.
-- [Anchoring a chain a caller supplies](#anchoring-a-chain-a-caller-supplies): a chain of one entry resolves only when it is the trust anchor's own entity configuration, `Client.ResolveMetadata` takes a `trustAnchor` argument and never returns nil metadata, and `TrustAnchors` restricts which anchors `/resolve` serves.
+What changed in each release, and what you may have to do about it, is in [UPGRADING.md](UPGRADING.md). Each entry there links to the section of this README that describes the behaviour now.
 
 ## Packages
 
@@ -102,6 +31,8 @@ Every change in the list above applies, and so do these:
 | `client` | Trust chain building and metadata resolution for a relying party or other consumer: `Client.BuildTrustChain` and `Client.ResolveMetadata` |
 | `server_test` | `TestServer` helper that stands up a four-entity federation over `httptest` |
 | `model_test` | Test helpers for the model package |
+
+> **Breaking change.** Helpers that were exported without being documented, only for the library's own packages to share, such as `model.StripUnpublishableKeys` and `Server.RespondWithError`, are now private or under `internal/`, and [UPGRADING.md](UPGRADING.md) lists them. Some exports that only the library's own packages call remain, because `model` must export what `internal/` needs, such as the `Configuration` limit and logging methods. Treat anything this README does not document as internal.
 
 ## Quick start
 
@@ -168,15 +99,26 @@ Call `Configure` once for each mux. A second call on the same mux, from the same
 Setting `IntermediateConfiguration` marks an entity as an authority and enables `/fetch`, `/list` and `/resolve`. Subordinates can be held in memory or loaded on demand.
 
 ```go
+rpKey, err := jwk.PublicJwk(rpPublicKey)
+if err != nil {
+	return err
+}
+(*rpKey)["kid"] = "rp-key"
+
+addContact, err := model.NewAdd([]any{"federation-ops@intermediate.example.com"})
+if err != nil {
+	return err
+}
+
 intermediate := &model.IntermediateConfiguration{
 	SubordinateStatementLifetime: time.Hour,
 }
 
 intermediate.AddSubordinate("https://rp.example.com", &model.SubordinateConfiguration{
-	JWKs: subordinateJWKs,
+	JWKs: josemodel.Jwks{Keys: []map[string]any{*rpKey}},
 	Policies: model.MetadataPolicy{
 		OpenIDRelyingPartyMetadata: map[string]model.PolicyOperators{
-			"contacts": {Metadata: []model.MetadataPolicyOperator{addOperator}},
+			"contacts": {Metadata: []model.MetadataPolicyOperator{*addContact}},
 		},
 	},
 })
@@ -189,11 +131,154 @@ cfg := model.ServerConfiguration{
 }
 ```
 
+`rpPublicKey` is the public key the RP signs with, which it tells the intermediate when it registers. The key's `kid` must be the `KeyID` the RP signs with. `jwk` is `github.com/MichaelFraser99/go-jose/jwk` and `josemodel` is `github.com/MichaelFraser99/go-jose/model`. [A whole federation in one process](#a-whole-federation-in-one-process) puts a trust anchor, an intermediate and an RP together.
+
 When an authority's entity configuration is generated, the federation endpoint claims are derived from the entity identifier: `federation_fetch_endpoint`, `federation_list_endpoint`, `federation_resolve_endpoint`, and the extension and trust mark endpoints where those are enabled. They do not need to be declared in `EntityConfiguration`.
 
 An entity with no `IntermediateConfiguration` is a leaf. This server mounts no `/fetch` or `/list` for it, and section 5.1.1 says that a leaf MUST NOT publish `federation_fetch_endpoint` or `federation_list_endpoint`. If you type either claim into the `FederationMetadata` of such an entity, the library leaves it out of the entity configuration. `NewServer` logs each such claim at error level once, when the server is built, not on every request. Other endpoint claims, such as `federation_resolve_endpoint`, are published as you configure them.
 
-> **Breaking change.** Earlier releases published a `federation_fetch_endpoint` or `federation_list_endpoint` typed into a leaf's metadata. A resolver that followed it got a 404 and refused the chain as `invalid_trust_chain`. If another service serves fetch and list for this entity, publish the entity configuration from that service. Or set `IntermediateConfiguration`, so that this server serves them and publishes its own endpoints.
+> **Breaking change.** In v0.11.1, a leaf published a `federation_fetch_endpoint` or `federation_list_endpoint` typed into its metadata. A resolver that followed it got a 404 and refused the chain as `invalid_trust_chain`. If another service serves fetch and list for this entity, publish the entity configuration from that service. Or set `IntermediateConfiguration`, so that this server serves them and publishes its own endpoints.
+
+### A whole federation in one process
+
+This program runs a trust anchor, an intermediate and an RP on one TLS test server, each mounted under its own path as [An entity identifier with a path](#an-entity-identifier-with-a-path) describes. The trust anchor's policy adds a contact to the RP's metadata, and the program prints the payload of the trust anchor's signed `/resolve` response.
+
+```go
+package main
+
+import (
+	"crypto"
+	"encoding/base64"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/MichaelFraser99/go-jose/jwa"
+	"github.com/MichaelFraser99/go-jose/jwk"
+	"github.com/MichaelFraser99/go-jose/jws"
+	josemodel "github.com/MichaelFraser99/go-jose/model"
+	"github.com/MichaelFraser99/go-openid-federation/model"
+	"github.com/MichaelFraser99/go-openid-federation/server"
+)
+
+type entity struct {
+	identifier model.EntityIdentifier
+	signer     model.SignerConfiguration
+	keys       josemodel.Jwks
+}
+
+func newEntity(identifier, keyID string) entity {
+	signer, err := jws.GetSigner(jwa.ES256, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return entity{
+		identifier: model.EntityIdentifier(identifier),
+		signer:     model.SignerConfiguration{Signer: signer, KeyID: keyID, Algorithm: "ES256"},
+		keys:       publicKeys(signer, keyID),
+	}
+}
+
+func publicKeys(signer crypto.Signer, keyID string) josemodel.Jwks {
+	key, err := jwk.PublicJwk(signer.Public())
+	if err != nil {
+		log.Fatal(err)
+	}
+	(*key)["kid"] = keyID
+	return josemodel.Jwks{Keys: []map[string]any{*key}}
+}
+
+func mount(root *http.ServeMux, path string, cfg model.ServerConfiguration) {
+	s, err := server.NewServer(cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	s.Configure(mux)
+	root.Handle(path+"/", http.StripPrefix(path, mux))
+}
+
+func main() {
+	root := http.NewServeMux()
+	host := httptest.NewTLSServer(root)
+	defer host.Close()
+
+	anchor := newEntity(host.URL+"/ta", "ta-key")
+	intermediate := newEntity(host.URL+"/intermediate", "intermediate-key")
+	leaf := newEntity(host.URL+"/rp", "rp-key")
+
+	addContact, err := model.NewAdd([]any{"federation-ops@ta.example.com"})
+	if err != nil {
+		log.Fatal(err)
+	}
+	anchorSubordinates := &model.IntermediateConfiguration{SubordinateStatementLifetime: time.Hour}
+	anchorSubordinates.AddSubordinate(intermediate.identifier, &model.SubordinateConfiguration{
+		JWKs: intermediate.keys,
+		Policies: model.MetadataPolicy{
+			OpenIDRelyingPartyMetadata: map[string]model.PolicyOperators{
+				"contacts": {Metadata: []model.MetadataPolicyOperator{*addContact}},
+			},
+		},
+	})
+	mount(root, "/ta", model.ServerConfiguration{
+		Configuration:               model.Configuration{HttpClient: host.Client()},
+		EntityIdentifier:            anchor.identifier,
+		SignerConfiguration:         anchor.signer,
+		EntityConfigurationLifetime: time.Hour,
+		IntermediateConfiguration:   anchorSubordinates,
+	})
+
+	intermediateSubordinates := &model.IntermediateConfiguration{SubordinateStatementLifetime: time.Hour}
+	intermediateSubordinates.AddSubordinate(leaf.identifier, &model.SubordinateConfiguration{JWKs: leaf.keys})
+	mount(root, "/intermediate", model.ServerConfiguration{
+		EntityIdentifier:            intermediate.identifier,
+		SignerConfiguration:         intermediate.signer,
+		AuthorityHints:              []model.EntityIdentifier{anchor.identifier},
+		EntityConfigurationLifetime: time.Hour,
+		IntermediateConfiguration:   intermediateSubordinates,
+	})
+
+	mount(root, "/rp", model.ServerConfiguration{
+		EntityIdentifier:            leaf.identifier,
+		SignerConfiguration:         leaf.signer,
+		AuthorityHints:              []model.EntityIdentifier{intermediate.identifier},
+		EntityConfigurationLifetime: time.Hour,
+		EntityConfiguration: model.EntityStatement{Metadata: &model.Metadata{
+			OpenIDRelyingPartyMetadata: &model.OpenIDRelyingPartyMetadata{
+				"client_name":   "Example RP",
+				"redirect_uris": []string{string(leaf.identifier) + "/callback"},
+				"contacts":      []string{"admin@rp.example.com"},
+			},
+		}},
+	})
+
+	query := url.Values{"sub": {string(leaf.identifier)}, "trust_anchor": {string(anchor.identifier)}}
+	response, err := host.Client().Get(string(anchor.identifier) + "/resolve?" + query.Encode())
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if response.StatusCode != http.StatusOK {
+		log.Fatalf("resolve answered %d: %s", response.StatusCode, body)
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(strings.Split(string(body), ".")[1])
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(string(payload))
+}
+```
+
+The resolved `contacts` holds the RP's own contact and the one the trust anchor's policy adds, and `trust_chain` has four entries: the RP's entity configuration, the intermediate's statement about the RP, the trust anchor's statement about the intermediate, and the trust anchor's entity configuration.
 
 ### A relying party resolving another entity
 
@@ -217,7 +302,86 @@ if err != nil {
 }
 ```
 
-Both calls refuse a malformed subject or trust anchor with `model.ErrInvalidRequest`. `HttpClient` is required, because both calls fetch from peers. It must enforce your network policy, as [ServerConfiguration](#serverconfiguration) describes. Set `TrustAnchors` to verify each anchor against keys you hold. See [Anchoring a chain a caller supplies](#anchoring-a-chain-a-caller-supplies).
+Both calls refuse a malformed subject or trust anchor with `model.ErrInvalidRequest`. `HttpClient` is required, because both calls fetch from peers. It must enforce your network policy, as [ServerConfiguration](#serverconfiguration) describes. A peer chooses every URL the library fetches after the first, so a client that can reach your internal network lets a peer make requests there. This client refuses to connect to an address in any special-purpose range that IANA marks as not globally reachable, for IPv4 and IPv6, such as loopback, private, link-local, carrier-grade NAT (which holds Alibaba Cloud's metadata address `100.100.100.200`), benchmarking, reserved, NAT64 and 6to4:
+
+```go
+var errNotPublic = errors.New("refused to connect to an address that is not public")
+
+var specialPurpose = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),
+	netip.MustParsePrefix("10.0.0.0/8"),
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("127.0.0.0/8"),
+	netip.MustParsePrefix("169.254.0.0/16"),
+	netip.MustParsePrefix("172.16.0.0/12"),
+	netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("192.0.2.0/24"),
+	netip.MustParsePrefix("192.88.99.0/24"),
+	netip.MustParsePrefix("192.168.0.0/16"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("198.51.100.0/24"),
+	netip.MustParsePrefix("203.0.113.0/24"),
+	netip.MustParsePrefix("224.0.0.0/4"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("::/128"),
+	netip.MustParsePrefix("::1/128"),
+	netip.MustParsePrefix("::ffff:0:0/96"),
+	netip.MustParsePrefix("64:ff9b::/96"),
+	netip.MustParsePrefix("64:ff9b:1::/48"),
+	netip.MustParsePrefix("100::/64"),
+	netip.MustParsePrefix("2001::/23"),
+	netip.MustParsePrefix("2001:db8::/32"),
+	netip.MustParsePrefix("2002::/16"),
+	netip.MustParsePrefix("3fff::/20"),
+	netip.MustParsePrefix("5f00::/16"),
+	netip.MustParsePrefix("fc00::/7"),
+	netip.MustParsePrefix("fe80::/10"),
+	netip.MustParsePrefix("ff00::/8"),
+}
+
+func publicAddress(ip netip.Addr) bool {
+	ip = ip.Unmap()
+	if !ip.IsGlobalUnicast() {
+		return false
+	}
+	for _, prefix := range specialPurpose {
+		if prefix.Contains(ip) {
+			return false
+		}
+	}
+	return true
+}
+
+func federationHTTPClient() *http.Client {
+	dialer := &net.Dialer{
+		Timeout: 5 * time.Second,
+		Control: func(_, address string, _ syscall.RawConn) error {
+			host, _, err := net.SplitHostPort(address)
+			if err != nil {
+				return err
+			}
+			ip, err := netip.ParseAddr(host)
+			if err != nil {
+				return err
+			}
+			if !publicAddress(ip) {
+				return errNotPublic
+			}
+			return nil
+		},
+	}
+	return &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			Proxy:               nil,
+			DialContext:         dialer.DialContext,
+			TLSHandshakeTimeout: 5 * time.Second,
+		},
+	}
+}
+```
+
+The list is a snapshot of the IANA IPv4 and IPv6 Special-Purpose Address Registries, so review it against them when you update. Add any range that your own network routes internally, such as a public range your cloud provider uses for its services. The check runs in the dialer's `Control` function, on the address the connection is about to use. A host name that resolves to a private address is therefore refused too, and so is a redirect to one. `Proxy: nil` stops an environment proxy setting from carrying requests past the check. The library refuses a redirect to a URL that does not use `https` itself. Set `TrustAnchors` to verify each anchor against keys you hold. See [Anchoring a chain a caller supplies](#anchoring-a-chain-a-caller-supplies).
 
 ## Endpoints
 
@@ -357,7 +521,41 @@ Your `IssueTrustMark` signs the trust mark, and the endpoint serves it under `ap
 - Its payload has `iss`, `sub`, `trust_mark_type` and `iat`.
 - Its `iss` is this server's entity identifier, its `sub` is the requested subject and its `trust_mark_type` is the requested type. Each is an exact string match.
 
-The endpoint does not verify the signature. If the value fails one of these checks, the endpoint answers 500 `server_error` with its fixed description, and logs the check that failed at error level. The log line does not include the value.
+This `IssueTrustMark` signs a trust mark with the server's own federation key, for the subjects that hold it:
+
+```go
+type trustMarks struct {
+	issuer   model.EntityIdentifier
+	signer   crypto.Signer
+	keyID    string
+	lifetime time.Duration
+	holders  map[string][]model.EntityIdentifier
+}
+
+func (t trustMarks) IssueTrustMark(_ context.Context, trustMarkType string, subject model.EntityIdentifier) (*string, error) {
+	if !slices.Contains(t.holders[trustMarkType], subject) {
+		return nil, model.NewNotFoundError("this entity does not hold the requested trust mark")
+	}
+	now := time.Now().UTC()
+	return jwt.New(t.signer,
+		map[string]any{"typ": "trust-mark+jwt", "alg": "ES256", "kid": t.keyID},
+		map[string]any{
+			"iss":             string(t.issuer),
+			"sub":             string(subject),
+			"trust_mark_type": trustMarkType,
+			"iat":             now.Unix(),
+			"exp":             now.Add(t.lifetime).Unix(),
+		},
+		jwt.Opts{Algorithm: jwa.ES256},
+	)
+}
+```
+
+Sign with a key in this server's published `jwks`, with the `kid` of that key, or resolvers cannot verify the trust mark. Answer `model.NewNotFoundError` for a subject that does not hold the trust mark, and `/trust-mark` answers 404.
+
+The endpoint does not verify the signature, and it does not check `exp`. The specification does not require an issuer to refuse an expired trust mark, so the library serves what `IssueTrustMark` returns. If you store trust marks, mint a fresh one, or answer `model.NewNotFoundError` for one that has expired.
+
+If the value fails one of these checks, the endpoint answers 500 `server_error` with its fixed description, and logs the check that failed at error level. The log line does not include the value.
 
 > **Breaking change.** The endpoint served any non-empty value from `IssueTrustMark` at 200. A value that is not a trust mark for the requested subject and type now answers 500. If your retriever returns a trust mark with a `typ` that your trust framework defines, other than `trust-mark+jwt`, it is now refused here. This library already refused such a trust mark when it resolved one.
 
@@ -378,7 +576,7 @@ Section 8.4.2 says that the endpoint MUST answer 404 for "something it did not i
 - The payload is not base64url, or not a JSON object.
 - The payload holds more values than `MaxStatementValues`.
 - The payload repeats a member name at its top level.
-- The `iss` is not this server's entity identifier, as an exact string.
+- The `iss` is absent, empty or not a string, or is not this server's entity identifier, as an exact string.
 
 The endpoint does not verify the signature. A trust mark that names this server as `iss` but that this server did not issue still reaches your retriever. Look up the whole trust mark, not only its subject and type.
 
@@ -386,7 +584,9 @@ The endpoint does not verify the signature. A trust mark that names this server 
 
 **`/subordinate-status`**
 
-Takes `sub` as a required query parameter.
+Takes `sub` as a required query parameter. A `sub` that names this server itself, in any spelling that `/fetch` treats as the same entity, answers 400 `invalid_request` without asking your retriever, because a statement whose `iss` and `sub` match is not about a subordinate.
+
+> **Breaking change.** In v0.11.1, `/subordinate-status` signed an events statement about this server itself when your retriever answered for it.
 
 ### The ResponseFunc pattern
 
@@ -422,11 +622,13 @@ Use `Configure` to mount the endpoints. It wraps every route it registers, so a 
 `server.NewServer` checks the configuration before it returns a server, and returns an error that names each field at fault. A configuration that it refuses would make every request fail, so the error appears at startup and not when a peer first asks for `/.well-known/openid-federation`. It refuses:
 
 - A missing `SignerConfiguration.Signer`, an empty `KeyID`, or an `Algorithm` that this library cannot sign with.
+- A `Signer` whose key cannot sign with its `Algorithm`, such as an EC P-256 key declared `RS256`. The check compares the public key's type, curve or parameter set with the algorithm, and never calls `Sign`, so a remote signer is not used at startup.
 - An empty `SigningAlgorithms`, or an `EntityConfigurationLifetime` or `IntermediateConfiguration.SubordinateStatementLifetime` under one second.
 - An `EntityIdentifier` that is not an entity identifier. If the identifier is empty, it is not checked, because a test server can set it later with `SetEntityIdentifier`.
-- An `AuthorityHints` entry, or an issuer in `EntityConfiguration.TrustMarkIssuers`, that is not an entity identifier.
+- An `AuthorityHints` entry, or an issuer in `EntityConfiguration.TrustMarkIssuers`, that is not an entity identifier, and an `AuthorityHints` entry that names this server itself.
 - An `EntityConfiguration.TrustMarkOwners` entry with an empty or malformed `Sub`, or with no usable key in `JWKs`.
-- `EntityConfiguration.Metadata` that cannot be written or that fails the checks applied when a statement is read.
+- `EntityConfiguration.Metadata` that cannot be written, or that fails the checks applied when a statement is read. The metadata is checked as it will be published: encoded, then decoded. So a `jwks` held as a `josemodel.Jwks` is checked as the JSON object it becomes.
+- A private key member in a `jwks` that this server would publish: the configured `EntityConfiguration.JWKs`, `EntityConfiguration.Metadata`, or `TrustMarkOwners`. The error names where the key is, not its value.
 
 A trust anchor has no `AuthorityHints`, so no superior can complete its metadata. If the metadata of a trust anchor does not pass the checks that resolved metadata must pass, `NewServer` logs this at error level and still returns the server. The anchor is still usable as a trust anchor, but a resolve with the anchor as its subject answers `invalid_metadata`. An entity with a superior is not checked for completeness, because a superior's `metadata` claim or policy can complete it.
 
@@ -456,7 +658,9 @@ A trust anchor has no `AuthorityHints`, so no superior can complete its metadata
 
 The signer's public key is added to the published JWKS, keyed by `kid`, if not already present.
 
-`Server.AddAuthorityHint` adds a superior to `authority_hints` once. An identifier already present, compared as an exact string, is not added again. Two spellings of one entity, such as with and without a trailing `/`, are both kept, as they are when `authority_hints` is read.
+`Server.AddAuthorityHint` adds a superior to `authority_hints` once, and returns an error for a hint it refuses: one that is not an entity identifier, or one that names this server itself in any spelling that `/fetch` treats as the same entity. A refused hint is not added, and the error does not repeat it. An identifier already present, compared as an exact string, is not added again. Two spellings of one entity, such as with and without a trailing `/`, are both kept, as they are when `authority_hints` is read.
+
+> **Breaking change.** `AddAuthorityHint` returns an `error`. In v0.11.1 it accepted any value, and a hint that was not an entity identifier, such as an `http` URL, made every `/.well-known/openid-federation` request answer 500 until the process restarted.
 
 When any endpoint other than `/resolve` fails with 500 `server_error`, whether from this server's own fault or a retriever's, the cause is logged at error level, once. The response carries a fixed description, so the log is the only record of the cause. Any other class, including `temporarily_unavailable` and every 4xx, is logged at Info.
 
@@ -468,7 +672,7 @@ When the library resolves a trust chain, it follows federation endpoints derived
 
 The library refuses a redirect to a URL that does not use `https` on every fetch from a peer, whatever `HttpClient` you supply. The refused request is never sent. After that check, the library applies your client's own `CheckRedirect`, or Go's default limit of ten redirects when you set none. Your client is not changed.
 
-> **Breaking change.** A peer whose entity configuration or fetch endpoint redirects to plain `http` is now refused, as a peer that cannot be reached. Section 1.2 requires an `https` Entity Identifier, and section 5.1.1 requires an `https` fetch endpoint. Earlier releases followed the redirect when the client allowed it, so the request and the statement crossed the network in plaintext.
+> **Breaking change.** A peer whose entity configuration or fetch endpoint redirects to plain `http` is now refused, as a peer that cannot be reached. Section 1.2 requires an `https` Entity Identifier, and section 5.1.1 requires an `https` fetch endpoint. In v0.11.1, the library followed the redirect when the client allowed it, so the request and the statement crossed the network in plaintext.
 
 ### IntermediateConfiguration
 
@@ -488,8 +692,8 @@ The library refuses a redirect to a URL that does not use `https` on every fetch
 | `Configuration.MaxEntitiesTraversed` | `model.DefaultMaxEntitiesTraversed`, 1024 | Entity configurations one request may fetch while walking `authority_hints`, across every chain it builds, plus the subordinate statements it fetches while retrying another route after one failed |
 | `Configuration.MaxTrustMarkIssuers` | `model.DefaultMaxTrustMarkIssuers`, 64 | Distinct trust mark issuers resolved for one subject |
 | `Configuration.MaxTrustMarks` | `model.DefaultMaxTrustMarks`, 64 | Trust marks one resolve verifies for its subject, in the order the subject lists them. Only a mark whose type the trust anchor lists in `trust_mark_issuers` counts, whether or not it then verifies. A mark of any other type is left out without any cost, for example a mark from another federation. Trusted marks past the limit are left out of the response without being verified. If you raise it above `MaxTrustMarkIssuers`, a subject whose marks name more issuers than that is refused with 404 `invalid_subject` |
-| `Configuration.MaxResolveTime` | `model.DefaultMaxResolveTime`, 30s | How long one `/resolve` request, or one `Client.BuildTrustChain` or `Client.ResolveMetadata` call, may take, trust mark issuer walks included |
-| `Configuration.MaxStatementValues` | `model.DefaultMaxStatementValues`, 10,000 | JSON values in the header or body of one peer statement, trust mark or delegation, or of one entry in a chain passed to `Client.ResolveMetadata`. Separately, JSON values in the headers and bodies of all the trust marks one statement carries, and of their delegations. Also the operands that the `add` and `superset_of` operators of a merged policy hold in total |
+| `Configuration.MaxResolveTime` | `model.DefaultMaxResolveTime`, 30s | How long one `/resolve` request, or one `Client.BuildTrustChain` or `Client.ResolveMetadata` call, may take, trust mark issuer walks included. Reaching it answers 404 `invalid_trust_anchor` with `model.ErrLimitReached` |
+| `Configuration.MaxStatementValues` | `model.DefaultMaxStatementValues`, 10,000 | JSON values in the header or body of one peer statement, trust mark or delegation, or of one entry in a chain passed to `Client.ResolveMetadata`. Separately, JSON values in the headers and bodies of all the trust marks one statement carries, and of their delegations. Also the operands that the `add` and `superset_of` operators of a merged policy hold in total, and the scope values in one statement's `scope` operands |
 | `Configuration.MaxAuthorityHints` | `model.DefaultMaxAuthorityHints`, 64 | `authority_hints` an entity configuration may list when the walk is to follow them |
 
 > **Breaking change.** These bounds now apply by default, to both `Server` and `Client`.
@@ -499,7 +703,7 @@ The library refuses a redirect to a URL that does not use `https` on every fetch
 > - `MaxRequestPeerBytes` is new and defaults to 64 MiB. It bounds what one request holds, which the other two did not: a peer may split its bytes across responses however it likes, and `MaxEntitiesTraversed` × `MaxPeerResponseBytes` set a ceiling of 1 GiB per request. Size it against the memory available to the process, not against the number of peers. Note it charges an estimate of retained memory rather than the bytes on the wire, so budget several times the size of your statements — see below for the formula and what a real statement costs.
 > - `MaxPeerResponseTime` is new and defaults to 10 seconds. Nothing bounded a peer in time before: `Server.Configure` installed `http.DefaultClient` when no `HttpClient` was given, and that has no timeout, so a peer that accepted a connection and never answered held the request open. The deadline is derived from the request context rather than set on a client, so it applies to whatever client you supply, and it never outlives your own cancellation.
 > - **`Server.Configure` no longer installs `http.DefaultClient`** when `HttpClient` is unset. That client has no timeout and follows a redirect from an `https` entity identifier to plain `http`. Set `HttpClient` yourself. Without one, a request that needs to fetch from a peer answers 500 `server_error`, as this server's own fault. Earlier releases either used the unguarded client or reported the missing client as a peer that could not be found.
-> - `MaxResolveTime` is new and defaults to 30 seconds. It bounds the whole request, where `MaxPeerResponseTime` bounds one peer. A deadline on the context you pass in can only make it shorter. Reaching it answers 503 `temporarily_unavailable`, because it is this server that did not complete the request. A `Client` caller whose walks take longer must raise it.
+> - `MaxResolveTime` is new and defaults to 30 seconds. It bounds the whole request, where `MaxPeerResponseTime` bounds one peer. A deadline on the context you pass in can only make it shorter. Reaching it answers 404 `invalid_trust_anchor` with `model.ErrLimitReached`, as the other walk bounds do. A `Client` caller whose walks take longer must raise it.
 > - `MaxTrustMarks` is new and defaults to 64. A subject that lists more trust marks has the rest left out of resolve responses without being verified, and the resolve still succeeds. Section 8.3 lets a response carry only verified marks.
 > - Zero no longer means unlimited for any of these: it selects the default. Set a large value to restore the old behaviour.
 > - A consumer who already set `MaxTrustChainDepth` themselves gets the same 404 as before, but with a description naming the bound rather than one that reads as an unknown trust anchor.
@@ -528,6 +732,10 @@ The budget bounds what one request keeps live. It does not bound the peak heap o
 These figures come from a walk down one chain of 934 KB entity configurations that stopped at the default budget. The request was charged 64.3 MB and kept 33 MB live. Above its starting size, the heap peaked at 50 MB with `GOGC=50`, 64 MB with the default `GOGC=100`, and 93 MB with `GOGC=200`. A walk that releases its dead ends keeps much less: over 35 dead ends of the same size, it kept 1 MB live and peaked at 14 MB.
 
 The charge is sized to be at least what a request keeps live from its peers, and both measurements bear that out. This server's own statements are not charged. So for each request that runs at the same time, allow up to (1 + `GOGC`/100) × `MaxRequestPeerBytes`, which is 128 MiB at the defaults. Alternatively, set `GOMEMLIMIT` below the memory of the container, so that the runtime collects earlier as the process approaches it.
+
+`MaxResolveTime` is a bound that peers can force: a federation whose peers each answer just inside `MaxPeerResponseTime` uses it up. So reaching it answers like the other walk bounds: `model.ErrInvalidTrustAnchor` with `model.ErrLimitReached`, which `/resolve` answers as 404 `invalid_trust_anchor`, with the description "the resolver reached the maximum time it may spend on one request". `errors.Is(err, context.DeadlineExceeded)` still matches. A deadline or cancellation on the context you pass in is yours, not a bound, so it answers `model.ErrTemporarilyUnavailable`. So does `MaxResolveTime` passing while this server builds its own statements, because no peer chose that time.
+
+> **Breaking change.** In v0.11.1, reaching `MaxResolveTime` answered 503 `temporarily_unavailable`, which told a client to retry a request that would fail the same way.
 
 `MaxPeerResponseTime` bounds one peer, and `MaxResolveTime` bounds the request. Without the second, the worst case is long. A request may fetch `MaxEntitiesTraversed` entity configurations. The subordinate statements on the first route each chain tries are not counted against that bound, so it may fetch a further `(1 + MaxTrustMarkIssuers)` × `(MaxTrustChainDepth - 1)` = 585 peers at the defaults. The statements fetched while retrying another route are counted, because a peer chooses every fetch endpoint a retry reaches, and without the count the retries would grow with the square of the entity configurations. Every one of those may take the full peer deadline, so a graph of slow-but-responsive peers could hold one request for about `(1024 + 585)` × 10s, which is four and a half hours. `MaxResolveTime` ends it at 30 seconds instead. If your callers wait for less, set it lower, or cancel the context you pass in.
 
@@ -581,6 +789,8 @@ type SubordinateStatusRetriever interface {
 
 Subordinates retrieved through a `Retriever` are cached for `IntermediateConfiguration.SubordinateCacheTime`. Under one second, nothing is kept, and every lookup asks the `Retriever`, because the time an entry was stored is recorded in whole seconds: a shorter cache time would keep entries that are never served. An expired entry is not removed, only replaced at the next lookup for the same subject, so the cache holds every subject your `Retriever` has confirmed until you call `FlushCache`. Confirm only the subjects you registered, matched exactly. A `Retriever` that confirms any subject, or matches spellings loosely, lets a caller add an entry for each new `sub` it sends to `/fetch`.
 
+> **Breaking change.** In v0.11.1, a `SubordinateCacheTime` under one second served an entry until that much time had passed since the start of the second in which it was stored, so whether an entry was served at all depended on when in that second it arrived. Set at least one second if you want entries cached.
+
 With no `Retriever`, the subordinates you add with `AddSubordinate` are the store itself, not a cache. They are served until you call `FlushCache`, which removes them all, and `SubordinateCacheTime` does not apply. There is no way to remove one subordinate on its own.
 
 With a `Retriever`, `AddSubordinate` only seeds the cache. `/fetch` serves the entry until `SubordinateCacheTime` passes, and then asks the `Retriever`, whose answer replaces it. `/list` never shows it, because `/list` asks the `Retriever`.
@@ -589,7 +799,11 @@ With a `Retriever`, `AddSubordinate` only seeds the cache. `/fetch` serves the e
 
 `AddSubordinate` keeps its own copy of the configuration. `GetSubordinate` and `GetSubordinates` return a copy of what is stored. A write to a configuration after you add it, or to a configuration that these methods return, does not change what `/fetch` signs. A `Retriever` result is copied the same way before it is cached. The copy includes the keys and the policy operands. Two parts are shared and not copied: the `crypto.Signer` in `SignerConfiguration`, and a policy operator of a type that your own code defines. The copy has the same bound as the policy engine, so a Go value with more than 100,000 nodes is shared after that point.
 
-`SubordinateIdentifiers` returns the identifiers that `/list` serves, in sorted order, and does not copy the configurations. With a `Retriever`, it returns the keys of the map from your `GetSubordinates`.
+The store holds its own copy of every value, in the shape `encoding/json` would write it. A metadata value or policy operand of another Go type, such as a `josemodel.Jwks` or a `*[]string`, is converted when it is stored, so `GetSubordinate` returns it as `map[string]any` or `[]any`, not as the type you passed. An integer keeps its exact value as an `int64` or `uint64`, and a `[]byte` becomes its base64 string, as `encoding/json` writes it. A value that cannot be copied safely, such as a map that contains itself, a channel, or a type whose `MarshalJSON` fails, is refused: `AddSubordinate` drops that record, and `/fetch` answers `server_error` for it and logs the cause at error level, until you add a storable record or call `FlushCache`. A `Retriever` record holding such a value answers `server_error`.
+
+> **Breaking change.** In v0.11.1, `GetSubordinate` returned a value of the type you stored, and a struct or pointer inside it was shared with the store, so a later write changed what `/fetch` signed, and a write during a request could crash the process. Read a returned value as `map[string]any` and `[]any`.
+
+`SubordinateIdentifiers` returns the identifiers that `/list` serves, in sorted order, and does not copy the configurations. With no `Retriever`, `AddSubordinate` checks each identifier once, when it is added, and an identifier that is not an entity identifier is left out of `/list` and logged at error level. With a `Retriever`, it returns the keys of the map from your `GetSubordinates`, checked on each request.
 
 > **Breaking change.** In v0.11.1, `AddSubordinate` kept the maps of the configuration that you passed, and `GetSubordinate` returned the stored configuration itself. A write to either one changed what `/fetch` signed, and a write during a request was a data race. To change a stored subordinate now, call `AddSubordinate` again with the new configuration. `/list` now serves its identifiers in sorted order.
 
@@ -601,9 +815,13 @@ A retriever that returns `(nil, nil)` is treated the same way, so a store that s
 
 > **Breaking change.** Returning a bare `error` for an unknown subject now gives the caller a 500 rather than a 404. Earlier releases turned every retriever error into 404 `not_found`, which reported a store outage to federation peers as "this subordinate does not exist". If your retriever signals an unknown subject with a bare error — `sql.ErrNoRows`, an ORM's "record not found", or your own sentinel — wrap it with `model.NewNotFoundError(...)` or return `(nil, nil)`, or `/fetch` will answer 500 for every unknown subject.
 
-The text of an unclassified retriever error is never sent to the caller, on any endpoint. It is logged, and the response carries a fixed description, because a driver error commonly contains a host name and a user name. An error carrying a 4xx sentinel, such as `model.NewUnsupportedParameterError(...)` or `model.NewNotFoundError(...)`, passes through unchanged, so it chooses both the status and the description a peer sees. An error carrying `model.ErrServerError` or `model.ErrTemporarilyUnavailable` keeps its status, 500 or 503, but the response carries the endpoint's fixed description, and your text goes to the log: those classes describe this server's own condition, and a store's text for it often names a host or a user. A 500 is logged at error level and a 503 at Info.
+The text of an unclassified retriever error is never sent to the caller, on any endpoint. It is logged, and the response carries a fixed description, because a driver error commonly contains a host name and a user name. An error carrying a 4xx sentinel, such as `model.NewUnsupportedParameterError(...)` or `model.NewNotFoundError(...)`, passes through unchanged, so it chooses both the status and the description a peer sees. One exception: on `/fetch`, `ErrNotFound` from `GetSubordinate` means the subject is not a subordinate, and the response carries the fixed description `unknown entity identifier`. An error carrying `model.ErrServerError` or `model.ErrTemporarilyUnavailable` keeps its status, 500 or 503, but the response carries the endpoint's fixed description, and your text goes to the log: those classes describe this server's own condition, and a store's text for it often names a host or a user. A 500 is logged at error level and a 503 at Info.
 
 > **Breaking change.** A retriever error that wrapped `model.ErrServerError` or `model.ErrTemporarilyUnavailable` reached the caller with its own description, so a store that wrapped a driver error sent it to every caller. The status is unchanged. If you relied on your 503 text reaching peers, it now reaches your log instead. `model.ErrPageNotFound` is the exception: only `ExtendedListingRetriever` can return it, as [Query parameters](#query-parameters) describes. From any other retriever it is an unclassified fault, and an error that carries it beside another class answers as that other class.
+
+A record from `ListTrustMarkIssuers` whose trust mark type is not valid UTF-8, or one of whose issuers is not an entity identifier, is left out of `trust_mark_issuers` whole, and the rest of the entity configuration is published. The record is not trimmed to its valid issuers, because an empty list means that anyone may issue the trust mark. One line per response at error level gives the counts, not the stored values.
+
+> **Breaking change.** In v0.11.1, one such record made `/.well-known/openid-federation` answer 500.
 
 `GetSubordinateSigners` and `TrustMarkIssuerRetriever.ListTrustMarkIssuers` are the exception to that pass-through. They describe what this server publishes, not what a caller asked for, so there is no text in them that a caller needs. Only `model.ErrTemporarilyUnavailable` survives them:
 
@@ -667,15 +885,16 @@ A name must not occur twice at the top level of the header or of the claims of a
 > - A key the operator configures with a `key_ops` member that is not an array of strings, or that lists a value twice, is refused, because such a key is not a valid JWK under RFC 7517 section 4.3. The key the entity signs with must also allow `"verify"` if it declares `key_ops`, or every resolver would refuse what it signs. Any other key may declare whatever operations it is for, so a key marked `["encrypt"]` is still published. The keys in `trust_mark_owners` are the operator's own configuration too, but they are published for every implementation in the federation, so each is held only to what the RFCs require of everyone: a well-formed `key_ops`, and the 2048-bit RSA minimum. This library's 8192-bit limit does not apply to them. Each owner must also have at least one key that is not marked against verifying. Otherwise no delegation for that type could ever be verified. A key this library does not verify with, such as Ed448, still counts, because another implementation can verify with it.
 > - A key a **registrant** supplies is dropped from the subordinate statement rather than refusing it, and the drop is logged at error level. One registrant's mistake must not take its authority's `/fetch` or `/extended-list` down, and refusing the whole statement did exactly that. This covers private key material, a modulus outside the limits above, and a malformed `key_ops`. A subject whose every registered key is unpublishable is refused on its own with `invalid_subject`. The same granularity applies to a per-subordinate signer key below its algorithm's minimum modulus: it is left out of the authority's published key set rather than failing the authority's own entity configuration.
 > - A peer that publishes its own private key is a different case again: it is already leaked, so the library records it at error level once per key set and the statement still resolves. Three things bound that record: it carries at most eight key IDs, because the key count is peer-controlled; it names the issuer as well as the subject; and it is written only once **every** identity check on the statement has passed, because anyone able to answer a fetch can serve a statement naming a victim, and a leak must not be attributed to an entity on a statement that is then refused. Only the `jwks` claim is logged, so a peer's private key in a metadata `jwks` produces no record.
+> - **A peer token with a malformed key header.** With go-jose v0.12.0, a statement, trust mark or delegation whose JOSE header carries a `jwk` with a private key member, or a `jku` or `x5u` that is an `https` URL with an empty host or that holds a character outside RFC 3986 section 2, is refused, although this library uses neither header. RFC 7515 section 4.1.3 makes the `jwk` header a public key, and RFC 9110 section 4.2.2 requires a recipient to reject such a URI. v0.11.0 accepted both.
 > - `jwks_uri` and `signed_jwks_uri` must use https on every entity type that may carry them. Section 5.2.1 defines both, and forbids all three key parameters in `federation_entity` metadata. Six types gained the `signed_jwks_uri` check and three the `jwks_uri` check. Both go through the same URL check as the other claims, so a fragment or a userinfo component is refused too, which is what the relying party and provider types already did.
 >
 > A `kid` naming a key that was left out reads as no usable key with that `kid`, which is the same message as a `kid` that was never published. The library cannot say more, because the entry is gone by the time a key is selected.
 
 Parsing applies the claim rules from section 3.2 of the specification. Earlier releases handled each of the cases below differently.
 
-- A statement is rejected when it is expired or future-dated. Both comparisons allow `model.ClockSkewLeeway`, 60 seconds, of clock skew, and so does the trust chain expiry check, so the two layers agree on what expired means. The `iat` claim must be before the `exp` claim. A trust mark and its `delegation` are judged with the same allowance, which earlier releases did not do: they were compared against the current time exactly, so an issuer whose clock ran a few seconds fast had its marks dropped from resolve responses with no error while an entity statement in the same state was accepted. One limit is worth knowing: a trust mark whose `exp` has already passed is still left out of a resolve response, however small the margin, because section 8.3.2 makes the response's `exp` the minimum over the marks it carries and a response whose `exp` has passed is unusable. The allowance decides whether such a mark is *valid*, not whether it can be carried.
+- A statement is rejected when it is expired or future-dated. Both comparisons allow `model.ClockSkewLeeway`, 60 seconds, of clock skew. The trust chain expiry check allows none: a chain whose earliest `exp` is not in the future is refused, because a resolve response must carry an `exp` in the future (section 8.3.2). So a statement up to 60 seconds past its `exp` parses, but a chain that includes it is refused. The `iat` claim must be before the `exp` claim. A trust mark and its `delegation` are judged with the same allowance, which earlier releases did not do: they were compared against the current time exactly, so an issuer whose clock ran a few seconds fast had its marks dropped from resolve responses with no error while an entity statement in the same state was accepted. One limit is worth knowing: a trust mark whose `exp` has already passed is still left out of a resolve response, however small the margin, because section 8.3.2 makes the response's `exp` the minimum over the marks it carries and a response whose `exp` has passed is unusable. The allowance decides whether such a mark is *valid*, not whether it can be carried.
 - A statement that carries a `crit` claim is rejected, with no opt-in. The library has no way to carry the critical extension claims themselves. See issue #132.
-- The `typ` header of an entity statement, a trust mark and a trust mark delegation is compared as a media type, with one rule for all three. A value with no `/` is read with `application/` before it, as RFC 7515 section 4.1.9 requires. Case is ignored for ASCII letters only, so `entity-ſtatement+jwt` is refused. Earlier releases accepted that spelling for entity statements and delegations, and dropped a trust mark typed `application/trust-mark+jwt` or `TRUST-MARK+JWT` from resolve responses.
+- The `typ` header of an entity statement, a trust mark and a trust mark delegation is compared as a media type, with one rule for all three. A value with no `/` is read with `application/` before it, as RFC 7515 section 4.1.9 requires. Case is ignored for ASCII letters only, so `entity-ſtatement+jwt` is refused. **Breaking change.** In v0.11.1, the library accepted that spelling for entity statements and delegations, and dropped a trust mark typed `application/trust-mark+jwt` or `TRUST-MARK+JWT` from resolve responses.
 - A statement that carries a `metadata_policy_crit` claim is rejected. The claim names metadata policy operators that an implementation must understand, and this library understands none beyond the seven standard operators.
 - A metadata policy operator the library does not know is ignored when the statement does not list it in `metadata_policy_crit`, as section 6.1.3.2 requires. The other operators on the same parameter still apply. Earlier releases refused the whole statement, so a federation using any additional operator could not be resolved. Names are matched exactly, so `Add` is an unknown operator and not `add`. `PolicyOperators.Unrecognised` records the names it skipped.
 - A policy you configure for a subordinate that holds an unknown operator is refused when its subordinate statement is issued, naming the operator. Ignoring is for reading other entities' statements. Publishing a statement without an operator you wrote would silently weaken your policy.
@@ -719,7 +938,7 @@ Each is a `map[string]any` with its own validation, split across two points in t
 
 A type that is not in this table goes in `Metadata.Extensions`, and its policy in `MetadataPolicy.Extensions`, keyed by its identifier. A built-in type must use its field. `MarshalJSON` refuses an `Extensions` entry under a built-in identifier, because it would replace the typed field's entry when written. For example, `Extensions["federation_entity"]` would remove the `federation_fetch_endpoint`, `federation_list_endpoint` and `federation_resolve_endpoint` that the library adds for an intermediate. An entity configuration that holds such an entry answers 500 `server_error` on `/.well-known/openid-federation`, and the cause, naming the field to use, is logged at error level. A subordinate record whose policy holds one fails for that subordinate alone, as an unusable record.
 
-> **Breaking change.** Earlier releases wrote such an entry over the typed field without an error. Move it to the field the error names.
+> **Breaking change.** In v0.11.1, such an entry was written over the typed field without an error. Move it to the field the error names.
 
 When metadata is unmarshalled, every statement is checked for claim shape: URL claims are HTTPS with no fragment component, string array claims are arrays of strings, object claims are objects, and signing algorithm claims exclude `none` where an algorithm is required. `issuer` and `credential_issuer` also refuse a query. An empty object is accepted, so an entity may declare a type without asserting anything about it.
 
@@ -756,7 +975,7 @@ Resolved `openid_credential_verifier_provider` metadata must hold `jwks`. Wallet
 
 The `kid` rule is a MUST in the draft. The array rules are the types that the draft gives each parameter. The source is a draft, so these rules follow it if it changes. The library does not check that a Credential Verifier lists a Credential Verifier Provider in `credential_verifier_providers`. A wallet makes that check when it verifies a Verifier Attestation JWT.
 
-> **Breaking change.** `openid_credential_verifier_provider` is now a built-in entity type. Earlier releases put it in `Metadata.Extensions` and `MetadataPolicy.Extensions`. Read it from the `OpenIDCredentialVerifierProviderMetadata` field instead. An `Extensions` entry with this name is now refused when it is written. If you registered your own entity type with this identifier, the built-in rules now apply to it as well as yours. Resolved metadata of this type without `jwks` now gets `invalid_metadata`.
+> **Breaking change.** `openid_credential_verifier_provider` is now a built-in entity type. In v0.11.1, it went in `Metadata.Extensions` and `MetadataPolicy.Extensions`. The new `OpenIDCredentialVerifierProviderMetadata` field on `Metadata` and `MetadataPolicy` means that a `Metadata{…}` or `MetadataPolicy{…}` literal that sets its fields by position no longer compiles; name the fields. Read it from the `OpenIDCredentialVerifierProviderMetadata` field instead. An `Extensions` entry with this name is now refused when it is written. If you registered your own entity type with this identifier, the built-in rules now apply to it as well as yours. Resolved metadata of this type without `jwks` now gets `invalid_metadata`.
 
 > **Breaking change.** `openid_credential_verifier` metadata that does not follow the rules above was accepted, and is now refused when it is parsed. Examples are a `jwks` key with no `kid`, an empty array, an `http` URL and a `dcql_queries` entry that is not an object. An entity configuration or a subordinate statement that holds such metadata is refused, so a chain through it does not resolve.
 
@@ -822,7 +1041,7 @@ An entity type with required claims that resolves to the empty object is refused
 
 > **Breaking change.** A subject that publishes `{}` for an entity type with required claims, and whose superiors supply none of them, previously resolved and now gets `invalid_metadata`. On `/resolve`, only the entity types the request names are judged, so a caller asking for one entity type is not refused because a different one is incomplete. With no `entity_type`, every type is requested, and one incomplete type refuses the resolution.
 
-Registered types are handled the same way as built-in types: published in entity configurations, carried in subordinate statements, subject to metadata policy, filtered by the `entity_type` parameter on `/resolve`, and passed through the `entity_type` filter on `/list`.
+Registered types are handled the same way as built-in types: published in entity configurations, carried in subordinate statements, subject to metadata policy, filtered by the `entity_type` parameter on `/resolve`, and passed to your `SubordinateListingRetriever` when `/list` is asked to filter by `entity_type`. Without a listing retriever, `/list` answers a filter with `unsupported_parameter`; see [Query parameters](#query-parameters).
 
 ### Unrecognised types
 
@@ -830,7 +1049,7 @@ Entity types absent from the registry are preserved and relayed unmodified. An i
 
 Set `DiscardUnrecognisedEntityTypes` to remove them instead. Discarding does not produce an error.
 
-The nine built-in types are always registered and are never discarded. A registry entry under a built-in identifier adds its validation to that built-in rather than replacing it: `Metadata.UnmarshalJSON` always runs the built-in `VerifyMetadata`, and `Metadata.VerifyResolved` always runs the built-in `VerifyResolvedMetadata` alongside the registered one. A registration can therefore tighten a standard type but not loosen it. See [#74](https://github.com/MichaelFraser99/go-openid-federation/issues/74).
+The ten built-in types are always registered and are never discarded. A registry entry under a built-in identifier adds its validation to that built-in rather than replacing it: `Metadata.UnmarshalJSON` always runs the built-in `VerifyMetadata`, and `Metadata.VerifyResolved` always runs the built-in `VerifyResolvedMetadata` alongside the registered one. A registration can therefore tighten a standard type but not loosen it. See [#74](https://github.com/MichaelFraser99/go-openid-federation/issues/74).
 
 `model.DefaultEntityTypeRegistry` returns the built-in definitions. Embedding one in a custom type delegates to its validation, which is useful when a type is close to a standardised one.
 
@@ -850,9 +1069,11 @@ The validators the built-in types use are exported for custom types to reuse.
 | `VerifyScopeClaim(m)` | `scope`, if present, is a string that holds at least one scope value |
 | `VerifyJWKSetClaims(m)` | `jwks`, if present, is a JWK Set, and `jwks_uri` and `signed_jwks_uri`, if present, are HTTPS URLs. Call it from a custom type that may carry keys. It does not enforce section 5.2.1's prohibition on these parameters in `federation_entity` metadata, which `FederationMetadata` carries |
 
-`VerifyPublishableJWK(key)` refuses a key carrying private key material, and `VerifyKeyStrength(key, alg)` holds an RSA key to its algorithm's minimum modulus size, `MinimumRSAKeyBits`. `PrivateJWKMembers(key)` names the private members a key carries, and `VerifyPublishableMetadataKeys` and `VerifyPublishableTrustMarkOwnerKeys` apply the first to a whole `Metadata` or `trust_mark_owners` map. Call them from a consumer that assembles its own key sets before handing them to the library.
+`VerifyPublishableJWK(key)` refuses a key carrying private key material, and `VerifyKeyStrength(key, alg)` holds an RSA key to its algorithm's minimum modulus size, `MinimumRSAKeyBits`. `PrivateJWKMembers(key)` names the private members a key carries. Call `VerifyPublishableJWK` on each key of a set that you assemble before you hand it to the library. The library applies the same check to every `jwks` it publishes. `VerifyKeyStrengthForAnySignatureAlgorithm(key)` applies `MinimumRSAKeyBits` to an RSA key that names no `alg` and that a resolver could select to verify a signature, because its `use` is absent or `sig` and its `key_ops` is absent or lists `verify`. Use it to filter the keys you publish. Private members are matched as `encoding/json` matches a field name, with Unicode simple case folding, so a member spelled `D` counts as `d`.
 
-The private-member check is a denylist of the member names the JOSE specifications define, applied to key sets found under the member name `jwks`. Three things are therefore not caught: a vendor extension that stores private material under another member name, or inside `x5c`; a bare JWK under a name other than `jwks`, such as a `cnf.jwk` in a custom entity type; and a statement nested deeper than the scan goes, which is refused rather than published. A resolver also still republishes a peer's leaked key verbatim in the `trust_chain` claim and in resolved metadata, because stripping it would break the chain's signatures.
+The private-member check is a denylist of the member names the JOSE specifications define, applied to every JSON object inside a value under the member name `jwks`, whatever its shape: a `keys` array, a bare JWK, an array of keys, or a `keys` member that is an object. Three things are therefore not caught: a vendor extension that stores private material under another member name, or inside `x5c`; a bare JWK under a name other than `jwks`, such as a `cnf.jwk` in a custom entity type; and a statement nested deeper than the scan goes, which is refused rather than published. A resolver also still republishes a peer's leaked key verbatim in the `trust_chain` claim and in resolved metadata, because stripping it would break the chain's signatures.
+
+> **Breaking change.** In v0.11.1, the check looked only inside a `keys` array under `jwks`, so a private key in a `jwks` of another shape, such as a bare JWK or an array of keys, was published. Such a key is now refused in this server's own statements and removed from a registrant's.
 
 `ParseJWKSet(v)` reads a JWK Set from a decoded JSON value. Use it rather than unmarshalling into a `jwks` struct field: Go matches struct fields with Unicode simple folding, so a member named `keyſ` decodes as `keys` and the keys a conforming parser reads are not the keys you get. It takes the keys from the exact `keys` member and leaves out an entry that `ValidateJWKShape` finds unusable, which RFC 7517 section 5 asks of an implementation. `ParseFederationEntityKeys(v)` is the stricter reading for a `jwks` claim: it adds section 3.1.1's rule that every key in the set carry a unique `kid`.
 
@@ -862,7 +1083,7 @@ The private-member check is a denylist of the member names the JOSE specificatio
 
 The `value` operator assigns its operand whatever the type of the parameter it replaces, because section 6.1.3.1.1 says the parameter MUST be assigned the operator's value. A superior can therefore change a parameter's JSON type, for example from a string to an array. Section 6.1 does not make policy check value types. It leaves that check to the application, after the trust chain resolves.
 
-- For a built-in entity type, the library does that check. A resolved parameter of the wrong type is refused as `invalid_metadata`.
+- For a built-in entity type, the library checks the parameters that the type gives a shape rule, such as `redirect_uris`, `contacts`, `jwks` and the endpoint URLs, and refuses a resolved one of the wrong type as `invalid_metadata`. Other parameters, such as `client_name` or `logo_uri`, are not type-checked, so check their types before you use them.
 - For an entity type that you register, the library calls your `VerifyResolvedMetadata` on the resolved metadata. Check each parameter's type there. Do not assume a parameter has the type the subject published.
 - For a type that is not registered, which is kept in `Extensions`, the library checks nothing. Check each value's type before you use it. A bare type assertion such as `meta["x"].(string)` panics on a changed type.
 
@@ -870,11 +1091,19 @@ The `value` operator assigns its operand whatever the type of the parameter it r
 
 `value` and `default` keep their operand as written, repeated values included, because sections 6.1.3.1.1 and 6.1.3.1.3 assign the operator's value. `add` keeps every value the subject published, repeats included, and adds only the values that are not already present (section 6.1.3.1.2). If the parameter is absent, `add` initialises it with its operand as written, repeats included. `one_of`, `subset_of` and `superset_of` only test membership, so a repeat in their operand changes nothing.
 
+A `subset_of` that leaves no value resolves the parameter to `[]`, the empty array section 6.1.3.1.5 describes, and not to `null`. For `scope`, an empty result is refused, as [scope](#metadata-policy) describes below.
+
+> **Breaking change.** In v0.11.1, a `subset_of` that left no value stored a nil slice, which a caller marshalling the resolved metadata map saw as `null`.
+
 Two levels of a chain merge a `value`, or a `default`, only when their operands are equal as written. `["a","a"]` and `["a"]` are different arrays, so merging them is a policy error. Two `add` operators merge into the union of their values, which holds each value once.
 
 > **Breaking change.** A `value`, `default` or `add` operand that repeats a value was deduplicated, so `["a","a"]` assigned `["a"]`, and `add` dropped a repeat the subject published. `value` and `default` now assign `["a","a"]`, as does `add` on an absent parameter. Two levels whose `value` or `default` operands differ only by a repeated value no longer merge.
 
 ### How operand values are compared
+
+An operand you build in Go is held as its own copy, in the shape `encoding/json` would write it. `NewAdd` and the other constructors convert an operand of another Go type, such as a struct, a pointer or a typed slice, so `OperatorValue` returns `map[string]any` and `[]any`, with integers kept exact. A constructor returns an error for an operand that cannot be copied safely, such as a map that contains itself.
+
+> **Breaking change.** In v0.11.1, `OperatorValue` returned the Go value you passed, such as a `josemodel.Jwks` or a `*[]string`. Read it as `map[string]any` and `[]any`.
 
 Operand equality is defined on the JSON value, and it is defined for the shapes a JSON decode produces: `nil`, `bool`, `string`, `float64`, `[]any` and `map[string]any`, plus the Go integer types. Such a value is compared by its canonical JSON encoding, which `encoding/json` writes with object member names sorted at every level.
 
@@ -902,19 +1131,23 @@ A member name must not occur twice at any of these three levels, as section 6.1.
 
 All seven operators from the specification are implemented: `value`, `add`, `default`, `one_of`, `subset_of`, `superset_of` and `essential`.
 
-When the policies of a chain are merged, `add` and `superset_of` take the union of their operands at each level. After each level, the library counts the operands that these operators hold, across every entity type and every parameter of the merged policy. The total can be no more than `MaxStatementValues`, which is 10,000 by default and is the most that one statement can hold. If the total is larger, the resolve answers 400 `invalid_metadata`, and the error carries `model.ErrLimitReached`.
+When the policies of a chain are merged, `add` and `superset_of` take the union of their operands at each level. After each level, the library counts the operands that these two operators hold, across every entity type and every parameter of the merged policy. The total can be no more than `MaxStatementValues`, which is 10,000 by default and is the most that one statement can hold. If the total is larger, the resolve answers 400 `invalid_metadata`, and the error carries `model.ErrLimitReached`.
 
-Without this bound, each merge processed every union again. A chain of statements that a peer built, at the default depth of 10, cost about 160 ms and 175 MB for each resolve, and the cost grew with the square of the depth. A bound on each parameter alone was not enough, because a peer can spread the values of one statement over many parameters. Now each level starts from a bounded total, and the cost grows in proportion to the depth. `subset_of` and `one_of` take the intersection, which cannot grow, so they do not count towards the total.
+Without this bound, each merge processed every union again. A chain of statements that a peer built, at the default depth of 10, cost about 160 ms and 175 MB for each resolve, and the cost grew with the square of the depth. A bound on each parameter alone was not enough, because a peer can spread the values of one statement over many parameters. Now each level starts from a bounded total, and the cost grows in proportion to the depth. `subset_of` and `one_of` take the intersection, which cannot grow, so they do not count towards the total. A `scope` operand is split into scope values once for each statement, and the scope values in one statement's operands count towards `MaxStatementValues` before they are split. A single string of 200,000 scope values is therefore refused, where it would otherwise count as one JSON value and then be split at every level.
 
 `ProcessAndExtractPolicy` applies the default bound, and `Configuration.ProcessAndExtractPolicy` applies the configured one. `MergePolicyOperators` merges one parameter, so it bounds that parameter's union by the default.
 
-> **Breaking change.** In v0.11.1, a merged policy could hold any number of `add` and `superset_of` operands. A chain whose merged policy holds more than `MaxStatementValues` of them in total is now refused. To accept more, raise `MaxStatementValues`.
+> **Breaking change.** In v0.11.1, a merged policy could hold any number of `add` and `superset_of` operands, and a statement's `scope` operands could hold any number of scope values. A chain whose merged policy holds more than `MaxStatementValues` operands of `add` and `superset_of` in total, or one statement whose `scope` operands hold more scope values than that, is now refused. To accept more, raise `MaxStatementValues`.
 
 > **Breaking change.** `essential` takes a boolean only, which section 6.1.3.1.7 lists as its one operand type. `"essential": null` was read as `false`, and it now produces a policy error, as section 6.1.3 requires for an operand type the operator does not support. Omitting `essential` is still the same as `false`.
 
-Policies are combined down a trust chain by `model.ProcessAndExtractPolicy` and applied to a subject's metadata by `model.ApplyPolicy`. Operators resolve in a fixed order: `value`, `add`, `default`, `one_of`, `subset_of`, `superset_of`, then `essential`. Combinations that cannot be satisfied, such as a `subset_of` and a `superset_of` with no overlap, are rejected when the policies are merged.
+Policies are combined down a trust chain by `model.ProcessAndExtractPolicy` and applied to a subject's metadata by `model.ApplyPolicy`. They are merged from the trust anchor's statement down to the immediate superior's, as section 6.1.4.1 requires, so a merged `add` lists the subject's values, then the trust anchor's, then each level's below it. Section 6.1.3 leaves the order of a merged operator's values undefined, and the order this library gives follows the merge: the operands of a merged `subset_of`, `one_of` or `superset_of` come in the order of the statements that set them, and where two levels give values that are equal but spelled differently, such as `0` and `-0`, the lower statement's spelling is the one kept.
 
-Neither function changes what it is given, and nothing either returns is shared with its input. `ProcessAndExtractPolicy` returns a policy that shares no map or slice with the statements in the chain, and an operator's `OperatorValue` returns a copy. So a chain can be resolved again, and the result changed, without either affecting the other. `ApplyPolicy` returns a statement whose metadata is a deep copy, so writing into a resolved `contacts` or `jwks` changes neither the subject that was passed in nor the policy that produced the value. `MergePolicyOperators` returns a new slice even when one side is empty. The copies stop after 100,000 nodes in one value, and the rest of the value is then shared. A statement from a peer holds at most 10,000 values, so only metadata or a policy you build in Go could reach that.
+> **Breaking change.** In v0.11.1, policies were merged from the immediate superior up. Which values resolve is unchanged, but the order of a merged operator's values, and which spelling of two equal values is kept, can differ.
+
+ Operators resolve in a fixed order: `value`, `add`, `default`, `one_of`, `subset_of`, `superset_of`, then `essential`. Combinations that cannot be satisfied, such as a `subset_of` and a `superset_of` with no overlap, are rejected when the policies are merged.
+
+Neither function changes what it is given, and nothing either returns is shared with its input. The same holds for an operator's `Resolve`, `MergePolicyOperators` and `ApplySuperiorMetadata`. `ApplyPolicy` returns an error for subject metadata or a resolved value that it cannot copy, such as a struct whose `MarshalJSON` fails, rather than share it. `Metadata.ForEntityTypes` and `ApplySuperiorMetadata` cannot return an error, so they keep the part they cannot copy as it was and copy everything else. `ProcessAndExtractPolicy` returns a policy that shares no map or slice with the statements in the chain, and an operator's `OperatorValue` returns a copy. So a chain can be resolved again, and the result changed, without either affecting the other. `ApplyPolicy` returns a statement whose metadata is a deep copy, so writing into a resolved `contacts` or `jwks` changes neither the subject that was passed in nor the policy that produced the value. `MergePolicyOperators` returns a new slice even when one side is empty. A value of more than 100,000 nodes is copied through `encoding/json` instead of node by node. If that fails, because the value holds something `encoding/json` cannot write, such as a NaN, or reaches the same map or slice twice, `ApplyPolicy` returns an error, and `Metadata.ForEntityTypes` and `ApplySuperiorMetadata`, which cannot return one, return that value shared rather than copied. A statement from a peer holds at most 10,000 values and is always decoded JSON, so only metadata or a policy you build in Go could reach that.
 
 Policy comes from the subordinate statements in the chain and from nowhere else. `ProcessAndExtractPolicy` reads every statement whose `iss` differs from its `sub`, which is what makes a statement a subordinate statement, and skips the self-issued entity configurations at either end. So neither the subject nor the trust anchor can write policy for the subject through its own entity configuration, and a chain that omits the trust anchor's entity configuration, which the specification permits, still contributes every policy it holds. A policy carried in an entity configuration is also refused outright when the statement is validated.
 
@@ -946,7 +1179,7 @@ To issue a `constraints` claim, set `SubordinateConfiguration.Constraints` to a 
 
 Resolving by hand, rather than through `ResolveMetadata`, means four steps in this order: `model.ApplySuperiorMetadata` to apply the immediate superior's `metadata` claim over the subject's own, `model.ProcessAndExtractPolicy` to merge the chain's policy, `model.ApplyPolicy` to apply it, and `Metadata.VerifyResolved` to judge the result. Skipping the first drops a superior's pinned parameters; skipping the last accepts resolved metadata that no entity type would.
 
-**`model.ApplyPolicy` checks no operator *combination*.** It does judge an operator against the metadata it is applied to — a `superset_of` that is not met, a `one_of` that does not match, a `value` of the wrong type, a non-string `scope` — but nothing about whether the operators are permitted together. `model.ProcessAndExtractPolicy` is what enforces section 6.1.3.1's combination rules: that the values of `add` are a subset of the values of `value`, that `value` is a subset of `subset_of`, and the rest. It applies them to each statement's own policy as well as across a merge, so a chain of one statement is checked too.
+**`model.ApplyPolicy` checks no operator *combination*.** It does judge an operator against the metadata it is applied to — a `superset_of` that is not met, a `one_of` that does not match, a metadata value of a type the operator does not support — but nothing about whether the operators are permitted together. `model.ProcessAndExtractPolicy` is what enforces section 6.1.3.1's combination rules: that the values of `add` are a subset of the values of `value`, that `value` is a subset of `subset_of`, and the rest. It applies them to each statement's own policy as well as across a merge, so a chain of one statement is checked too.
 
 Calling `ApplyPolicy` on a policy that has not been through `ProcessAndExtractPolicy` therefore applies it as written, including combinations the specification makes a policy error — `{"value": ["a"], "add": ["b"]}` resolves to `["a","b"]` with no error rather than refusing. Skipping the step is what does it, not the length of the chain.
 
@@ -957,11 +1190,13 @@ Calling `ApplyPolicy` on a policy that has not been through `ProcessAndExtractPo
 
 `scope` is handled as a special case. It travels as a space delimited string but is operated on as a list, so an operator's value is converted to its slice form at three points — before two policies are merged, before one statement's own operators are checked against each other, and before resolution — and the result is rejoined afterwards. All three split on an ASCII space and drop empty runs. RFC 6749 section 3.3 gives `scope = scope-token *( SP scope-token )` with `scope-token = 1*( %x21 / %x23-5B / %x5D-7E )`, which allows exactly one space between values and none at either end, so dropping empty runs is leniency this library chooses rather than something the ABNF defines. What the ABNF does settle is which characters separate values: only an ASCII space does.
 
+A `scope` value that is not a string, whether a subject publishes it or a `value` or `default` supplies it, is not a policy error. The resolved `scope` is judged with the rest of its entity type: `openid_relying_party` and `oauth_client` refuse it as `invalid_metadata`, so on `/resolve` it refuses only a request for one of those types, or for every type.
+
 `one_of` cannot be applied to `scope`. Section 6.1.3.1.4 gives `one_of` a metadata parameter that is a single string, number or object, and policy operators process `scope` as an array, so section 6.1.3 makes it a policy error. The error happens whenever `scope` is present when `one_of` runs, whether the subject publishes it or an earlier `value`, `add` or `default` supplies it. If neither does, `one_of` has no effect and the chain resolves. To limit the scope values that a subject can use, use `subset_of`. The same rule refuses `one_of` on any metadata parameter whose value is an array. A server that issues a subordinate statement whose own policy puts `one_of` on `scope` still issues it, because the specification judges a policy only when it is applied. Each issuance logs this at Error level, naming the subject and the entity types, so that you can correct the policy before a resolve fails.
 
 Two consequences are worth knowing. Irregular spacing does not make a chain unresolvable, so a superior writing `"openid profile "` tokenises the same way as one writing `"openid profile"`. And a character the ABNF excludes is not a delimiter, so `"openid\u00a0profile"` is one value rather than two: it does not match an allow-list that permits `openid` and `profile` separately. Nothing validates the characters of a token, in an operand or in a subject's own `scope`, so a value holding a `"` or a `\`, which the ABNF also excludes, is compared like any other.
 
-An element of an array operand is split into scope values the same way, for every operator, because RFC 6749 section 3.3 does not let a scope value hold a space. So `{"value": ["openid", "openid accounts"]}` resolves to `openid accounts`, `{"subset_of": ["openid profile"]}` permits both `openid` and `profile`, and `{"superset_of": ["openid profile"]}` requires both. An element that is empty, or holds only spaces, holds no scope value, so it permits or requires nothing. Splitting applies to `scope` only. An element of another parameter's operand is one value, so `"code id_token"` in a `response_types` policy is a single response type.
+An element of an array operand is split into scope values the same way, for every operator, because RFC 6749 section 3.3 does not let a scope value hold a space. So `{"value": ["openid", "openid accounts"]}` resolves to `openid accounts`, `{"subset_of": ["openid profile"]}` permits both `openid` and `profile`, and `{"superset_of": ["openid profile"]}` requires both. An element that is empty, or holds only spaces, holds no scope value, so it permits or requires nothing. Splitting applies to `scope` only. Whenever any policy touches `scope`, its value is rejoined from the split values, so a repeated scope value is kept once and extra spaces are dropped. Repeats are kept as written for every other parameter, not for `scope`. An element of another parameter's operand is one value, so `"code id_token"` in a `response_types` policy is a single response type.
 
 > **Breaking change.** An element of a `subset_of`, `superset_of` or `one_of` operand on `scope` that held a space was compared as one value. A `subset_of` element such as `"openid profile"` matched nothing and emptied `scope`. A `superset_of` or `one_of` element that held whitespace, or held nothing, was refused when the policy was processed. Each element is now split into scope values, and none is refused.
 
@@ -977,9 +1212,9 @@ An operator this library does not define is ignored, as section 6.1.3.2 requires
 
 ## Trust chains
 
-`/resolve` builds a chain from the subject up to the requested trust anchor by walking `authority_hints` depth first, backtracking on dead ends and skipping entities already checked. The walk finds a route through entity configurations first, and only then fetches the subordinate statements along it. If one of those fetches fails, the walk records that link, from that superior to that subject, as unusable for the request and searches again without it, so a superior that has not registered the subject, or has moved it, does not end a resolve that another hint can complete. When no route is left, the answer is the first failure, as it was before, with one exception: a failure that may clear on retry, this server's own fault, a `server_error` or a 503, is the answer over a peer's refusal, because the route it ended might otherwise have worked. The statements fetched on a retry count against `MaxEntitiesTraversed`. The depth bound refuses one branch, not the walk, so it does not end the retries. A configured bound, the deadline or a cancellation still ends the request at once, and so does an error your `HttpClient`'s transport marks with `model.ErrLimitReached`.
+`/resolve` builds a chain from the subject up to the requested trust anchor by walking `authority_hints` depth first, backtracking on dead ends and skipping entities already checked. The walk finds a route through entity configurations first, and only then fetches the subordinate statements along it. If one of those fetches fails, the walk records that link, from that superior to that subject, as unusable for the request and searches again without it, so a superior that has not registered the subject, or has moved it, does not end a resolve that another hint can complete. A route whose statements arrive but fail validation is set aside the same way: an expiry, which is charged to the statement with the earliest `exp`; a link signed with a key its superior does not register, charged to that superior's statement, and only for routes that arrive at it from the same entity below; a `max_path_length` that the route breaks, charged to the statement that set it, and only for routes of that length or longer; a `naming_constraints` failure, charged to the statement that set it, and only for routes that pass through the entity outside the constraint, unless that entity is the subject; and any other failed constraint, charged to the statement that set it. That route is set aside for the walk that found it, and not for the whole request, because whether it is valid depends on the route below it. A failure that no route can avoid still ends the request: one at the trust anchor itself, or in the subject's own entity configuration. When no route is left, the answer is the first failure, as it was before, with one exception: a failure that may clear on retry, this server's own fault, a `server_error` or a 503, is the answer over a peer's refusal, because the route it ended might otherwise have worked. The statements fetched on a retry count against `MaxEntitiesTraversed`. The depth bound refuses one branch, not the walk, so it does not end the retries. A configured bound, the deadline or a cancellation still ends the request at once, and so does an error your `HttpClient`'s transport marks with `model.ErrLimitReached`.
 
-> **Breaking change.** Earlier releases failed the request on the first subordinate statement that could not be fetched, and tried no other route ([#123](https://github.com/MichaelFraser99/go-openid-federation/issues/123)). A resolve that another hint can complete now answers 200. The walk is bounded (see [Limits](#limits)) and is refused with a 404 `invalid_trust_anchor` naming the bound when one is reached. Each step is verified: signatures against the issuer's published keys, `iss` and `sub` against the expected entities, and the subject's signing key against the JWKS in the subordinate statement above it.
+> **Breaking change.** In v0.11.1, the walk failed the request on the first subordinate statement that could not be fetched, and tried no other route ([#123](https://github.com/MichaelFraser99/go-openid-federation/issues/123)). A resolve that another hint can complete now answers 200. The walk is bounded (see [Limits](#limits)) and is refused with a 404 `invalid_trust_anchor` naming the bound when one is reached. Each step is verified: signatures against the issuer's published keys, `iss` and `sub` against the expected entities, and the subject's signing key against the JWKS in the subordinate statement above it.
 
 > **Breaking change.** A subordinate statement is requested at the `federation_fetch_endpoint` exactly as the superior publishes it, with only `sub` added to its query. Earlier releases removed a trailing `/`, so a superior that advertises `https://ta.example.com/fetch/` but serves only `/fetch` used to work. It now answers 404, and the resolve fails with 400 `invalid_trust_chain`. Make the advertised endpoint match the route.
 
@@ -1025,7 +1260,7 @@ Two limits are worth knowing:
   ```
 
   Use the `idna.Lookup` profile, because it is the one `net/http` applies when it connects. A converter that maps a host differently from your HTTP client reopens the gap: the constraint judges one host and the request reaches another. The converter is called only for a host that is not ASCII. A host it fails on, or converts to something that is still not ASCII, is refused.
-- **A path that fails a constraint is not retried.** Constraints arrive in subordinate statements, which `BuildTrustChain` fetches after it has chosen a path. A failing path refuses the resolve even when another path would satisfy every constraint, as any failing subordinate statement does today ([#123](https://github.com/MichaelFraser99/go-openid-federation/issues/123)).
+- **A path that fails a constraint gives way to another.** Constraints arrive in subordinate statements, which `BuildTrustChain` fetches after it has chosen a path. A path that fails a constraint is set aside for that walk, and the walk tries another `authority_hints` route, as it does for a statement that cannot be fetched. The failure is the answer only when no route is left.
 
 > **Breaking change.** `EntityStatement.Constraints` was `any` and is now `*model.Constraints`, with `MaxPathLength *int`, `NamingConstraints *model.NamingConstraints` and `AllowedEntityTypes []string`. A nil `AllowedEntityTypes` means the member is absent, and an empty non-nil one means `[]`. A chain carrying constraints it does not satisfy, or a malformed `constraints` claim, previously resolved and is now refused.
 
@@ -1111,7 +1346,7 @@ Errors are returned to callers as a JSON object with `error` and `error_descript
 
 **A condition a peer or a caller caused is never a `server_error`.** `server_error` is left for this server's own faults, such as a signer it cannot use or a retriever that failed for a reason it does not classify.
 
-`temporarily_unavailable` means **this** server, and nothing else. Section 8.9 defines it as "The server hosting the federation endpoint is currently unable to handle the request due to temporary overloading or maintenance", and the server hosting the endpoint being requested is this one. So it answers only where this server did not complete its own request — its context deadline, which includes `MaxResolveTime` (see [Limits](#limits)), or a cancellation — or where your own signer or retriever reports a temporary fault with `model.ErrTemporarilyUnavailable`. It is deliberately not used for a peer this server could not reach: that peer is not hosting the endpoint the caller asked for.
+`temporarily_unavailable` means **this** server, and nothing else. Section 8.9 defines it as "The server hosting the federation endpoint is currently unable to handle the request due to temporary overloading or maintenance", and the server hosting the endpoint being requested is this one. So it answers only where this server did not complete its own request — a deadline or cancellation on the caller's context, or `MaxResolveTime` passing while this server builds its own statements — or where your own signer or retriever reports a temporary fault with `model.ErrTemporarilyUnavailable`. It is deliberately not used for a peer this server could not reach: that peer is not hosting the endpoint the caller asked for.
 
 **A signer error is this server's own fault, so every endpoint that signs answers it the same way.** The answer is 500 `server_error` with the endpoint's fixed description. The signer's text goes to the log and not to the caller, because it can name a key or an account. Any class that the signer's error wraps is ignored, with one exception: an error that wraps `model.ErrTemporarilyUnavailable` answers 503 `temporarily_unavailable`. Use it for a fault that a retry can clear, such as a throttled or briefly unreachable KMS. A permission fault or a bad key gives the same answer on every retry, so leave it unwrapped.
 
@@ -1149,11 +1384,15 @@ Two exceptions worth knowing, rather than inferring from the above:
 
   During the trust chain walk, a transport error that wraps `model.ErrServerError` for one entity's entity configuration is remembered rather than answered at once, because your policy may refuse that peer only. The walk tries the remaining `authority_hints`, and the remembered class is the answer only when no route reaches the trust anchor.
 
-  > **Breaking change.** Earlier releases ended the walk on such an error, so one peer that your transport refused could fail a `/resolve` that had another route.
+  > **Breaking change.** In v0.11.1, the walk ended on such an error, so one peer that your transport refused could fail a `/resolve` that had another route.
 
-  For the subject's own entity configuration, the class your transport error carries is the answer, because the subject has no other route. A throttled transport answers 503 and a policy refusal answers its class, with this library's own description. Earlier releases answered 404 `not_found` for any failure to fetch it. The trust anchor's entity configuration already kept its class for the same reason.
+  For the subject's own entity configuration, the class your transport error carries is the answer, because the subject has no other route. A throttled transport answers 503 and a policy refusal answers its class, with this library's own description. The trust anchor's entity configuration already kept its class for the same reason.
+
+  > **Breaking change.** In v0.11.1, any failure to fetch the subject's own entity configuration answered 404 `not_found`.
 
 So the answer for a peer that can't be reached, or answers badly, depends on where that peer sits in the chain. This is deliberate: the class says which step failed, and the description says why.
+
+A `Client` caller can tell why a peer failed through three marker sentinels that sit beside an error's class, as `model.ErrLimitReached` does: `model.ErrPeerUnreachable` for a peer that gave no HTTP response, such as a refused connection or a DNS failure; `model.ErrPeerTimeout` for a peer that did not answer within `MaxPeerResponseTime`; and `model.ErrExpired` for a chain or statement refused because it has expired. Test them with `errors.Is`. They change no class, status or description, so `/resolve` answers exactly as before. `model.ErrNotFound` with no marker means the peer answered, but gave no usable entity configuration. A peer that fails during the walk, such as an unreachable intermediate, still gives the walk's `invalid_trust_anchor` with no marker, because the walk tries other routes. To rebuild an error without losing its markers, use `model.CarryMarkers`.
 
 | Where the failing peer sits | Status | Code |
 | --- | --- | --- |
@@ -1165,7 +1404,7 @@ A fetched subordinate statement whose metadata is unusable answers 400 `invalid_
 
 The description a caller receives carries no free text this server was given by a peer: a peer's error, a value from a peer's statement, or a key a superior registered. The one peer-chosen value it can carry is an entity identifier, such as an issuer named in `authority_hints`, and only after it has been validated as an https URL with no fragment; it is truncated with the rest of the description. The detail goes to the log instead, so an operator can still tell one fetch failure from another while a caller cannot read a third party's internals out of a response. What a peer chooses is bounded before it reaches a log, so a peer cannot turn one request into megabytes of records.
 
-The same holds for an entry of a chain you pass to `Client.ResolveMetadata` that fails validation. The error's text names the entry and its kind, such as `trust chain entry 2 is not a valid entity configuration`, and keeps the class the validation gave it. The reason is the error's cause, so a Go caller reads it with `errors.Unwrap(err)`. Earlier releases put the reason in the error's own text, so a value from a statement in the chain reached anything that printed the error.
+The same holds for an entry of a chain you pass to `Client.ResolveMetadata` that fails validation. The error's text names the entry and its kind, such as `trust chain entry 2 is not a valid entity configuration`, and keeps the class the validation gave it. The reason is the error's cause, so a Go caller reads it with `errors.Unwrap(err)`. In v0.11.1, the reason was in the error's own text, so a value from a statement in the chain reached anything that printed the error.
 
 > **Breaking change.** A malformed `metadata` or `metadata_policy` claim in the subject's entity configuration, or in a subordinate statement of a chain you pass to `Client.ResolveMetadata`, is now `invalid_metadata` alone, which section 8.9 defines as "Metadata or Metadata Policy values are invalid or conflict". It also matched `invalid_trust_chain` before, so `errors.Is(err, model.ErrInvalidTrustChain)` was true for it. The same fault in the trust anchor's entity configuration was already `invalid_metadata`. `/resolve` is unaffected, because a chain it builds has already passed the same validation.
 
@@ -1179,7 +1418,7 @@ Two endpoints beyond the core specification are available. Both are disabled by 
 
 `ResponseLifetime` sets the response's `exp` to its `iat` plus the lifetime. Leave it nil for a response with no `exp`, which section 2.3.2 of the Subordinate Events draft makes optional. A value under one second, including zero, can only sign a response that has already expired. Such a value answers 500 `server_error` with the endpoint's fixed description, and the value is logged at error level. Unlike the other lifetimes, zero does not select a default here, because nil already means "no `exp`".
 
-> **Breaking change.** Earlier releases signed the response with any `ResponseLifetime`, so a zero or negative value produced an `exp` at or before `iat`. Set a lifetime of at least one second, or leave it nil.
+> **Breaking change.** In v0.11.1, the response was signed with any `ResponseLifetime`, so a zero or negative value produced an `exp` at or before `iat`. Set a lifetime of at least one second, or leave it nil.
 
 ## Testing
 
@@ -1213,16 +1452,20 @@ pre-commit run --all-files
 
 ## Specification coverage
 
-Entity statements and configurations, subordinate statements, trust chain construction and validation, all seven metadata policy operators, metadata validation for the nine entity types listed above, registration of additional entity types, trust mark issuance, listing and status, and the fetch, list, resolve and well-known endpoints.
+Entity statements and configurations, subordinate statements, trust chain construction and validation, all seven metadata policy operators, metadata validation for the ten entity types listed above, registration of additional entity types, trust mark issuance, listing and status, and the fetch, list, resolve and well-known endpoints.
 
 ### Known gaps
 
 | Area | Status | Issue |
 |---|---|---|
-| Internationalised hosts under `naming_constraints` | Decided: refused by default, and matched only when `Configuration.HostToASCII` is set | [#50](https://github.com/MichaelFraser99/go-openid-federation/issues/50) |
+| Internationalised hosts under `naming_constraints` | Decided: refused by default, and matched only when `Configuration.HostToASCII` is set | [#229](https://github.com/MichaelFraser99/go-openid-federation/pull/229) |
 | Clock skew tolerance | `model.ClockSkewLeeway` is a constant and cannot be configured | [#141](https://github.com/MichaelFraser99/go-openid-federation/issues/141) |
 | Extension claims | Dropped on parse and cannot be issued | [#132](https://github.com/MichaelFraser99/go-openid-federation/issues/132) |
-| `trust_chain` and `peer_trust_chain` JOSE headers | Not read or written. An entity configuration or subordinate statement that carries either header is refused, as sections 4.3 and 4.4 require | [#139](https://github.com/MichaelFraser99/go-openid-federation/issues/139) |
+| `trust_chain` and `peer_trust_chain` JOSE headers | Decided: not read or written. An entity configuration or subordinate statement that carries either header is refused, as sections 4.3 and 4.4 require | [#139](https://github.com/MichaelFraser99/go-openid-federation/issues/139) |
+| Client authentication at `/resolve` | `/resolve` takes no client authentication and walks the federation on demand for every request, which section 18.1 advises against as a default. The bounds under [Limits](#limits) cap one request, not the number of requests, so rate limit `/resolve` yourself | [#219](https://github.com/MichaelFraser99/go-openid-federation/issues/219) |
+| Empty levels in `metadata_policy` | `{}`, an entity type with no parameters, and a parameter with no operators are accepted, and have no effect | [#129](https://github.com/MichaelFraser99/go-openid-federation/issues/129) |
+| Trust mark issuers | The issuers of a subject's trust marks are resolved one after another, so each extra issuer adds its fetches to a resolve's time | [#137](https://github.com/MichaelFraser99/go-openid-federation/issues/137) |
+| Subordinate statement caching | Within one request, a subordinate statement fetched for one walk is fetched again for another, such as two trust mark issuers under the same intermediate | [#138](https://github.com/MichaelFraser99/go-openid-federation/issues/138) |
 | Trust mark type identifiers as object member names | Decided, not planned: member names in `trust_mark_issuers` and `trust_mark_owners` are not checked against a syntax, because §7.1 makes a URL RECOMMENDED rather than required and the one MUST, collision resistance, is not checkable | [#140](https://github.com/MichaelFraser99/go-openid-federation/issues/140) |
 | `subordinate_statement` on an unlistable entity | Decided: a deliberate deviation. Table 4 of the extended listing draft makes the attribute a MUST when requested, and an entity the subordinate store does not hold is returned without it. See [Retriever interfaces](#retriever-interfaces) | [#126](https://github.com/MichaelFraser99/go-openid-federation/issues/126) |
 | An entity type registered under a built-in identifier | Decided: the registration adds to the built-in check, so it can tighten a built-in type but not loosen it | [#74](https://github.com/MichaelFraser99/go-openid-federation/issues/74) |

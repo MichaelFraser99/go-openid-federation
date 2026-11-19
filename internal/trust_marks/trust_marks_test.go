@@ -12,6 +12,7 @@ import (
 
 	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwt"
+	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -579,7 +580,7 @@ func TestFilterByTrusted(t *testing.T) {
 		},
 		"lowers exp to an included trust mark exp when earlier than the chain": {
 			setupTest: func() (*model.ResolveResponse, model.EntityStatement, model.Configuration) {
-				trustMark := createTrustMarkJWTWithExp(t, string(issuer1ID), "trusted-mark", subjectID, issuer1Key, model.Pointer(int64(8000000000)))
+				trustMark := createTrustMarkJWTWithExp(t, string(issuer1ID), "trusted-mark", subjectID, issuer1Key, josemodel.Pointer(int64(8000000000)))
 
 				resolved := &model.ResolveResponse{
 					Sub: model.EntityIdentifier(subjectID),
@@ -607,7 +608,7 @@ func TestFilterByTrusted(t *testing.T) {
 		},
 		"keeps chain exp when the trust mark exp is later": {
 			setupTest: func() (*model.ResolveResponse, model.EntityStatement, model.Configuration) {
-				trustMark := createTrustMarkJWTWithExp(t, string(issuer1ID), "trusted-mark", subjectID, issuer1Key, model.Pointer(int64(9999999999)))
+				trustMark := createTrustMarkJWTWithExp(t, string(issuer1ID), "trusted-mark", subjectID, issuer1Key, josemodel.Pointer(int64(9999999999)))
 
 				resolved := &model.ResolveResponse{
 					Sub: model.EntityIdentifier(subjectID),

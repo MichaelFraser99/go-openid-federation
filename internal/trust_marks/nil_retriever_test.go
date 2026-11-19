@@ -7,6 +7,7 @@ import (
 	"errors"
 	"testing"
 
+	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -58,8 +59,8 @@ func TestStatusAndIssue_TreatAnAbsentResultAsNotFound(t *testing.T) {
 		value *string
 	}{
 		{name: "a nil result", value: nil},
-		{name: "an empty result", value: model.Pointer("")},
-		{name: "a whitespace only result", value: model.Pointer("   ")},
+		{name: "an empty result", value: josemodel.Pointer("")},
+		{name: "a whitespace only result", value: josemodel.Pointer("   ")},
 	}
 
 	for _, tc := range calls {
@@ -107,7 +108,7 @@ func TestStatusAndIssue_ReturnALegitimateResult(t *testing.T) {
 	cfg := model.ServerConfiguration{
 		EntityIdentifier: "https://issuer.example.com",
 		TrustMarkRetriever: &mockTrustMarkRetriever{
-			getStatusFunc: func(context.Context, string) (*string, error) { return model.Pointer("active"), nil },
+			getStatusFunc: func(context.Context, string) (*string, error) { return josemodel.Pointer("active"), nil },
 			issueTrustMarkFunc: func(context.Context, string, model.EntityIdentifier) (*string, error) {
 				return &issued, nil
 			},

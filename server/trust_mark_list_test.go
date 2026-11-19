@@ -7,6 +7,7 @@ import (
 	"slices"
 	"testing"
 
+	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -16,7 +17,7 @@ func TestServer_TrustMarkList_ListsEntities(t *testing.T) {
 		expectedSub *string
 	}{
 		"without sub": {query: "trust_mark_type=https://tm.example.com/verified", expectedSub: nil},
-		"with sub":    {query: "sub=https://sub.example.com&trust_mark_type=https://tm.example.com/verified", expectedSub: model.Pointer("https://sub.example.com")},
+		"with sub":    {query: "sub=https://sub.example.com&trust_mark_type=https://tm.example.com/verified", expectedSub: josemodel.Pointer("https://sub.example.com")},
 	}
 
 	for name, tt := range tests {

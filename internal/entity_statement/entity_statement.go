@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -13,13 +14,15 @@ import (
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jws"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
+	"github.com/MichaelFraser99/go-openid-federation/internal/keyops"
+	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
 const maxQuotedHeaderBytes = 64
 
 func truncateHeaderValue(value string) string {
-	return model.TruncateAtCharacter(value, maxQuotedHeaderBytes)
+	return truncate.TruncateAtCharacter(value, maxQuotedHeaderBytes)
 }
 
 func NamesJWTType(typ, jwtType string) bool {
@@ -109,7 +112,7 @@ func VerifyIssuedSignature(ctx context.Context, token, kid, alg string, signer c
 	if err := ValidateStatementHeader(map[string]any{"typ": "entity-statement+jwt", "alg": alg}); err != nil {
 		return err
 	}
-	if err := model.VerifyIssuanceAlgorithm(alg); err != nil {
+	if err := VerifyIssuanceAlgorithm(alg); err != nil {
 		return err
 	}
 	publicJWK, err := jwk.PublicJwk(signer.Public())
@@ -197,13 +200,13 @@ func VerifyKeyUse(key map[string]any) error {
 			return fmt.Errorf("the selected key in the included 'jwks' has a malformed 'use' member")
 		}
 		if sUse != "sig" {
-			return fmt.Errorf("the selected key in the included 'jwks' declares a 'use' of %q, which RFC 7517 section 4.2 makes the intended use of that key, and it is not verifying a signature", model.TruncateForResponse(sUse))
+			return fmt.Errorf("the selected key in the included 'jwks' declares a 'use' of %q, which RFC 7517 section 4.2 makes the intended use of that key, and it is not verifying a signature", truncate.TruncateForResponse(sUse))
 		}
 	}
-	if err := model.ValidateKeyOps(key); err != nil {
+	if err := keyops.Validate(key); err != nil {
 		return fmt.Errorf("the selected key in the included 'jwks' %s", err.Error())
 	}
-	if !model.KeyOpsPermitVerify(key) {
+	if !keyops.PermitVerify(key) {
 		return fmt.Errorf("the selected key in the included 'jwks' declares 'key_ops' without \"verify\", which RFC 7517 section 4.3 makes the operations that key is intended for")
 	}
 	return nil
@@ -291,10 +294,13 @@ func VerifyAgainstAnyKey(ctx context.Context, token string, jwks josemodel.Jwks,
 			continue
 		}
 		tried++
-		if _, _, err := jws.VerifyCompactSerialization(ctx, token, func() ([]crypto.PublicKey, error) {
+		if _, _, err = jws.VerifyCompactSerialization(ctx, token, func() ([]crypto.PublicKey, error) {
 			return []crypto.PublicKey{pubKey}, nil
 		}, &josemodel.JoseOptions{UseTokenProvidedKeys: false, AllowedSigningAlgorithms: algorithms}); err == nil {
 			return nil
+		}
+		if ctx.Err() != nil {
+			return verificationInterrupted(ctx)
 		}
 	}
 	if tried == 0 {
@@ -320,9 +326,20 @@ func VerifyAgainstJwks(ctx context.Context, token, kid string, jwks josemodel.Jw
 		}
 		return []crypto.PublicKey{pubKey}, nil
 	}, &josemodel.JoseOptions{UseTokenProvidedKeys: false, AllowedSigningAlgorithms: algorithms}); err != nil {
+		if ctx.Err() != nil {
+			return verificationInterrupted(ctx)
+		}
 		return fmt.Errorf("failed to verify JWT signature: %s", err.Error())
 	}
 	return nil
+}
+
+func verificationInterrupted(ctx context.Context) error {
+	return fmt.Errorf("the signature check did not complete: %w", ctx.Err())
+}
+
+func VerificationInterrupted(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 func describeKeyType(key map[string]any) string {

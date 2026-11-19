@@ -2,11 +2,14 @@ package model
 
 import (
 	"bytes"
+	"encoding"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"unicode/utf8"
@@ -32,29 +35,47 @@ func scopeTokenSlice(values []any) []any {
 
 func scopeOperatorSlice(value any) []any {
 	if s, ok := value.(string); ok {
-		return ConvertStringsToAnySlice(scopeTokens(s))
+		return convertStringsToAnySlice(scopeTokens(s))
 	}
 	return []any{value}
 }
 
 func operandSliceFrom(operatorValue any) ([]any, error) {
-	if operatorValue == nil {
-		return nil, fmt.Errorf("operator value cannot be nil")
-	}
-
-	if reflect.TypeOf(operatorValue).Kind() != reflect.Slice {
-		return nil, fmt.Errorf("operator value must be a slice")
-	}
-
-	sliceValue := reflect.ValueOf(operatorValue)
-	anySlice := make([]any, sliceValue.Len())
-	for i := range sliceValue.Len() {
-		anySlice[i] = sliceValue.Index(i).Interface()
+	anySlice, err := operandElements(operatorValue)
+	if err != nil {
+		return nil, err
 	}
 	if fault := listElementsFault(anySlice); fault != "" {
 		return nil, fmt.Errorf("operator value must be an array of one of strings, numbers or objects, and %s", fault)
 	}
 	return anySlice, nil
+}
+
+func operandElements(operatorValue any) ([]any, error) {
+	held := reflect.ValueOf(operatorValue)
+	if held.Kind() == reflect.Slice && !encodesItself(held.Type()) {
+		elements := make([]any, held.Len())
+		for i := range held.Len() {
+			element, err := storedValue(held.Index(i).Interface())
+			if err != nil {
+				return nil, err
+			}
+			elements[i] = element
+		}
+		return elements, nil
+	}
+	stored, err := storedValue(operatorValue)
+	if err != nil {
+		return nil, err
+	}
+	if stored == nil {
+		return nil, fmt.Errorf("operator value cannot be nil")
+	}
+	elements, ok := stored.([]any)
+	if !ok {
+		return nil, fmt.Errorf("operator value must be a slice")
+	}
+	return elements, nil
 }
 
 func listElementsFault(elements []any) string {
@@ -113,7 +134,8 @@ func jsonTypeName(value any) string {
 const operandWalkBudget = 100_000
 
 type operandWalk struct {
-	remaining int
+	remaining       int
+	keepsUncopyable bool
 }
 
 func newOperandWalk() *operandWalk {
@@ -125,49 +147,373 @@ func (w *operandWalk) step() bool {
 	return w.remaining >= 0
 }
 
+var (
+	errPastOperandWalkBudget = errors.New("the value is past the operand walk budget")
+	errUnstorableValue       = errors.New("a value cannot be held as JSON")
+)
+
 func cloneValue(value any) any {
-	return newOperandWalk().clone(value)
+	walk := newOperandWalk()
+	walk.keepsUncopyable = true
+	copied, err := walk.copy(value)
+	if err != nil {
+		return value
+	}
+	return copied
 }
 
-func (w *operandWalk) clone(value any) any {
-	if value == nil || !w.step() {
-		return value
+func copyValue(value any) (any, error) {
+	return newOperandWalk().copy(value)
+}
+
+func (w *operandWalk) copy(value any) (any, error) {
+	copied, err := w.clone(value)
+	if !errors.Is(err, errPastOperandWalkBudget) {
+		return copied, err
+	}
+	if kind := reflect.TypeOf(value).Kind(); kind == reflect.Map || kind == reflect.Slice {
+		return treeViaEncodingJSON(reflect.TypeOf(value), value)
+	}
+	return treeViaEncodingJSON(reflect.TypeFor[any](), value)
+}
+
+func (w *operandWalk) clone(value any) (any, error) {
+	if value == nil {
+		return nil, nil
+	}
+	if !w.step() {
+		return nil, errPastOperandWalkBudget
 	}
 	original := reflect.ValueOf(value)
 	switch original.Kind() {
 	case reflect.Map:
 		if original.IsNil() {
-			return value
+			return value, nil
 		}
 		copied := reflect.MakeMapWithSize(original.Type(), original.Len())
-		entries := original.MapRange()
-		for entries.Next() {
-			copied.SetMapIndex(entries.Key(), w.cloneInto(original.Type().Elem(), entries.Value()))
+		for entries := original.MapRange(); entries.Next(); {
+			key, err := w.cloneInto(original.Type().Key(), entries.Key())
+			if err != nil {
+				return nil, err
+			}
+			member, err := w.cloneInto(original.Type().Elem(), entries.Value())
+			if err != nil {
+				return nil, err
+			}
+			copied.SetMapIndex(key, member)
 		}
-		return copied.Interface()
+		return copied.Interface(), nil
 	case reflect.Slice:
 		if original.IsNil() {
-			return value
+			return value, nil
 		}
 		copied := reflect.MakeSlice(original.Type(), original.Len(), original.Len())
 		for i := range original.Len() {
-			copied.Index(i).Set(w.cloneInto(original.Type().Elem(), original.Index(i)))
+			member, err := w.cloneInto(original.Type().Elem(), original.Index(i))
+			if err != nil {
+				return nil, err
+			}
+			copied.Index(i).Set(member)
 		}
-		return copied.Interface()
+		return copied.Interface(), nil
+	case reflect.Pointer, reflect.Struct, reflect.Array:
+		stored, err := w.storedValue(value)
+		if err != nil && w.keepsUncopyable && !errors.Is(err, errPastOperandWalkBudget) {
+			return value, nil
+		}
+		return stored, err
 	default:
-		return value
+		return value, nil
 	}
 }
 
-func (w *operandWalk) cloneInto(elementType reflect.Type, element reflect.Value) reflect.Value {
+func (w *operandWalk) cloneInto(elementType reflect.Type, element reflect.Value) (reflect.Value, error) {
 	if element.Kind() == reflect.Interface && element.IsNil() {
-		return reflect.Zero(elementType)
+		return reflect.Zero(elementType), nil
 	}
-	copied := w.clone(element.Interface())
+	copied, err := w.clone(element.Interface())
+	if err != nil {
+		return reflect.Value{}, err
+	}
 	if copied == nil {
-		return reflect.Zero(elementType)
+		return reflect.Zero(elementType), nil
 	}
-	return reflect.ValueOf(copied)
+	held := reflect.ValueOf(copied)
+	if held.Type().AssignableTo(elementType) {
+		return held, nil
+	}
+	decoded, err := decodedJSONAs(elementType, element.Interface())
+	if err != nil && w.keepsUncopyable {
+		return element, nil
+	}
+	if err != nil {
+		return reflect.Value{}, err
+	}
+	return reflect.ValueOf(decoded), nil
+}
+
+var (
+	jsonMarshalerType = reflect.TypeFor[json.Marshaler]()
+	textMarshalerType = reflect.TypeFor[encoding.TextMarshaler]()
+)
+
+func encodesItself(valueType reflect.Type) bool {
+	for _, candidate := range []reflect.Type{valueType, reflect.PointerTo(valueType)} {
+		if candidate.Implements(jsonMarshalerType) || candidate.Implements(textMarshalerType) {
+			return true
+		}
+	}
+	return false
+}
+
+func storedValue(value any) (any, error) {
+	stored, err := newOperandWalk().storedValue(value)
+	if errors.Is(err, errPastOperandWalkBudget) {
+		return treeViaEncodingJSON(reflect.TypeFor[any](), value)
+	}
+	return stored, err
+}
+
+func (w *operandWalk) storedValue(value any) (any, error) {
+	if !w.step() {
+		return nil, errPastOperandWalkBudget
+	}
+	switch typed := value.(type) {
+	case nil, bool, string, json.Number, float64, float32, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		return value, nil
+	case map[string]any:
+		if typed == nil {
+			return typed, nil
+		}
+		stored := make(map[string]any, len(typed))
+		for key, member := range typed {
+			copied, err := w.storedValue(member)
+			if err != nil {
+				return nil, err
+			}
+			stored[key] = copied
+		}
+		return stored, nil
+	case []any:
+		if typed == nil {
+			return typed, nil
+		}
+		stored := make([]any, len(typed))
+		for i, member := range typed {
+			copied, err := w.storedValue(member)
+			if err != nil {
+				return nil, err
+			}
+			stored[i] = copied
+		}
+		return stored, nil
+	}
+	held := reflect.ValueOf(value)
+	if !encodesItself(held.Type()) {
+		switch held.Kind() {
+		case reflect.Slice:
+			if held.Type().Elem().Kind() == reflect.Uint8 {
+				break
+			}
+			if held.IsNil() {
+				return []any(nil), nil
+			}
+			return w.storedElements(held)
+		case reflect.Map:
+			if held.Type().Key().Kind() != reflect.String {
+				return w.clone(value)
+			}
+			if encodesItself(held.Type().Key()) {
+				break
+			}
+			if held.IsNil() {
+				return nil, nil
+			}
+			stored := make(map[string]any, held.Len())
+			for entries := held.MapRange(); entries.Next(); {
+				member, err := w.storedValue(entries.Value().Interface())
+				if err != nil {
+					return nil, err
+				}
+				stored[entries.Key().String()] = member
+			}
+			return stored, nil
+		}
+	}
+	if !w.fits(held) {
+		return nil, errPastOperandWalkBudget
+	}
+	return decodedJSONAs(reflect.TypeFor[any](), value)
+}
+
+func (w *operandWalk) storedElements(held reflect.Value) (any, error) {
+	stored := make([]any, held.Len())
+	for i := range held.Len() {
+		member, err := w.storedValue(held.Index(i).Interface())
+		if err != nil {
+			return nil, err
+		}
+		stored[i] = member
+	}
+	return stored, nil
+}
+
+func treeViaEncodingJSON(target reflect.Type, value any) (any, error) {
+	if reachesAReferenceTwice(reflect.ValueOf(value), map[heldReference]struct{}{}) {
+		return nil, fmt.Errorf("%w: it is past the operand walk budget and reaches the same map, slice or pointer more than once", errUnstorableValue)
+	}
+	return decodedJSONAs(target, value)
+}
+
+func decodedJSONAs(target reflect.Type, value any) (any, error) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errUnstorableValue, err)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	decoded := reflect.New(target)
+	if err := decoder.Decode(decoded.Interface()); err != nil {
+		return nil, fmt.Errorf("%w: %w", errUnstorableValue, err)
+	}
+	if target.Kind() == reflect.Interface {
+		return exactNumbers(decoded.Elem().Interface()), nil
+	}
+	return decoded.Elem().Interface(), nil
+}
+
+func exactNumbers(value any) any {
+	switch typed := value.(type) {
+	case json.Number:
+		return exactNumber(typed)
+	case map[string]any:
+		for key, member := range typed {
+			typed[key] = exactNumbers(member)
+		}
+	case []any:
+		for i, member := range typed {
+			typed[i] = exactNumbers(member)
+		}
+	}
+	return value
+}
+
+func exactNumber(number json.Number) any {
+	if integer, err := strconv.ParseInt(string(number), 10, 64); err == nil {
+		return integer
+	}
+	if integer, err := strconv.ParseUint(string(number), 10, 64); err == nil {
+		return integer
+	}
+	float, _ := strconv.ParseFloat(string(number), 64)
+	if encoded, err := json.Marshal(float); err != nil || string(encoded) != string(number) {
+		return number
+	}
+	return float
+}
+
+type heldReference struct {
+	pointer   uintptr
+	length    int
+	valueType reflect.Type
+}
+
+func reachesAReferenceTwice(value reflect.Value, seen map[heldReference]struct{}) bool {
+	if !value.IsValid() {
+		return false
+	}
+	if value.Kind() != reflect.Interface && encodesItself(value.Type()) {
+		return false
+	}
+	switch value.Kind() {
+	case reflect.Interface:
+		if value.IsNil() {
+			return false
+		}
+		return reachesAReferenceTwice(value.Elem(), seen)
+	case reflect.Pointer:
+		if value.IsNil() {
+			return false
+		}
+		if value.Type().Elem().Size() > 0 && !firstVisit(seen, heldReference{pointer: value.Pointer(), valueType: value.Type()}) {
+			return true
+		}
+		return reachesAReferenceTwice(value.Elem(), seen)
+	case reflect.Map:
+		if value.IsNil() {
+			return false
+		}
+		if !firstVisit(seen, heldReference{pointer: value.Pointer(), valueType: value.Type()}) {
+			return true
+		}
+		for entries := value.MapRange(); entries.Next(); {
+			if reachesAReferenceTwice(entries.Key(), seen) || reachesAReferenceTwice(entries.Value(), seen) {
+				return true
+			}
+		}
+	case reflect.Slice:
+		if value.Len() > 0 && value.Type().Elem().Size() > 0 && !firstVisit(seen, heldReference{pointer: value.Pointer(), length: value.Len(), valueType: value.Type()}) {
+			return true
+		}
+		for i := range value.Len() {
+			if reachesAReferenceTwice(value.Index(i), seen) {
+				return true
+			}
+		}
+	case reflect.Array:
+		for i := range value.Len() {
+			if reachesAReferenceTwice(value.Index(i), seen) {
+				return true
+			}
+		}
+	case reflect.Struct:
+		for i := range value.NumField() {
+			field := value.Type().Field(i)
+			if (field.IsExported() || field.Anonymous) && reachesAReferenceTwice(value.Field(i), seen) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func firstVisit(seen map[heldReference]struct{}, reference heldReference) bool {
+	if _, visited := seen[reference]; visited {
+		return false
+	}
+	seen[reference] = struct{}{}
+	return true
+}
+
+func (w *operandWalk) fits(value reflect.Value) bool {
+	if !w.step() {
+		return false
+	}
+	switch value.Kind() {
+	case reflect.Interface, reflect.Pointer:
+		if !value.IsNil() {
+			return w.fits(value.Elem())
+		}
+	case reflect.Slice, reflect.Array:
+		for i := range value.Len() {
+			if !w.fits(value.Index(i)) {
+				return false
+			}
+		}
+	case reflect.Map:
+		for entries := value.MapRange(); entries.Next(); {
+			if !w.fits(entries.Key()) || !w.fits(entries.Value()) {
+				return false
+			}
+		}
+	case reflect.Struct:
+		for i := range value.NumField() {
+			if !w.fits(value.Field(i)) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func normaliseOperand(value any) (any, bool) {

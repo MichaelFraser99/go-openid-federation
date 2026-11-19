@@ -5,7 +5,7 @@ import (
 )
 
 var (
-	_ EntityTypeIdentifier = FederationMetadata{}
+	_ entityTypeIdentifier = FederationMetadata{}
 )
 
 type FederationMetadata map[string]any
@@ -23,7 +23,7 @@ func (m FederationMetadata) VerifyMetadata() error {
 		"federation_trust_mark_endpoint",
 		"federation_historical_keys_endpoint",
 	} {
-		if err := VerifyFederationEndpoint(m[k]); err != nil {
+		if err := verifyFederationEndpoint(m[k]); err != nil {
 			return fmt.Errorf("invalid %s endpoint: %s", k, err.Error())
 		}
 	}

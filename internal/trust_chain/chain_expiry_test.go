@@ -83,3 +83,147 @@ func TestBuildTrustChain_RefusesAChainWhoseExpiryHasPassed(t *testing.T) {
 		})
 	}
 }
+
+func TestVerifyChainExpiryMarksTheChainExpired(t *testing.T) {
+	for name, exp := range map[string]int64{
+		"past the clock skew leeway":   1,
+		"inside the clock skew leeway": time.Now().UTC().Unix() - 5,
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := VerifyChainExpiry(exp)
+			if !errors.Is(err, model.ErrExpired) || !errors.Is(err, model.ErrInvalidTrustChain) {
+				t.Errorf("[10.4] a chain whose exp has passed is expired as well as invalid, got %v", err)
+			}
+		})
+	}
+}
+
+func TestChainHasExpired_TheAllowanceIsExactlySixtySeconds(t *testing.T) {
+	tests := map[string]struct {
+		offset  int64
+		expired bool
+	}{
+		"an exp 59 seconds past": {offset: -59, expired: false},
+		"an exp 60 seconds past": {offset: -60, expired: true},
+		"an exp 61 seconds past": {offset: -61, expired: true},
+		"an exp in the future":   {offset: 60, expired: false},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			for attempt := 0; attempt < 5; attempt++ {
+				now := time.Now().Unix()
+				expired := chainHasExpired(now + tc.offset)
+				if time.Now().Unix() != now {
+					continue
+				}
+				if expired != tc.expired {
+					t.Fatalf("[RFC 7519 4.1.4] expected an exp %+ds from now to be expired %v, got %v", tc.offset, tc.expired, expired)
+				}
+				return
+			}
+			t.Fatal("the wall-clock second ticked over on every attempt")
+		})
+	}
+}
+
+func TestCalculateChainExpiration(t *testing.T) {
+	now := time.Now().UTC().Unix()
+	future1 := now + 3600
+	future2 := now + 7200
+	future3 := now + 10800
+
+	tests := map[string]struct {
+		chain    []model.EntityStatement
+		validate func(t *testing.T, result int64)
+	}{
+		"returns expiration from single statement chain": {
+			chain: []model.EntityStatement{
+				{Exp: future1},
+			},
+			validate: func(t *testing.T, result int64) {
+				if result != future1 {
+					t.Errorf("expected expiration %d, got %d", future1, result)
+				}
+			},
+		},
+		"returns minimum expiration from chain with multiple statements": {
+			chain: []model.EntityStatement{
+				{Exp: future3},
+				{Exp: future1},
+				{Exp: future2},
+			},
+			validate: func(t *testing.T, result int64) {
+				if result != future1 {
+					t.Errorf("expected minimum expiration %d, got %d", future1, result)
+				}
+			},
+		},
+		"returns minimum when first statement has minimum": {
+			chain: []model.EntityStatement{
+				{Exp: future1},
+				{Exp: future2},
+				{Exp: future3},
+			},
+			validate: func(t *testing.T, result int64) {
+				if result != future1 {
+					t.Errorf("expected minimum expiration %d, got %d", future1, result)
+				}
+			},
+		},
+		"returns minimum when last statement has minimum": {
+			chain: []model.EntityStatement{
+				{Exp: future3},
+				{Exp: future2},
+				{Exp: future1},
+			},
+			validate: func(t *testing.T, result int64) {
+				if result != future1 {
+					t.Errorf("expected minimum expiration %d, got %d", future1, result)
+				}
+			},
+		},
+		"handles chain with same expiration": {
+			chain: []model.EntityStatement{
+				{Exp: future2},
+				{Exp: future2},
+				{Exp: future2},
+			},
+			validate: func(t *testing.T, result int64) {
+				if result != future2 {
+					t.Errorf("expected expiration %d, got %d", future2, result)
+				}
+			},
+		},
+		"handles chain with expired statements": {
+			chain: []model.EntityStatement{
+				{Exp: now - 3600},
+				{Exp: future1},
+				{Exp: future2},
+			},
+			validate: func(t *testing.T, result int64) {
+				if result != now-3600 {
+					t.Errorf("expected minimum expiration %d, got %d", now-3600, result)
+				}
+			},
+		},
+		"handles chain with two statements": {
+			chain: []model.EntityStatement{
+				{Exp: future2},
+				{Exp: future1},
+			},
+			validate: func(t *testing.T, result int64) {
+				if result != future1 {
+					t.Errorf("expected minimum expiration %d, got %d", future1, result)
+				}
+			},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			result := calculateChainExpiration(tt.chain)
+			tt.validate(t, result)
+		})
+	}
+}

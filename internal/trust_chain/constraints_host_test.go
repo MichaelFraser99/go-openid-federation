@@ -56,7 +56,7 @@ func TestVerifyChainConstraints_JudgesTheHostARequestWouldReach(t *testing.T) {
 				{Iss: chainAnchor, Sub: tc.subject, Constraints: tc.constraints},
 				{Iss: chainAnchor, Sub: chainAnchor},
 			}
-			err := verifyChainConstraints(t.Context(), model.Configuration{HostToASCII: tc.hostToASCII}, chain)
+			_, _, err := verifyChainConstraints(t.Context(), model.Configuration{HostToASCII: tc.hostToASCII}, chain)
 			if tc.expectErr != (err != nil) {
 				t.Fatalf("[6.2.2] expected a refusal %v, got %v", tc.expectErr, err)
 			}
@@ -78,7 +78,7 @@ func TestVerifyChainConstraints_AnASCIIHostNeverReachesTheConverter(t *testing.T
 		{Iss: chainAnchor, Sub: chainSubject, Constraints: &model.Constraints{NamingConstraints: &model.NamingConstraints{Excluded: []string{"leaf.example.com"}}}},
 		{Iss: chainAnchor, Sub: chainAnchor},
 	}
-	if err := verifyChainConstraints(t.Context(), cfg, chain); err == nil {
+	if _, _, err := verifyChainConstraints(t.Context(), cfg, chain); err == nil {
 		t.Fatalf("[6.2.2] expected the excluded host to be refused")
 	}
 	if calls != 0 {

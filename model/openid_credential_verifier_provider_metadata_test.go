@@ -110,12 +110,12 @@ func TestOpenIDCredentialVerifierProvider_IsABuiltInTypeThroughEveryCodec(t *tes
 	}
 
 	kept := metadata
-	kept.FilterByEntityTypes([]string{"openid_credential_verifier_provider"})
+	kept.filterByEntityTypes([]string{"openid_credential_verifier_provider"})
 	if kept.OpenIDCredentialVerifierProviderMetadata == nil || kept.FederationMetadata != nil {
 		t.Errorf("expected the filter to keep only the named type")
 	}
 	dropped := metadata
-	dropped.FilterByEntityTypes([]string{"federation_entity"})
+	dropped.filterByEntityTypes([]string{"federation_entity"})
 	if dropped.OpenIDCredentialVerifierProviderMetadata != nil {
 		t.Errorf("expected the filter to drop the type when it is not named")
 	}

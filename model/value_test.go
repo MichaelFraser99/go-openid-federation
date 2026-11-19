@@ -288,13 +288,13 @@ func TestValue_Resolve(t *testing.T) {
 				}
 				if !reflect.DeepEqual(result.(map[string]any), map[string]any{
 					"foo": "bar",
-					"bar": map[string]string{
+					"bar": map[string]any{
 						"baz": "bin",
 					},
 				}) {
-					t.Errorf("expected result to be '%v', got %q", map[string]any{
+					t.Errorf("expected result to be the operand's JSON '%v', got %q", map[string]any{
 						"foo": "bar",
-						"bar": map[string]string{
+						"bar": map[string]any{
 							"baz": "bin",
 						},
 					}, result)
@@ -323,13 +323,13 @@ func TestValue_Resolve(t *testing.T) {
 				}
 				if !reflect.DeepEqual(result.(map[string]any), map[string]any{
 					"foo": "bar",
-					"bar": map[string]string{
+					"bar": map[string]any{
 						"baz": "bin",
 					},
 				}) {
-					t.Errorf("expected result to be '%v', got %q", map[string]any{
+					t.Errorf("expected result to be the operand's JSON '%v', got %q", map[string]any{
 						"foo": "bar",
-						"bar": map[string]string{
+						"bar": map[string]any{
 							"baz": "bin",
 						},
 					}, result)

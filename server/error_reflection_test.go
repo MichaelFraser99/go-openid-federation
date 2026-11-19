@@ -15,6 +15,7 @@ import (
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jws"
 	"github.com/MichaelFraser99/go-jose/jwt"
+	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -147,8 +148,8 @@ func TestServer_Resolve_DoesNotReflectPeerStatementContent(t *testing.T) {
 			if strings.Contains(string(raw), marker) {
 				t.Fatalf("the peer's statement content was reflected into the resolve response (%d bytes): %s", len(raw), raw)
 			}
-			if len(raw) > model.MaxErrorDescriptionBytes+256 {
-				t.Fatalf("expected the error description to be bounded by %d bytes, got a %d byte body: %s", model.MaxErrorDescriptionBytes, len(raw), raw)
+			if len(raw) > truncate.MaxErrorDescriptionBytes+256 {
+				t.Fatalf("expected the error description to be bounded by %d bytes, got a %d byte body: %s", truncate.MaxErrorDescriptionBytes, len(raw), raw)
 			}
 		})
 	}
@@ -432,8 +433,8 @@ func TestServer_Resolve_DoesNotReflectSubordinateStatementFetchDetail(t *testing
 					t.Errorf("[%s] the response reveals %q about the request made to the superior the caller named: %s", tc.reference, forbidden, body)
 				}
 			}
-			if len(raw) > model.MaxErrorDescriptionBytes+256 {
-				t.Errorf("[%s] expected the error description to be bounded by %d bytes, got a %d byte body: %s", tc.reference, model.MaxErrorDescriptionBytes, len(raw), body)
+			if len(raw) > truncate.MaxErrorDescriptionBytes+256 {
+				t.Errorf("[%s] expected the error description to be bounded by %d bytes, got a %d byte body: %s", tc.reference, truncate.MaxErrorDescriptionBytes, len(raw), body)
 			}
 		})
 	}

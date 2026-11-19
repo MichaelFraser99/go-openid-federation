@@ -10,19 +10,12 @@ var (
 )
 
 func NewValue(operatorValue any) (*Value, error) {
-	if operatorValue != nil && reflect.TypeOf(operatorValue).Kind() == reflect.Slice {
-		sliceValue := reflect.ValueOf(operatorValue)
-		anySlice := make([]any, sliceValue.Len())
-
-		for i := 0; i < sliceValue.Len(); i++ {
-			anySlice[i] = sliceValue.Index(i).Interface()
-		}
-
-		operatorValue = anySlice
+	stored, err := storedValue(operatorValue)
+	if err != nil {
+		return nil, err
 	}
-
 	return &Value{
-		operatorValue: operatorValue,
+		operatorValue: stored,
 	}, nil
 }
 
@@ -38,8 +31,19 @@ func (v Value) ToSlice(key string) MetadataPolicyOperator {
 	if v.operatorValue == nil {
 		return v
 	}
+	if values, ok := v.operatorValue.([]any); ok {
+		if key == "scope" {
+			return Value{
+				operatorValue: scopeTokenSlice(values),
+			}
+		}
+		return v
+	}
 	if reflect.TypeOf(v.operatorValue).Kind() != reflect.Slice {
 		if key == "scope" {
+			if _, isString := v.operatorValue.(string); !isString {
+				return v
+			}
 			return Value{
 				operatorValue: scopeOperatorSlice(v.operatorValue),
 			}
@@ -56,7 +60,7 @@ func (v Value) String() string {
 }
 
 func (v Value) Resolve(any) (any, error) {
-	return v.operatorValue, nil
+	return cloneValue(v.operatorValue), nil
 }
 
 func (v Value) ResolutionHierarchy() int {

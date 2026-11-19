@@ -16,7 +16,7 @@ func NewSupersetOf(operatorValue any) (*SupersetOf, error) {
 	}
 
 	return &SupersetOf{
-		operatorValue: DeduplicateSlice(anySlice),
+		operatorValue: deduplicateSlice(anySlice),
 	}, nil
 }
 

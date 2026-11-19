@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_configuration"
+	"github.com/MichaelFraser99/go-openid-federation/internal/errclass"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -18,9 +19,9 @@ func (s *Server) HandleWellKnown(w http.ResponseWriter, r *http.Request) Respons
 	if err != nil {
 		classified := s.retrieverError(err, entityConfigurationUnavailableError)
 		s.logFailure(ctx, "error generating entity cfg", classified, slog.String("error", err.Error()))
-		return s.RespondWithError(ctx, w, classified)
+		return s.respondWithError(ctx, w, classified)
 	}
-	return s.RespondWithEntityStatement(w, []byte(*entityConfiguration))
+	return s.respondWithEntityStatement(w, []byte(*entityConfiguration))
 }
 
 func (s *Server) newEntityConfiguration(ctx context.Context) (*string, error) {
@@ -32,7 +33,7 @@ func (s *Server) newEntityConfiguration(ctx context.Context) (*string, error) {
 func (s *Server) ownEntityConfiguration(ctx context.Context) (*string, *model.EntityStatement, error) {
 	signed, err := s.newEntityConfiguration(ctx)
 	if err != nil {
-		classified := model.ClassifySignerError(err, entityConfigurationUnavailableError)
+		classified := errclass.ClassifySignerError(err, entityConfigurationUnavailableError)
 		s.logFailure(ctx, "this server could not produce its own entity configuration for a trust chain walk", classified, slog.String("error", err.Error()))
 		return nil, nil, loggedFailure{classified}
 	}

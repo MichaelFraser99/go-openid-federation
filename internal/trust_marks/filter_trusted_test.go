@@ -13,6 +13,7 @@ import (
 
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_configuration"
 	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
+	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 	"github.com/MichaelFraser99/go-openid-federation/internal/trust_chain"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
@@ -405,7 +406,7 @@ func TestValidate_TheKeyAlgorithmRefusalIsBounded(t *testing.T) {
 	if err == nil {
 		t.Fatal("a key published for another algorithm must be refused")
 	}
-	if limit := model.MaxErrorDescriptionBytes + 512; len(err.Error()) > limit {
+	if limit := truncate.MaxErrorDescriptionBytes + 512; len(err.Error()) > limit {
 		t.Errorf("a peer chooses the 'kid', so the refusal must stay within %d bytes, got %d", limit, len(err.Error()))
 	}
 }

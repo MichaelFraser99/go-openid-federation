@@ -14,7 +14,10 @@ import (
 
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_configuration"
+	"github.com/MichaelFraser99/go-openid-federation/internal/entityid"
+	"github.com/MichaelFraser99/go-openid-federation/internal/errclass"
 	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
+	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -63,15 +66,22 @@ func (s *Server) SetHttpClient(client *http.Client) {
 // AddAuthorityHint
 //
 //	Adds an authority hint to a running server
-func (s *Server) AddAuthorityHint(entityIdentifier model.EntityIdentifier) {
+func (s *Server) AddAuthorityHint(hint model.EntityIdentifier) error {
+	if _, err := model.ValidateEntityIdentifier(string(hint)); err != nil {
+		return fmt.Errorf("the AuthorityHint is not an entity identifier: %w", err)
+	}
+	if entityid.NamesTheSameEntity(hint, s.cfg.EntityIdentifier) {
+		return fmt.Errorf("the AuthorityHint names this server's own EntityIdentifier, and section 3.1.2 makes authority_hints the identifiers of the entity's immediate superiors")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if slices.Contains(s.authorityHints, entityIdentifier) {
-		return
+	if slices.Contains(s.authorityHints, hint) {
+		return nil
 	}
 	hints := make([]model.EntityIdentifier, len(s.authorityHints), len(s.authorityHints)+1)
 	copy(hints, s.authorityHints)
-	s.authorityHints = append(hints, entityIdentifier)
+	s.authorityHints = append(hints, hint)
+	return nil
 }
 
 func (s *Server) AuthorityHints() []model.EntityIdentifier {
@@ -148,7 +158,7 @@ func (s *Server) methodNotAllowed(allowed string) func(http.ResponseWriter, *htt
 	return func(w http.ResponseWriter, r *http.Request) ResponseFunc {
 		return func() {
 			s.cfg.LogInfo(r.Context(), "rejecting a request made with an unsupported method",
-				slog.String("path", r.URL.Path), slog.String("method", model.TruncateForResponse(r.Method)), slog.String("allowed", allowed))
+				slog.String("path", r.URL.Path), slog.String("method", truncate.TruncateForResponse(r.Method)), slog.String("allowed", allowed))
 			_, body := s.parseError(model.NewInvalidRequestError(fmt.Sprintf("this endpoint accepts %s", allowed)))
 			w.Header().Set("Allow", allowed)
 			w.Header().Set("Content-Type", "application/json")
@@ -287,7 +297,7 @@ func (s *Server) loadSubordinate(ctx context.Context, identifier model.EntityIde
 		if subordinate.SignerConfiguration != nil {
 			if err := published.verify(ctx, *subordinate.SignerConfiguration); err != nil {
 				if errors.As(err, new(publishedSetUnavailable)) {
-					classified := model.ClassifySignerError(err, subordinateRetrievalFailureError)
+					classified := errclass.ClassifySignerError(err, subordinateRetrievalFailureError)
 					s.logFailure(ctx, "the published key set cannot be built, so a subordinate signer cannot be checked against it", classified, slog.String("sub", string(identifier)), slog.String("error", err.Error()))
 					return nil, nil, loggedFailure{classified}
 				}
@@ -313,36 +323,36 @@ func (s *Server) respondWith(w http.ResponseWriter, status int, contentType stri
 
 func (s *Server) respondWithMisconfiguration(ctx context.Context, w http.ResponseWriter, cause string, description string) ResponseFunc {
 	s.cfg.LogError(ctx, cause)
-	return s.RespondWithError(ctx, w, model.NewServerError(description))
+	return s.respondWithError(ctx, w, model.NewServerError(description))
 }
 
-func (s *Server) RespondWithError(ctx context.Context, w http.ResponseWriter, err error) ResponseFunc {
+func (s *Server) respondWithError(ctx context.Context, w http.ResponseWriter, err error) ResponseFunc {
 	s.cfg.LogInfo(ctx, "handling error response", slog.String("error", err.Error()))
 	code, response := s.parseError(err)
 	return s.respondWith(w, code, "application/json", []byte(response))
 }
 
-func (s *Server) RespondWithJSON(w http.ResponseWriter, data []byte) ResponseFunc {
+func (s *Server) respondWithJSON(w http.ResponseWriter, data []byte) ResponseFunc {
 	return s.respondWith(w, http.StatusOK, "application/json", data)
 }
 
-func (s *Server) RespondWithTrustMark(w http.ResponseWriter, data []byte) ResponseFunc {
+func (s *Server) respondWithTrustMark(w http.ResponseWriter, data []byte) ResponseFunc {
 	return s.respondWith(w, http.StatusOK, "application/trust-mark+jwt", data)
 }
 
-func (s *Server) RespondWithEntityStatement(w http.ResponseWriter, data []byte) ResponseFunc {
+func (s *Server) respondWithEntityStatement(w http.ResponseWriter, data []byte) ResponseFunc {
 	return s.respondWith(w, http.StatusOK, "application/entity-statement+jwt", data)
 }
 
-func (s *Server) RespondWithResolveResponse(w http.ResponseWriter, data []byte) ResponseFunc {
+func (s *Server) respondWithResolveResponse(w http.ResponseWriter, data []byte) ResponseFunc {
 	return s.respondWith(w, http.StatusOK, "application/resolve-response+jwt", data)
 }
 
-func (s *Server) RespondWithTrustMarkStatusResponse(w http.ResponseWriter, data []byte) ResponseFunc {
+func (s *Server) respondWithTrustMarkStatusResponse(w http.ResponseWriter, data []byte) ResponseFunc {
 	return s.respondWith(w, http.StatusOK, "application/trust-mark-status-response+jwt", data)
 }
 
-func (s *Server) RespondWithSubordinateStatementResponse(w http.ResponseWriter, data []byte) ResponseFunc {
+func (s *Server) respondWithSubordinateStatementResponse(w http.ResponseWriter, data []byte) ResponseFunc {
 	return s.respondWith(w, http.StatusOK, "application/entity-events-statement+jwt", data)
 }
 
@@ -350,7 +360,7 @@ func (s *Server) parseError(err error) (statusCode int, message string) {
 	statusCode, errorCode := errorStatusAndCode(err)
 	body, marshalErr := json.Marshal(map[string]string{
 		"error":             errorCode,
-		"error_description": model.TruncateForResponse(err.Error()),
+		"error_description": truncate.TruncateForResponse(err.Error()),
 	})
 	if marshalErr != nil {
 		return http.StatusInternalServerError, fmt.Sprintf(`{"error":"%s"}`, model.ServerError)

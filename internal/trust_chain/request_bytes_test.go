@@ -16,6 +16,7 @@ import (
 	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jwt"
+	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
 	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
@@ -78,7 +79,7 @@ func TestBuildTrustChain_BoundsTheBytesOneRequestHolds(t *testing.T) {
 	if !limitReached {
 		t.Fatalf("[8.2] a request holding more than %d bytes of peer statements must be refused as a limit, having held %d", cfg.RequestPeerBytesLimit(), cache.PeerBytes())
 	}
-	oneStatement := model.StatementCost(strings.Repeat("s", int(cfg.PeerResponseLimit())), nil)
+	oneStatement := entity_statement.StatementCost(strings.Repeat("s", int(cfg.PeerResponseLimit())), nil)
 	if got := cache.PeerBytes(); got > cfg.RequestPeerBytesLimit()+oneStatement {
 		t.Errorf("the bytes held may overshoot the budget by at most one statement, held %d against a budget of %d", got, cfg.RequestPeerBytesLimit())
 	}

@@ -1,6 +1,7 @@
 package entity_configuration
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"encoding/base64"
@@ -14,15 +15,21 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/MichaelFraser99/go-jose/joseerror"
 	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
+	"github.com/MichaelFraser99/go-openid-federation/internal/boundedjson"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
+	"github.com/MichaelFraser99/go-openid-federation/internal/errclass"
+	"github.com/MichaelFraser99/go-openid-federation/internal/keyops"
+	"github.com/MichaelFraser99/go-openid-federation/internal/keyscan"
 	"github.com/MichaelFraser99/go-openid-federation/internal/peerclient"
 	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
+	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -55,7 +62,7 @@ func Retrieve(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 		return nil, nil, err
 	}
 	if signed != nil {
-		cache.RecordPeerBytes(model.StatementCost(*signed, statement))
+		cache.RecordPeerBytes(entity_statement.StatementCost(*signed, statement))
 	}
 	cache.Store(entityIdentifier, signed, statement)
 	return signed, statement, nil
@@ -74,7 +81,7 @@ func fetch(ctx context.Context, cfg model.Configuration, entityIdentifier model.
 
 	request, err := http.NewRequestWithContext(fetchCtx, http.MethodGet, fmt.Sprintf("%s.well-known/openid-federation", strings.TrimSuffix(string(entityIdentifier), "/")+"/"), nil)
 	if err != nil {
-		cfg.LogInfo(ctx, "the entity configuration url cannot be built", slog.String("subject", model.TruncateForResponse(string(entityIdentifier))), slog.String("error", model.TruncateForResponse(err.Error())))
+		cfg.LogInfo(ctx, "the entity configuration url cannot be built", slog.String("subject", truncate.TruncateForResponse(string(entityIdentifier))), slog.String("error", truncate.TruncateForResponse(err.Error())))
 		return nil, nil, errors.New("the entity configuration url cannot be built")
 	}
 	request.Header.Set("Accept", "application/entity-statement+jwt")
@@ -84,11 +91,11 @@ func fetch(ctx context.Context, cfg model.Configuration, entityIdentifier model.
 		if ended := fetchEnded(ctx, fetchCtx, entityIdentifier); ended != nil {
 			return nil, nil, ended
 		}
-		cfg.LogInfo(ctx, "failed to reach the entity configuration endpoint", slog.String("subject", model.TruncateForResponse(string(entityIdentifier))), slog.String("error", model.TruncateForResponse(err.Error())))
+		cfg.LogInfo(ctx, "failed to reach the entity configuration endpoint", slog.String("subject", truncate.TruncateForResponse(string(entityIdentifier))), slog.String("error", truncate.TruncateForResponse(err.Error())))
 		if classified := model.ReclassifyWithDescription(err, entityConfigurationUnreachable); classified != nil {
 			return nil, nil, classified
 		}
-		return nil, nil, errors.New(entityConfigurationUnreachable)
+		return nil, nil, fmt.Errorf("%w%s", model.ErrPeerUnreachable, entityConfigurationUnreachable)
 	}
 	defer response.Body.Close() //nolint:errcheck
 
@@ -97,13 +104,13 @@ func fetch(ctx context.Context, cfg model.Configuration, entityIdentifier model.
 	}
 
 	if response.StatusCode != http.StatusOK {
-		cfg.LogInfo(ctx, "non-200 response from the entity configuration endpoint", slog.String("subject", model.TruncateForResponse(string(entityIdentifier))), slog.String("status", model.TruncateForResponse(response.Status)))
+		cfg.LogInfo(ctx, "non-200 response from the entity configuration endpoint", slog.String("subject", truncate.TruncateForResponse(string(entityIdentifier))), slog.String("status", truncate.TruncateForResponse(response.Status)))
 		return nil, nil, errors.New("non-200 response from the entity configuration endpoint")
 	}
 	cfg.LogInfo(ctx, "entity configuration retrieved", slog.String("subject", string(entityIdentifier)))
 
-	if !model.IsEntityStatementMediaType(response.Header.Get("Content-Type")) {
-		cfg.LogInfo(ctx, "invalid Content-Type from the entity configuration endpoint", slog.String("subject", model.TruncateForResponse(string(entityIdentifier))), slog.String("content_type", model.TruncateForResponse(response.Header.Get("Content-Type"))))
+	if !entity_statement.IsEntityStatementMediaType(response.Header.Get("Content-Type")) {
+		cfg.LogInfo(ctx, "invalid Content-Type from the entity configuration endpoint", slog.String("subject", truncate.TruncateForResponse(string(entityIdentifier))), slog.String("content_type", truncate.TruncateForResponse(response.Header.Get("Content-Type"))))
 		return nil, nil, errors.New("invalid Content-Type from the entity configuration endpoint")
 	}
 
@@ -113,7 +120,7 @@ func fetch(ctx context.Context, cfg model.Configuration, entityIdentifier model.
 		if ended := fetchEnded(ctx, fetchCtx, entityIdentifier); ended != nil {
 			return nil, nil, ended
 		}
-		cfg.LogInfo(ctx, "failed to read the entity configuration response body", slog.String("subject", model.TruncateForResponse(string(entityIdentifier))), slog.String("error", model.TruncateForResponse(err.Error())))
+		cfg.LogInfo(ctx, "failed to read the entity configuration response body", slog.String("subject", truncate.TruncateForResponse(string(entityIdentifier))), slog.String("error", truncate.TruncateForResponse(err.Error())))
 		return nil, nil, errors.New("failed to read the entity configuration response body")
 	}
 	if err := fetchEnded(ctx, fetchCtx, entityIdentifier); err != nil {
@@ -138,7 +145,7 @@ func Accept(ctx context.Context, cfg model.Configuration, entityIdentifier model
 func Validate(ctx context.Context, cfg model.Configuration, entityIdentifier model.EntityIdentifier, entityConfigurationJwt string) (*model.EntityStatement, error) {
 	entityConfiguration, err := validate(ctx, cfg, entityIdentifier, entityConfigurationJwt)
 	if err != nil {
-		if errors.Is(err, model.ErrInvalidMetadata) || errors.Is(err, model.ErrInvalidTrustChain) {
+		if errors.Is(err, model.ErrInvalidMetadata) || errors.Is(err, model.ErrInvalidTrustChain) || entity_statement.VerificationInterrupted(err) {
 			return nil, err
 		}
 		return nil, model.NewInvalidTrustChainError(err.Error())
@@ -156,7 +163,7 @@ func validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode JWT header: %s", err.Error())
 	}
-	if err := model.VerifyJSONValueCount(head, cfg.StatementValuesLimit()); err != nil {
+	if err := boundedjson.VerifyJSONValueCount(head, cfg.StatementValuesLimit()); err != nil {
 		return nil, fmt.Errorf("the JWT header %s", err.Error())
 	}
 	var headMap map[string]any
@@ -172,7 +179,7 @@ func validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode JWT body: %s", err.Error())
 	}
-	if err := model.VerifyJSONValueCount(body, cfg.StatementValuesLimit()); err != nil {
+	if err := boundedjson.VerifyJSONValueCount(body, cfg.StatementValuesLimit()); err != nil {
 		return nil, fmt.Errorf("the JWT body %s", err.Error())
 	}
 	var bodyMap map[string]any
@@ -180,7 +187,7 @@ func validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JWT body: %s", err.Error())
 	}
-	if err := model.VerifyTrustMarkValueCount(bodyMap, cfg.StatementValuesLimit()); err != nil {
+	if err := boundedjson.VerifyTrustMarkValueCount(bodyMap, cfg.StatementValuesLimit()); err != nil {
 		return nil, fmt.Errorf("the JWT body %s", err.Error())
 	}
 
@@ -223,7 +230,7 @@ func validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 		if errors.Is(err, model.ErrInvalidMetadata) {
 			return nil, fmt.Errorf("invalid entity statement: %w", err)
 		}
-		return nil, model.NewInvalidTrustChainError(fmt.Sprintf("invalid entity statement: %s", err.Error()))
+		return nil, model.CarryMarkers(err, model.NewInvalidTrustChainError(fmt.Sprintf("invalid entity statement: %s", err.Error())))
 	}
 
 	if entityConfiguration.Iss != entityConfiguration.Sub {
@@ -238,7 +245,7 @@ func validate(ctx context.Context, cfg model.Configuration, entityIdentifier mod
 		return nil, fmt.Errorf("'sub' claim does not match the original entity identifier")
 	}
 
-	model.LogPrivateKeyMembersInRawSet(ctx, &cfg, entityConfiguration.Sub, entityConfiguration.Sub, jwks)
+	keyscan.LogPrivateKeyMembersInRawSet(ctx, &cfg, entityConfiguration.Sub, entityConfiguration.Sub, jwks)
 
 	if entityConfiguration.Metadata != nil {
 		if err = entityConfiguration.Metadata.Verify(cfg.EntityTypes, cfg.DiscardUnrecognisedEntityTypes); err != nil {
@@ -274,6 +281,30 @@ func UnpublishedLeafEndpoints(cfg model.ServerConfiguration) []string {
 	return configured
 }
 
+func publishableTrustMarkIssuers(ctx context.Context, cfg model.ServerConfiguration, listed map[string][]model.EntityIdentifier) map[string][]model.EntityIdentifier {
+	published := make(map[string][]model.EntityIdentifier, len(listed))
+	omitted := 0
+	for trustMarkType, issuers := range listed {
+		if !utf8.ValidString(trustMarkType) || slices.ContainsFunc(issuers, invalidEntityIdentifier) {
+			omitted++
+			continue
+		}
+		if issuers == nil {
+			issuers = []model.EntityIdentifier{}
+		}
+		published[trustMarkType] = issuers
+	}
+	if omitted > 0 {
+		cfg.LogError(ctx, "omitting trust_mark_issuers records whose trust mark type is not valid UTF-8 or whose issuers include a value that is not an entity identifier", slog.Int("omitted_records", omitted), slog.Int("published_records", len(published)))
+	}
+	return published
+}
+
+func invalidEntityIdentifier(identifier model.EntityIdentifier) bool {
+	_, err := model.ValidateEntityIdentifier(string(identifier))
+	return err != nil
+}
+
 func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 	entityConfiguration := cfg.EntityConfiguration
 	entityConfiguration.Sub = cfg.EntityIdentifier
@@ -281,7 +312,7 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 	entityConfiguration.AuthorityHints = cfg.AuthorityHints
 	entityConfiguration.TrustMarks = cfg.TrustMarks
 	entityConfiguration.Iat = time.Now().UTC().Unix()
-	entityConfigurationLifetime, err := model.ResolveStatementLifetime("EntityConfigurationLifetime", cfg.EntityConfigurationLifetime, model.DefaultEntityConfigurationLifetime)
+	entityConfigurationLifetime, err := entity_statement.ResolveStatementLifetime("EntityConfigurationLifetime", cfg.EntityConfigurationLifetime, model.DefaultEntityConfigurationLifetime)
 	if err != nil {
 		return nil, err
 	}
@@ -345,14 +376,7 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 		if err != nil {
 			return nil, publicationFailure(ctx, cfg, fmt.Errorf("failed to list trust mark issuers: %w", err))
 		}
-		trustMarkIssuers := make(map[string][]model.EntityIdentifier, len(trustMarkIssuerMap))
-		for trustMarkType, issuers := range trustMarkIssuerMap {
-			if issuers == nil {
-				issuers = []model.EntityIdentifier{}
-			}
-			trustMarkIssuers[trustMarkType] = issuers
-		}
-		entityConfiguration.TrustMarkIssuers = trustMarkIssuers
+		entityConfiguration.TrustMarkIssuers = publishableTrustMarkIssuers(ctx, cfg, trustMarkIssuerMap)
 	}
 
 	entityConfigurationBytes, err := json.Marshal(entityConfiguration)
@@ -361,34 +385,36 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 	}
 
 	var entityConfigurationMap map[string]any
-	err = json.Unmarshal(entityConfigurationBytes, &entityConfigurationMap)
+	decoder := json.NewDecoder(bytes.NewReader(entityConfigurationBytes))
+	decoder.UseNumber()
+	err = decoder.Decode(&entityConfigurationMap)
 	if err != nil {
 		return nil, fmt.Errorf("failed to deserialize entity cfg: %s", err.Error())
 	}
 
-	if err = model.VerifyPublishableStatementKeys(entityConfigurationMap); err != nil {
+	if err = keyscan.VerifyPublishableStatementKeys(entityConfigurationMap); err != nil {
 		return nil, fmt.Errorf("refusing to publish this entity configuration because %s", err.Error())
 	}
 
 	for _, trustMarkType := range slices.Sorted(maps.Keys(entityConfiguration.TrustMarkOwners)) {
 		for _, key := range entityConfiguration.TrustMarkOwners[trustMarkType].JWKs.Keys {
 			if err := verifyConfiguredKey(key, model.VerifyMinimumKeyStrength); err != nil {
-				return nil, fmt.Errorf("refusing to publish this entity configuration because a key in the trust_mark_owners entry for %q %s", model.TruncateForResponse(trustMarkType), err.Error())
+				return nil, fmt.Errorf("refusing to publish this entity configuration because a key in the trust_mark_owners entry for %q %s", truncate.TruncateForResponse(trustMarkType), err.Error())
 			}
 		}
 		usable := slices.ContainsFunc(entityConfiguration.TrustMarkOwners[trustMarkType].JWKs.Keys, func(key map[string]any) bool {
 			return model.ValidateJWKShape(key) == nil && entity_statement.VerifyKeyUse(key) == nil
 		})
 		if !usable {
-			return nil, fmt.Errorf("refusing to publish this entity configuration because the trust_mark_owners entry for %q holds no usable key, so no delegation for that type could be verified", model.TruncateForResponse(trustMarkType))
+			return nil, fmt.Errorf("refusing to publish this entity configuration because the trust_mark_owners entry for %q holds no usable key, so no delegation for that type could be verified", truncate.TruncateForResponse(trustMarkType))
 		}
 	}
 
-	if err = model.VerifyIssuedStatement(entityConfigurationBytes, cfg.EntityTypes); err != nil {
+	if err = entity_statement.VerifyIssuedStatement(entityConfigurationBytes, cfg.EntityTypes); err != nil {
 		return nil, fmt.Errorf("refusing to publish an entity configuration this implementation would reject: %s", err.Error())
 	}
 
-	if err := model.VerifyIssuanceAlgorithm(cfg.SignerConfiguration.Algorithm); err != nil {
+	if err := entity_statement.VerifyIssuanceAlgorithm(cfg.SignerConfiguration.Algorithm); err != nil {
 		return nil, fmt.Errorf("refusing to publish an entity configuration this implementation would reject: %s", err.Error())
 	}
 
@@ -401,12 +427,15 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 		if errors.Is(err, joseerror.ErrUnsupportedAlgorithm) || errors.Is(err, joseerror.ErrInvalidPrivateKey) {
 			return nil, fmt.Errorf("refusing to publish an entity configuration this implementation would reject: %s", err.Error())
 		}
-		classified := model.ClassifySignerError(err, signingFailureError)
-		logSignerFailure(ctx, cfg.Configuration, classified, "the signer could not sign the entity configuration", slog.String("error", model.TruncateForResponse(err.Error())))
+		classified := errclass.ClassifySignerError(err, signingFailureError)
+		logSignerFailure(ctx, cfg.Configuration, classified, "the signer could not sign the entity configuration", slog.String("error", truncate.TruncateForResponse(err.Error())))
 		return nil, classified
 	}
 
 	if err = entity_statement.VerifyIssuedSignature(ctx, *token, cfg.SignerConfiguration.KeyID, cfg.SignerConfiguration.Algorithm, cfg.SignerConfiguration.Signer); err != nil {
+		if entity_statement.VerificationInterrupted(err) {
+			return nil, fmt.Errorf("%w%w", model.ErrTemporarilyUnavailable, err)
+		}
 		return nil, fmt.Errorf("refusing to publish an entity configuration this implementation would reject: %s", err.Error())
 	}
 
@@ -474,13 +503,13 @@ func publishedKeySet(ctx context.Context, cfg model.ServerConfiguration) (*publi
 			return nil, fmt.Errorf("all provided jwk values in entity cfg must have unique `kid` claims - %q appears more than once", sKid)
 		}
 		if err := model.ValidateJWKShape(key); err != nil {
-			return nil, fmt.Errorf("the provided jwk value with key ID %q %s", model.TruncateForResponse(sKid), err.Error())
+			return nil, fmt.Errorf("the provided jwk value with key ID %q %s", truncate.TruncateForResponse(sKid), err.Error())
 		}
 		if err := model.VerifyPublishableJWK(key); err != nil {
-			return nil, fmt.Errorf("refusing to publish the jwk value with key ID %q because it %s", model.TruncateForResponse(sKid), err.Error())
+			return nil, fmt.Errorf("refusing to publish the jwk value with key ID %q because it %s", truncate.TruncateForResponse(sKid), err.Error())
 		}
 		if err := verifyConfiguredKey(key, model.VerifyKeyStrength); err != nil {
-			return nil, fmt.Errorf("the provided jwk value with key ID %q %s", model.TruncateForResponse(sKid), err.Error())
+			return nil, fmt.Errorf("the provided jwk value with key ID %q %s", truncate.TruncateForResponse(sKid), err.Error())
 		}
 		index.add(sKid, key)
 	}
@@ -500,34 +529,34 @@ func publishedKeySet(ctx context.Context, cfg model.ServerConfiguration) (*publi
 		}
 		for _, signerConfiguration := range subordinateSignerConfigurations {
 			if signerConfiguration.Signer == nil {
-				cfg.LogError(ctx, "not publishing a subordinate signer key because its signer configuration holds no signer", slog.String("kid", model.TruncateForResponse(signerConfiguration.KeyID)))
+				cfg.LogError(ctx, "not publishing a subordinate signer key because its signer configuration holds no signer", slog.String("kid", truncate.TruncateForResponse(signerConfiguration.KeyID)))
 				continue
 			}
 			if signerConfiguration.KeyID == "" {
-				cfg.LogError(ctx, "not publishing a subordinate signer key because its key ID is empty, and every key in a published key set needs one", slog.String("alg", model.TruncateForResponse(signerConfiguration.Algorithm)))
+				cfg.LogError(ctx, "not publishing a subordinate signer key because its key ID is empty, and every key in a published key set needs one", slog.String("alg", truncate.TruncateForResponse(signerConfiguration.Algorithm)))
 				continue
 			}
 			apkJWK, err := jwk.PublicJwk(signerConfiguration.Signer.Public())
 			if err != nil {
-				cfg.LogError(ctx, "not publishing a subordinate signer key because its public key cannot be written as a jwk", slog.String("kid", model.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
+				cfg.LogError(ctx, "not publishing a subordinate signer key because its public key cannot be written as a jwk", slog.String("kid", truncate.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
 				continue
 			}
 			(*apkJWK)["kid"] = signerConfiguration.KeyID
 			(*apkJWK)["alg"] = signerConfiguration.Algorithm
 
-			if err := model.VerifyIssuanceAlgorithm(signerConfiguration.Algorithm); err != nil {
-				cfg.LogError(ctx, "not publishing a subordinate signer key because its algorithm cannot be signed with, so statements it signs could not be verified", slog.String("kid", model.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
+			if err := entity_statement.VerifyIssuanceAlgorithm(signerConfiguration.Algorithm); err != nil {
+				cfg.LogError(ctx, "not publishing a subordinate signer key because its algorithm cannot be signed with, so statements it signs could not be verified", slog.String("kid", truncate.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
 				continue
 			}
 
 			if err := model.VerifyKeyStrength(*apkJWK, signerConfiguration.Algorithm); err != nil {
-				cfg.LogError(ctx, "not publishing a subordinate signer key because its modulus is outside the sizes this library verifies for the algorithm it signs with, so statements it signs cannot be verified", slog.String("kid", model.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
+				cfg.LogError(ctx, "not publishing a subordinate signer key because its modulus is outside the sizes this library verifies for the algorithm it signs with, so statements it signs cannot be verified", slog.String("kid", truncate.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
 				continue
 			}
 
 			if existing, published := index.get(signerConfiguration.KeyID); published {
 				if err := publishedKeyUsableForSigning(existing, *apkJWK, signerConfiguration.Signer.Public()); err != nil {
-					cfg.LogError(ctx, "not publishing a subordinate signer key because a key already published under its key ID does not match it, so statements it signs could not be verified", slog.String("kid", model.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
+					cfg.LogError(ctx, "not publishing a subordinate signer key because a key already published under its key ID does not match it, so statements it signs could not be verified", slog.String("kid", truncate.TruncateForResponse(signerConfiguration.KeyID)), slog.String("error", err.Error()))
 				}
 				continue
 			}
@@ -550,16 +579,16 @@ func VerifySignerPublished(published josemodel.Jwks, signer model.SignerConfigur
 	(*signerJWK)["alg"] = signer.Algorithm
 	existing, _ := published.RetrieveByKeyID(signer.KeyID)
 	if len(existing) == 0 {
-		return fmt.Errorf("the signer's key ID %q is not in the published key set", model.TruncateForResponse(signer.KeyID))
+		return fmt.Errorf("the signer's key ID %q is not in the published key set", truncate.TruncateForResponse(signer.KeyID))
 	}
 	if err := publishedKeyUsableForSigning(existing[0], *signerJWK, signer.Signer.Public()); err != nil {
-		return fmt.Errorf("the key published under the signer's key ID %q %s", model.TruncateForResponse(signer.KeyID), err.Error())
+		return fmt.Errorf("the key published under the signer's key ID %q %s", truncate.TruncateForResponse(signer.KeyID), err.Error())
 	}
 	return nil
 }
 
 func verifyConfiguredKey(key map[string]any, strength func(key map[string]any, alg string) error) error {
-	if err := model.ValidateKeyOps(key); err != nil {
+	if err := keyops.Validate(key); err != nil {
 		return err
 	}
 	if declared, ok := key["alg"].(string); ok {
@@ -591,7 +620,7 @@ func publishedKeyUsableForSigning(existing, intended map[string]any, signerPubli
 			return fmt.Errorf("declares a 'use' of %v rather than \"sig\"", use)
 		}
 	}
-	if !model.KeyOpsPermitVerify(existing) {
+	if !keyops.PermitVerify(existing) {
 		return fmt.Errorf("declares 'key_ops' without \"verify\"")
 	}
 	if alg, present := existing["alg"]; present {
@@ -609,5 +638,5 @@ func fetchEnded(ctx, fetchCtx context.Context, entityIdentifier model.EntityIden
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return fmt.Errorf("stopped fetching %q's entity configuration: %s", entityIdentifier, ctxErr.Error())
 	}
-	return fmt.Errorf("%q's entity configuration did not arrive within the peer deadline: %s", entityIdentifier, fetchCtx.Err().Error())
+	return fmt.Errorf("%w%q's entity configuration did not arrive within the peer deadline: %s", model.ErrPeerTimeout, entityIdentifier, fetchCtx.Err().Error())
 }

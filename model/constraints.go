@@ -57,7 +57,7 @@ func (c Constraints) MarshalJSON() ([]byte, error) {
 	return json.Marshal(members)
 }
 
-func ParseConstraints(value any) (*Constraints, error) {
+func parseConstraints(value any) (*Constraints, error) {
 	members, ok := value.(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("'constraints' claim must be a JSON object")

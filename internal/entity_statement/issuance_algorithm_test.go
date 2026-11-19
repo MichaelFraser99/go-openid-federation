@@ -1,14 +1,16 @@
-package model
+package entity_statement
 
 import (
 	"strings"
 	"testing"
 
 	"github.com/MichaelFraser99/go-jose/jwa"
+	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
+	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
 func TestVerifyIssuanceAlgorithm(t *testing.T) {
-	for _, algorithm := range DefaultSigningAlgorithms() {
+	for _, algorithm := range model.DefaultSigningAlgorithms() {
 		if algorithm == jwa.EdDSA {
 			continue
 		}
@@ -40,7 +42,7 @@ func TestVerifyIssuanceAlgorithm(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), tc.expectErr) {
 				t.Fatalf("[3.2 step 3] expected a refusal naming %q, got %v", tc.expectErr, err)
 			}
-			if len(err.Error()) > MaxErrorDescriptionBytes+128 {
+			if len(err.Error()) > truncate.MaxErrorDescriptionBytes+128 {
 				t.Errorf("the refusal must bound the name it quotes, got %d bytes", len(err.Error()))
 			}
 		})

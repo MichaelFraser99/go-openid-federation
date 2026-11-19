@@ -148,7 +148,7 @@ func TestDeduplicateSlice_KeepsValuesThatRenderAlike(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := DeduplicateSlice(tc.input)
+			got := deduplicateSlice(tc.input)
 			if len(got) != tc.expect {
 				raw, _ := json.Marshal(got)
 				t.Errorf("expected %d values, got %d: %s", tc.expect, len(got), raw)
@@ -238,9 +238,10 @@ func TestOneOfResolve_UsesCanonicalOperandEquality(t *testing.T) {
 			resolves: true,
 		},
 		{
-			name:     "an object operand under a Go map type a JSON decode never produces",
+			name:     "an object operand under a Go map type, which the operator holds as its JSON",
 			operands: []any{map[string]string{"a": "b"}},
 			metadata: map[string]any{"a": "b"},
+			resolves: true,
 		},
 		{
 			name:     "a number operand carrying the same JSON under a different Go type",

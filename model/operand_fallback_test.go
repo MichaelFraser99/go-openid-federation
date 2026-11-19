@@ -252,7 +252,7 @@ func TestOperands_EqualityIsDefinedForDecodedShapes(t *testing.T) {
 			if !test.same {
 				expect = 2
 			}
-			if got := DeduplicateSlice([]any{test.first, test.other}); len(got) != expect {
+			if got := deduplicateSlice([]any{test.first, test.other}); len(got) != expect {
 				t.Errorf("expected %d value(s) after deduplication, got %d", expect, len(got))
 			}
 		})

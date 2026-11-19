@@ -13,7 +13,9 @@ import (
 	"github.com/MichaelFraser99/go-jose/jwk"
 	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
+	"github.com/MichaelFraser99/go-openid-federation/internal/boundedjson"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
+	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -32,7 +34,7 @@ func selectOwnerKeys(ctx context.Context, cfg model.Configuration, owner model.T
 			continue
 		}
 		if members := model.PrivateJWKMembers(key); len(members) > 0 {
-			cfg.LogInfo(ctx, "the trust anchor publishes a trust mark owner key carrying private key material, so anyone holding that statement can mint delegations for this type, skipping it", slog.String("owner", string(owner.Sub)), slog.String("kid", model.TruncateForResponse(kid)), slog.Any("private_members", members))
+			cfg.LogInfo(ctx, "the trust anchor publishes a trust mark owner key carrying private key material, so anyone holding that statement can mint delegations for this type, skipping it", slog.String("owner", string(owner.Sub)), slog.String("kid", truncate.TruncateForResponse(kid)), slog.Any("private_members", members))
 			continue
 		}
 		selected = append(selected, key)
@@ -42,7 +44,7 @@ func selectOwnerKeys(ctx context.Context, cfg model.Configuration, owner model.T
 
 func describeHeaderMember(value any) string {
 	if text, ok := value.(string); ok {
-		return model.TruncateForResponse(text)
+		return truncate.TruncateForResponse(text)
 	}
 	return fmt.Sprintf("of type %T", value)
 }
@@ -80,7 +82,7 @@ func delegationTime(body map[string]any, claim string) (int64, bool, error) {
 func splitDelegation(ctx context.Context, cfg model.Configuration, mark model.TrustMark) ([]string, error) {
 	parts := strings.Split(*mark.DelegationJWT, ".")
 	if len(parts) != 3 {
-		cfg.LogInfo(ctx, "the trust mark's delegation is not a signed JWT", slog.Int("parts_count", len(parts)), slog.String("trust_mark_type", model.TruncateForResponse(mark.Type)))
+		cfg.LogInfo(ctx, "the trust mark's delegation is not a signed JWT", slog.Int("parts_count", len(parts)), slog.String("trust_mark_type", truncate.TruncateForResponse(mark.Type)))
 		return nil, fmt.Errorf("the trust mark's delegation is not a signed JWT")
 	}
 	return parts, nil
@@ -99,13 +101,13 @@ func verifyDelegation(ctx context.Context, cfg model.Configuration, mark model.T
 		cfg.LogInfo(ctx, "failed to decode the delegation header", slog.String("error", err.Error()))
 		return fmt.Errorf("the trust mark's delegation has a header that cannot be decoded")
 	}
-	if err := model.VerifyJSONValueCount(headBytes, cfg.StatementValuesLimit()); err != nil {
+	if err := boundedjson.VerifyJSONValueCount(headBytes, cfg.StatementValuesLimit()); err != nil {
 		cfg.LogInfo(ctx, "the delegation header exceeds the value limit", slog.Int("limit", cfg.StatementValuesLimit()))
 		return fmt.Errorf("the trust mark's delegation header %s", err.Error())
 	}
 	var head map[string]any
 	if err := json.Unmarshal(headBytes, &head); err != nil {
-		cfg.LogInfo(ctx, "failed to unmarshal the delegation header", slog.String("error", model.TruncateForResponse(err.Error())))
+		cfg.LogInfo(ctx, "failed to unmarshal the delegation header", slog.String("error", truncate.TruncateForResponse(err.Error())))
 		return fmt.Errorf("the trust mark's delegation has a header that is not a JSON object")
 	}
 	if err := model.VerifyUniqueHeaderParameters(headBytes); err != nil {
@@ -139,13 +141,13 @@ func verifyDelegation(ctx context.Context, cfg model.Configuration, mark model.T
 		cfg.LogInfo(ctx, "failed to decode the delegation body", slog.String("error", err.Error()))
 		return fmt.Errorf("the trust mark's delegation has a body that cannot be decoded")
 	}
-	if err := model.VerifyJSONValueCount(bodyBytes, cfg.StatementValuesLimit()); err != nil {
+	if err := boundedjson.VerifyJSONValueCount(bodyBytes, cfg.StatementValuesLimit()); err != nil {
 		cfg.LogInfo(ctx, "the delegation body exceeds the value limit", slog.Int("limit", cfg.StatementValuesLimit()))
 		return fmt.Errorf("the trust mark's delegation body %s", err.Error())
 	}
 	var body map[string]any
 	if err := json.Unmarshal(bodyBytes, &body); err != nil {
-		cfg.LogInfo(ctx, "failed to unmarshal the delegation body", slog.String("error", model.TruncateForResponse(err.Error())))
+		cfg.LogInfo(ctx, "failed to unmarshal the delegation body", slog.String("error", truncate.TruncateForResponse(err.Error())))
 		return fmt.Errorf("the trust mark's delegation has a body that is not a JSON object")
 	}
 	if err := model.VerifyUniqueClaimNames(bodyBytes); err != nil {
@@ -159,7 +161,7 @@ func verifyDelegation(ctx context.Context, cfg model.Configuration, mark model.T
 		return err
 	}
 	if delegatedIssuer != string(issuer) {
-		cfg.LogInfo(ctx, "the delegation does not name the trust mark issuer as its subject", slog.String("delegation_sub", model.TruncateForResponse(delegatedIssuer)), slog.String("issuer", string(issuer)))
+		cfg.LogInfo(ctx, "the delegation does not name the trust mark issuer as its subject", slog.String("delegation_sub", truncate.TruncateForResponse(delegatedIssuer)), slog.String("issuer", string(issuer)))
 		return fmt.Errorf("the trust mark's delegation names a different entity as its subject than the issuer of the trust mark")
 	}
 
@@ -169,7 +171,7 @@ func verifyDelegation(ctx context.Context, cfg model.Configuration, mark model.T
 		return err
 	}
 	if delegatingOwner != string(owner.Sub) {
-		cfg.LogInfo(ctx, "the delegation was not issued by the owner the trust anchor names", slog.String("delegation_iss", model.TruncateForResponse(delegatingOwner)), slog.String("owner", string(owner.Sub)))
+		cfg.LogInfo(ctx, "the delegation was not issued by the owner the trust anchor names", slog.String("delegation_iss", truncate.TruncateForResponse(delegatingOwner)), slog.String("owner", string(owner.Sub)))
 		return fmt.Errorf("the trust mark's delegation was not issued by the owner the trust anchor names for this trust mark type")
 	}
 
@@ -179,7 +181,7 @@ func verifyDelegation(ctx context.Context, cfg model.Configuration, mark model.T
 		return err
 	}
 	if delegatedType != mark.Type {
-		cfg.LogInfo(ctx, "the delegation is for a different trust mark type", slog.String("delegation_type", model.TruncateForResponse(delegatedType)), slog.String("trust_mark_type", model.TruncateForResponse(mark.Type)))
+		cfg.LogInfo(ctx, "the delegation is for a different trust mark type", slog.String("delegation_type", truncate.TruncateForResponse(delegatedType)), slog.String("trust_mark_type", truncate.TruncateForResponse(mark.Type)))
 		return fmt.Errorf("the trust mark's delegation is for a different trust mark type than the trust mark itself")
 	}
 
@@ -209,26 +211,29 @@ func verifyDelegation(ctx context.Context, cfg model.Configuration, mark model.T
 
 	selectedKeys := selectOwnerKeys(ctx, cfg, owner, kid)
 	if len(selectedKeys) == 0 {
-		cfg.LogInfo(ctx, "the delegation names a key the owner does not publish", slog.String("kid", model.TruncateForResponse(kid)), slog.String("owner", string(owner.Sub)))
+		cfg.LogInfo(ctx, "the delegation names a key the owner does not publish", slog.String("kid", truncate.TruncateForResponse(kid)), slog.String("owner", string(owner.Sub)))
 		return fmt.Errorf("the trust mark's delegation names a 'kid' the trust mark owner does not publish a usable key for")
 	}
 
 	unusable := 0
 	for _, selectedKey := range selectedKeys {
 		if err := entity_statement.VerifySelectedKey(delegation, selectedKey, cfg.AcceptedSigningAlgorithms()); err != nil {
-			cfg.LogInfo(ctx, "an owner key named by the delegation cannot verify it", slog.String("kid", model.TruncateForResponse(kid)), slog.String("owner", string(owner.Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
+			cfg.LogInfo(ctx, "an owner key named by the delegation cannot verify it", slog.String("kid", truncate.TruncateForResponse(kid)), slog.String("owner", string(owner.Sub)), slog.String("error", truncate.TruncateForResponse(err.Error())))
 			unusable++
 			continue
 		}
 
-		if _, _, err := jwt.Validate(ctx, delegation, func() ([]crypto.PublicKey, error) {
+		if _, err := jwt.Validate(ctx, delegation, func() ([]crypto.PublicKey, error) {
 			publicKey, err := jwk.PublicFromJwk(selectedKey)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse the owner's JWK as a public key: %w", err)
 			}
 			return []crypto.PublicKey{publicKey}, nil
-		}, &josemodel.JoseOptions{UseTokenProvidedKeys: false, ClockSkewLeeway: model.ClockSkewLeeway, AllowedSigningAlgorithms: cfg.AcceptedSigningAlgorithms()}); err != nil {
-			cfg.LogInfo(ctx, "the delegation signature does not verify against an owner key", slog.String("kid", model.TruncateForResponse(kid)), slog.String("owner", string(owner.Sub)), slog.String("error", model.TruncateForResponse(err.Error())))
+		}, nil, &josemodel.JoseOptions{UseTokenProvidedKeys: false, ClockSkewLeeway: model.ClockSkewLeeway, AllowedSigningAlgorithms: cfg.AcceptedSigningAlgorithms()}, nil); err != nil {
+			if ended := signatureCheckInterrupted(ctx, cfg, "delegation"); ended != nil {
+				return ended
+			}
+			cfg.LogInfo(ctx, "the delegation signature does not verify against an owner key", slog.String("kid", truncate.TruncateForResponse(kid)), slog.String("owner", string(owner.Sub)), slog.String("error", truncate.TruncateForResponse(err.Error())))
 			continue
 		}
 
@@ -246,7 +251,7 @@ func verifyDelegationRequirement(ctx context.Context, cfg model.Configuration, m
 
 	if mark.DelegationJWT == nil {
 		if owned {
-			cfg.LogInfo(ctx, "the trust anchor names an owner for this trust mark type, so the trust mark must carry a delegation", slog.String("trust_mark_type", model.TruncateForResponse(mark.Type)), slog.String("owner", string(owner.Sub)))
+			cfg.LogInfo(ctx, "the trust anchor names an owner for this trust mark type, so the trust mark must carry a delegation", slog.String("trust_mark_type", truncate.TruncateForResponse(mark.Type)), slog.String("owner", string(owner.Sub)))
 			return fmt.Errorf("the trust anchor names an owner for this trust mark type, so the trust mark must carry a 'delegation' claim")
 		}
 		return nil
@@ -257,7 +262,7 @@ func verifyDelegationRequirement(ctx context.Context, cfg model.Configuration, m
 	}
 
 	if !owned {
-		cfg.LogInfo(ctx, "the trust mark carries a delegation for a type the trust anchor names no owner for, so there are no owner keys to verify it against", slog.String("trust_mark_type", model.TruncateForResponse(mark.Type)))
+		cfg.LogInfo(ctx, "the trust mark carries a delegation for a type the trust anchor names no owner for, so there are no owner keys to verify it against", slog.String("trust_mark_type", truncate.TruncateForResponse(mark.Type)))
 		return fmt.Errorf("the trust mark carries a 'delegation' claim for a type the trust anchor names no owner for, so there is no key to verify it against")
 	}
 

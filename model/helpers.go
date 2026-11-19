@@ -3,15 +3,13 @@ package model
 import (
 	"encoding/json"
 	"fmt"
-	"mime"
 	"net/url"
 	"reflect"
 	"slices"
 	"strings"
-	"time"
 )
 
-func ReMarshalJsonAsEntityMetadata[T any](data any) (*T, error) {
+func reMarshalJsonAsEntityMetadata[T any](data any) (*T, error) {
 	bytes, err := json.Marshal(data)
 	if err != nil {
 		return nil, err
@@ -24,7 +22,7 @@ func ReMarshalJsonAsEntityMetadata[T any](data any) (*T, error) {
 	return t, nil
 }
 
-func VerifyFederationEndpoint(endpoint any) error {
+func verifyFederationEndpoint(endpoint any) error {
 	if endpoint == nil {
 		return nil
 	}
@@ -71,54 +69,112 @@ func sortByPriority(policies []MetadataPolicyOperator) []MetadataPolicyOperator 
 	return policies
 }
 
-func verifyScopeOperand(value any) error {
-	if value == nil {
-		return nil
+func tokeniseAndValidatePolicy(policy *MetadataPolicy, operandLimit int) (*MetadataPolicy, error) {
+	if policy == nil {
+		return nil, nil
 	}
-	if _, ok := value.(string); ok {
-		return nil
+	scopeValues := 0
+	scoped := false
+	for _, parameters := range policy.byEntityType() {
+		operators, ok := parameters["scope"]
+		if !ok {
+			continue
+		}
+		scoped = true
+		scopeValues += scopeValueCount(operators.Metadata)
 	}
-	if reflect.TypeOf(value).Kind() != reflect.Slice {
-		return fmt.Errorf("all scope values must be strings")
+	if scopeValues > operandLimit {
+		return nil, scopeValueLimitError(operandLimit)
 	}
-	slice := reflect.ValueOf(value)
-	for i := range slice.Len() {
-		if _, ok := slice.Index(i).Interface().(string); !ok {
-			return fmt.Errorf("all scope values must be strings")
+	tokenised := policy
+	if scoped {
+		tokenised = policy.clone()
+		for _, parameters := range tokenised.byEntityType() {
+			if operators, ok := parameters["scope"]; ok {
+				parameters["scope"] = PolicyOperators{Metadata: tokeniseScope(operators.Metadata), Unrecognised: operators.Unrecognised}
+			}
 		}
 	}
-	return nil
+	for _, parameters := range tokenised.byEntityType() {
+		for _, operators := range parameters {
+			if err := validatePoliciesCanCombine(sortByPriority(slices.Clone(operators.Metadata))); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return tokenised, nil
 }
 
-func sortAndValidatePolicy(policy *MetadataPolicy) error {
-	if policy == nil {
-		return nil
+func scopeValueLimitError(operandLimit int) error {
+	return fmt.Errorf("%wa statement's policy operands hold more than %d values once each scope string is read as its scope values, the most one statement may hold", ErrLimitReached, operandLimit)
+}
+
+func tokeniseScope(operators []MetadataPolicyOperator) []MetadataPolicyOperator {
+	tokenised := make([]MetadataPolicyOperator, 0, len(operators))
+	for _, operator := range operators {
+		tokenised = append(tokenised, operator.ToSlice("scope"))
 	}
-	for _, parameters := range policy.byEntityType() {
-		for parameter, operators := range parameters {
-			if parameter == "scope" {
-				for _, operator := range operators.Metadata {
-					if operator.String() == "essential" {
-						continue
-					}
-					if err := verifyScopeOperand(operator.OperatorValue()); err != nil {
-						return err
-					}
-				}
-			}
-			candidates := operators.Metadata
-			if parameter == "scope" {
-				candidates = make([]MetadataPolicyOperator, 0, len(operators.Metadata))
-				for _, operator := range operators.Metadata {
-					candidates = append(candidates, operator.ToSlice(parameter))
-				}
-			}
-			if err := validatePoliciesCanCombine(sortByPriority(slices.Clone(candidates))); err != nil {
-				return err
-			}
+	return tokenised
+}
+
+func scopeValueCount(operators []MetadataPolicyOperator) int {
+	count := 0
+	for _, operator := range operators {
+		switch typed := operator.(type) {
+		case Essential:
+		case Value:
+			count += scopeOperandValueCount(typed.operatorValue)
+		case Default:
+			count += scopeOperandValueCount(typed.operatorValue)
+		case Add:
+			count += scopeOperandValueCount(typed.operatorValue)
+		case OneOf:
+			count += scopeOperandValueCount(typed.operatorValue)
+		case SubsetOf:
+			count += scopeOperandValueCount(typed.operatorValue)
+		case SupersetOf:
+			count += scopeOperandValueCount(typed.operatorValue)
+		default:
+			count += scopeOperandValueCount(operator.OperatorValue())
 		}
 	}
-	return nil
+	return count
+}
+
+func scopeOperandValueCount(operand any) int {
+	switch typed := operand.(type) {
+	case nil:
+		return 0
+	case string:
+		return scopeTokenCount(typed)
+	case []any:
+		count := 0
+		for _, element := range typed {
+			if s, ok := element.(string); ok {
+				count += scopeTokenCount(s)
+				continue
+			}
+			count++
+		}
+		return count
+	}
+	return 1
+}
+
+func scopeTokenCount(scope string) int {
+	count := 0
+	inToken := false
+	for i := range len(scope) {
+		if scope[i] == ' ' {
+			inToken = false
+			continue
+		}
+		if !inToken {
+			count++
+			inToken = true
+		}
+	}
+	return count
 }
 
 func ProcessAndExtractPolicy(trustChain []EntityStatement) (*MetadataPolicy, error) {
@@ -130,10 +186,13 @@ func (cfg *Configuration) ProcessAndExtractPolicy(trustChain []EntityStatement) 
 }
 
 func processAndExtractPolicy(trustChain []EntityStatement, operandLimit int) (*MetadataPolicy, error) {
+	tokenised := make([]*MetadataPolicy, len(trustChain))
 	for i := range trustChain {
-		if err := sortAndValidatePolicy(trustChain[i].MetadataPolicy); err != nil {
+		policy, err := tokeniseAndValidatePolicy(trustChain[i].MetadataPolicy, operandLimit)
+		if err != nil {
 			return nil, err
 		}
+		tokenised[i] = policy
 	}
 
 	if len(trustChain) == 0 {
@@ -142,11 +201,11 @@ func processAndExtractPolicy(trustChain []EntityStatement, operandLimit int) (*M
 
 	var finalisedPolicy *MetadataPolicy
 
-	for i := range trustChain {
+	for i := len(trustChain) - 1; i >= 0; i-- {
 		if trustChain[i].Iss == trustChain[i].Sub {
 			continue
 		}
-		metadataPolicy := trustChain[i].MetadataPolicy
+		metadataPolicy := tokenised[i]
 		if metadataPolicy == nil {
 			continue
 		}
@@ -209,7 +268,7 @@ func applyPolicy(existing, policy map[string]PolicyOperators, operandLimit int) 
 		} else {
 			for k, policies := range existing {
 				if policyOp, found := policy[k]; found {
-					mergedPolicies, err := mergePolicyOperators(k, policyOp, policies, operandLimit)
+					mergedPolicies, err := mergeTokenisedPolicyOperators(policyOp, policies, operandLimit)
 					if err != nil {
 						return nil, err
 					}
@@ -233,26 +292,27 @@ func MergePolicyOperators(claimName string, policySetA, policySetB PolicyOperato
 }
 
 func mergePolicyOperators(claimName string, policySetA, policySetB PolicyOperators, operandLimit int) ([]MetadataPolicyOperator, error) {
+	if claimName == "scope" {
+		for _, policySet := range []*PolicyOperators{&policySetA, &policySetB} {
+			if scopeValueCount(policySet.Metadata) > operandLimit {
+				return nil, scopeValueLimitError(operandLimit)
+			}
+			policySet.Metadata = tokeniseScope(policySet.Metadata)
+		}
+	}
+	return mergeTokenisedPolicyOperators(policySetA, policySetB, operandLimit)
+}
+
+func mergeTokenisedPolicyOperators(policySetA, policySetB PolicyOperators, operandLimit int) ([]MetadataPolicyOperator, error) {
 	if len(policySetA.Metadata) == 0 && len(policySetB.Metadata) == 0 {
 		return nil, nil
 	} else if len(policySetA.Metadata) == 0 {
-		return slices.Clone(policySetB.Metadata), nil
+		return policySetB.deepClone().Metadata, nil
 	} else if len(policySetB.Metadata) == 0 {
-		return slices.Clone(policySetA.Metadata), nil
+		return policySetA.deepClone().Metadata, nil
 	} else {
 		structuredA := structureAsMap(policySetA.Metadata)
 		structuredB := structureAsMap(policySetB.Metadata)
-
-		if claimName == "scope" {
-			for _, structured := range []map[int]MetadataPolicyOperator{structuredA, structuredB} {
-				for hierarchy, operator := range structured {
-					if operator == nil {
-						continue
-					}
-					structured[hierarchy] = operator.ToSlice(claimName)
-				}
-			}
-		}
 
 		var mergedPolicies []MetadataPolicyOperator
 
@@ -329,10 +389,13 @@ func metadataPolicySetContains(policySet []MetadataPolicyOperator, policyType re
 }
 
 func ApplyPolicy(subject EntityStatement, policy MetadataPolicy) (*EntityStatement, error) {
-	if subject.Metadata == nil { //if no metadata
+	subject, err := subject.clone()
+	if err != nil {
+		return nil, err
+	}
+	if subject.Metadata == nil {
 		return &subject, nil
 	}
-	subject.Metadata = subject.Metadata.clone()
 
 	policies := policy.byEntityType()
 	for entityType, metadata := range subject.Metadata.byEntityType() {
@@ -347,19 +410,71 @@ func ApplyPolicy(subject EntityStatement, policy MetadataPolicy) (*EntityStateme
 	return &subject, nil
 }
 
+func (e EntityStatement) clone() (EntityStatement, error) {
+	copied := e
+	keys, err := copyValue(e.JWKs.Keys)
+	if err != nil {
+		return EntityStatement{}, fmt.Errorf("the jwks claim: %w", err)
+	}
+	copied.JWKs.Keys = keys.([]map[string]any)
+	copied.AuthorityHints = slices.Clone(e.AuthorityHints)
+	copied.TrustAnchorHints = slices.Clone(e.TrustAnchorHints)
+	copied.TrustMarks = slices.Clone(e.TrustMarks)
+	if e.Metadata != nil {
+		if copied.Metadata, err = e.Metadata.clone(); err != nil {
+			return EntityStatement{}, err
+		}
+	}
+	if e.MetadataPolicy != nil {
+		copied.MetadataPolicy = e.MetadataPolicy.deepClone()
+	}
+	if e.Constraints != nil {
+		copied.Constraints = e.Constraints.clone()
+	}
+	if e.TrustMarkIssuers != nil {
+		copied.TrustMarkIssuers = make(map[string][]EntityIdentifier, len(e.TrustMarkIssuers))
+		for trustMarkType, issuers := range e.TrustMarkIssuers {
+			copied.TrustMarkIssuers[trustMarkType] = slices.Clone(issuers)
+		}
+	}
+	if e.TrustMarkOwners != nil {
+		copied.TrustMarkOwners = make(map[string]TrustMarkOwner, len(e.TrustMarkOwners))
+		for trustMarkType, owner := range e.TrustMarkOwners {
+			ownerKeys, err := copyValue(owner.JWKs.Keys)
+			if err != nil {
+				return EntityStatement{}, fmt.Errorf("the jwks of the trust mark owner of %s: %w", trustMarkType, err)
+			}
+			claims, err := copyValue(owner.AdditionalClaims)
+			if err != nil {
+				return EntityStatement{}, fmt.Errorf("the claims of the trust mark owner of %s: %w", trustMarkType, err)
+			}
+			owner.JWKs.Keys = ownerKeys.([]map[string]any)
+			owner.AdditionalClaims = claims.(map[string]any)
+			copied.TrustMarkOwners[trustMarkType] = owner
+		}
+	}
+	if e.SourceEndpoint != nil {
+		endpoint := *e.SourceEndpoint
+		copied.SourceEndpoint = &endpoint
+	}
+	return copied, nil
+}
+
 func applyPolicyToMetadata(metadata map[string]any, policy map[string]PolicyOperators) error {
 	for k, operators := range policy {
 		for _, operator := range sortByPriority(slices.Clone(operators.Metadata)) {
 			existing, ok := metadata[k]
+			scopeString := false
 			if k == "scope" {
-				if ok {
-					existingString, isString := existing.(string)
-					if !isString {
-						return fmt.Errorf("scope must be a string")
-					}
-					existing = ConvertStringsToAnySlice(scopeTokens(existingString))
+				existingString, isString := existing.(string)
+				scopeString = !ok || isString
+				if isString {
+					existing = convertStringsToAnySlice(scopeTokens(existingString))
 				}
 				operator = operator.ToSlice(k)
+				if _, assigned := operator.(Value); assigned {
+					scopeString = true
+				}
 			}
 			if _, isOneOf := operator.(OneOf); isOneOf && k == "scope" && ok {
 				return fmt.Errorf("one_of cannot be applied to scope, because policy operators process scope as an array of scope values")
@@ -368,29 +483,20 @@ func applyPolicyToMetadata(metadata map[string]any, policy map[string]PolicyOper
 			if err != nil {
 				return err
 			}
-			if k == "scope" && resolved != nil {
-				switch resolvedTyped := resolved.(type) {
-				case []string:
-					resolved = joinScopeTokens(resolvedTyped)
-				case []any:
-					stringSlice := make([]string, len(resolvedTyped))
-					for i, v := range resolvedTyped {
-						stringValue, isString := v.(string)
-						if !isString {
-							return fmt.Errorf("all scope values must be strings")
-						}
-						stringSlice[i] = stringValue
-					}
-					resolved = joinScopeTokens(stringSlice)
-				default:
-					return fmt.Errorf("scope must be a string or array of strings")
+			if scopeString {
+				if values, allStrings := MetadataStringSlice(resolved); allStrings {
+					resolved = joinScopeTokens(values)
 				}
 			}
 			if resolved == nil {
 				delete(metadata, k)
-			} else {
-				metadata[k] = cloneValue(resolved)
+				continue
 			}
+			copied, err := copyValue(resolved)
+			if err != nil {
+				return fmt.Errorf("the resolved metadata parameter %q: %w", k, err)
+			}
+			metadata[k] = copied
 		}
 	}
 	return nil
@@ -411,75 +517,7 @@ func joinScopeTokens(values []string) string {
 	return strings.Join(tokens, " ")
 }
 
-func ResolveStatementLifetime(name string, configured, fallback time.Duration) (time.Duration, error) {
-	if configured < 0 {
-		return 0, fmt.Errorf("%s must not be negative, got %s", name, configured)
-	}
-	if configured == 0 {
-		return fallback, nil
-	}
-	if configured < time.Second {
-		return 0, fmt.Errorf("%s must be at least one second, got %s", name, configured)
-	}
-	return configured, nil
-}
-
-func VerifyIssuedStatement(claims []byte, registry EntityTypeRegistry) error {
-	var issued EntityStatement
-	if err := json.Unmarshal(claims, &issued); err != nil {
-		return err
-	}
-	if issued.Metadata != nil {
-		if err := issued.Metadata.Verify(registry, false); err != nil {
-			return err
-		}
-	}
-	if issued.MetadataPolicy != nil {
-		if err := issued.MetadataPolicy.Verify(registry, false); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-const EntityStatementMediaType = "application/entity-statement+jwt"
-
-func IsEntityStatementMediaType(contentType string) bool {
-	mediaType, _, err := mime.ParseMediaType(contentType)
-	return err == nil && mediaType == EntityStatementMediaType
-}
-
-const MaxErrorDescriptionBytes = 256
-
-func TruncateForResponse(value string) string {
-	return TruncateAtCharacter(value, MaxErrorDescriptionBytes)
-}
-
-func VerifyChainExpiry(exp int64) error {
-	if ChainHasExpired(exp) {
-		return NewInvalidTrustChainError("trust chain expired")
-	}
-	if exp <= time.Now().UTC().Unix() {
-		return NewInvalidTrustChainError("trust chain expiry is not in the future, so no resolve response can be issued for it")
-	}
-	return nil
-}
-
-func ChainHasExpired(exp int64) bool {
-	return time.Now().Add(-ClockSkewLeeway).UTC().Unix() >= exp
-}
-
-func CalculateChainExpiration(chain []EntityStatement) int64 {
-	exp := chain[0].Exp
-	for _, statement := range chain[1:] {
-		if statement.Exp < exp {
-			exp = statement.Exp
-		}
-	}
-	return exp
-}
-
-func ConvertStringsToAnySlice(input []string) []any {
+func convertStringsToAnySlice(input []string) []any {
 	result := make([]any, len(input))
 	for i, v := range input {
 		result[i] = v
@@ -487,9 +525,7 @@ func ConvertStringsToAnySlice(input []string) []any {
 	return result
 }
 
-// DeduplicateSlice removes duplicate values from a slice, preserving order.
-// Works with all data types including strings, numbers, booleans, and maps.
-func DeduplicateSlice(input []any) []any {
+func deduplicateSlice(input []any) []any {
 	if len(input) == 0 {
 		return input
 	}
@@ -520,10 +556,10 @@ func ApplySuperiorMetadata(subject, superior *Metadata) *Metadata {
 	for entityType, parameters := range subject.byEntityType() {
 		merged := make(map[string]any, len(parameters))
 		for parameter, value := range parameters {
-			merged[parameter] = value
+			merged[parameter] = cloneValue(value)
 		}
 		for parameter, value := range supplied[entityType] {
-			merged[parameter] = value
+			merged[parameter] = cloneValue(value)
 		}
 		result.setEntityType(entityType, merged)
 	}

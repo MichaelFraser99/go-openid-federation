@@ -85,7 +85,7 @@ func TestVerifyChainLinks_TheAlgorithmASuperiorPublishesBindsItsSubordinate(t *t
 			var logs bytes.Buffer
 			cfg := model.Configuration{Logger: slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))}
 
-			err := verifyChainLinks(t.Context(), cfg, signed, parsed)
+			_, err := verifyChainLinks(t.Context(), cfg, signed, parsed)
 			if tc.expectErr {
 				if err == nil {
 					t.Fatalf("[%s] expected the link to be refused", tc.reference)

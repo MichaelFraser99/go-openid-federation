@@ -149,7 +149,7 @@ func TestPolicyOperands_ConflictDetectionScalesLinearly(t *testing.T) {
 				}
 
 				started := time.Now()
-				if err := sortAndValidatePolicy(&policy); err != nil {
+				if _, err := tokeniseAndValidatePolicy(&policy, DefaultMaxStatementValues); err != nil {
 					t.Fatalf("expected the policy to validate, got %v", err)
 				}
 				return time.Since(started)

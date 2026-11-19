@@ -6,7 +6,7 @@ import (
 )
 
 var (
-	_ EntityTypeIdentifier = OAuthAuthorizationServerMetadata{}
+	_ entityTypeIdentifier = OAuthAuthorizationServerMetadata{}
 )
 
 type OAuthAuthorizationServerMetadata map[string]any

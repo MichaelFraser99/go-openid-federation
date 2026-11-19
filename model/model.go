@@ -19,6 +19,7 @@ import (
 
 	"github.com/MichaelFraser99/go-jose/jwa"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
+	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 )
 
 type Configuration struct {
@@ -82,19 +83,6 @@ func refusedSigningAlgorithm(algorithm jwa.Algorithm) bool {
 	}
 }
 
-func VerifyIssuanceAlgorithm(name string) error {
-	algorithm := jwa.GetAlgorithm(name)
-	switch {
-	case algorithm == jwa.HS256 || algorithm == jwa.HS384 || algorithm == jwa.HS512:
-		return fmt.Errorf("%s is never used to sign here: a federation key is published, so a symmetric key would not be secret", name)
-	case algorithm == jwa.EdDSA:
-		return fmt.Errorf("EdDSA is accepted only for verification, because RFC 9864 section 4.1.2 deprecates it; sign with Ed25519")
-	case algorithm == jwa.Unknown || !slices.Contains(defaultSigningAlgorithms, algorithm):
-		return fmt.Errorf("%q is not a supported signing algorithm", TruncateForResponse(name))
-	}
-	return nil
-}
-
 func (cfg *Configuration) AcceptedSigningAlgorithms() []jwa.Algorithm {
 	configured := cfg.SigningAlgorithms
 	if configured == nil {
@@ -149,14 +137,6 @@ const DefaultMaxPeerResponseBytes int64 = 1 << 20
 const DefaultMaxRequestPeerBytes int64 = 64 << 20
 
 const DecodedValueCost = 256
-
-func StatementCost(signed string, statement *EntityStatement) int64 {
-	cost := 2 * int64(len(signed))
-	if statement != nil {
-		cost += int64(statement.DecodedValues()) * DecodedValueCost
-	}
-	return cost
-}
 
 const DefaultMaxPeerResponseTime = 10 * time.Second
 
@@ -308,10 +288,33 @@ func (cfg *ServerConfiguration) SubordinateIdentifiers(ctx context.Context) ([]E
 		}
 		return slices.Sorted(maps.Keys(subordinates)), nil
 	}
-	i := cfg.IntermediateConfiguration
+	listing, unlisted := cfg.IntermediateConfiguration.listing()
+	if unlisted > 0 {
+		cfg.LogError(ctx, "omitting listing entries the store returned that are not entity identifiers or repeat one already listed", slog.Int("not_entity_identifiers", unlisted), slog.Int("duplicates", 0))
+	}
+	return listing, nil
+}
+
+func (i *IntermediateConfiguration) listing() ([]EntityIdentifier, int) {
 	i.mu.RLock()
-	defer i.mu.RUnlock()
-	return slices.Sorted(maps.Keys(i.subordinates)), nil
+	listed, unlisted := i.listed, len(i.unlisted)
+	i.mu.RUnlock()
+	if listed != nil {
+		return slices.Clone(listed), unlisted
+	}
+
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.listed == nil {
+		i.listed = make([]EntityIdentifier, 0, len(i.subordinates))
+		for identifier := range i.subordinates {
+			if _, invalid := i.unlisted[identifier]; !invalid {
+				i.listed = append(i.listed, identifier)
+			}
+		}
+		slices.Sort(i.listed)
+	}
+	return slices.Clone(i.listed), len(i.unlisted)
 }
 
 func (cfg *ServerConfiguration) GetSubordinateJWKs(ctx context.Context) ([]SignerConfiguration, error) {
@@ -348,6 +351,9 @@ func (cfg *ServerConfiguration) GetSubordinate(ctx context.Context, identifier E
 		if cached != nil {
 			return cached.clone(), nil
 		}
+		if refused := i.refusal(identifier); refused != nil {
+			return nil, NewServerError(fmt.Sprintf("the subordinate configuration given to AddSubordinate for %s was not stored: %v", identifier, refused))
+		}
 		return nil, NewNotFoundError(fmt.Sprintf("subordinate entity %s not found", identifier))
 	}
 
@@ -363,7 +369,10 @@ func (cfg *ServerConfiguration) GetSubordinate(ctx context.Context, identifier E
 		return nil, NewNotFoundError(fmt.Sprintf("subordinate entity %s not found", identifier))
 	}
 
-	stored := entity.clone()
+	stored, err := entity.asJSON()
+	if err != nil {
+		return nil, NewServerError(fmt.Sprintf("the subordinate configuration the Retriever returned for %s cannot be stored: %v", identifier, err))
+	}
 	stored.CachedAt = time.Now().UTC().Unix()
 	if i.SubordinateCacheTime < time.Second {
 		return stored, nil
@@ -452,6 +461,9 @@ type ExtendedListingConfiguration struct {
 type IntermediateConfiguration struct {
 	mu                           sync.RWMutex
 	subordinates                 map[EntityIdentifier]*SubordinateConfiguration
+	listed                       []EntityIdentifier
+	unlisted                     map[EntityIdentifier]struct{}
+	refused                      map[EntityIdentifier]error
 	SubordinateStatementLifetime time.Duration
 	SubordinateCacheTime         time.Duration
 }
@@ -460,31 +472,95 @@ func (i *IntermediateConfiguration) FlushCache() {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	i.subordinates = map[EntityIdentifier]*SubordinateConfiguration{}
+	i.listed = nil
+	i.unlisted = nil
+	i.refused = nil
+}
+
+func (i *IntermediateConfiguration) refusal(identifier EntityIdentifier) error {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	return i.refused[identifier]
 }
 
 func (i *IntermediateConfiguration) AddSubordinate(identifier EntityIdentifier, subordinateConfiguration *SubordinateConfiguration) {
 	if subordinateConfiguration == nil {
 		return
 	}
-	stored := subordinateConfiguration.clone()
-	stored.JWKs.Opts.EnforceUniqueKIDs = true
-	stored.CachedAt = time.Now().UTC().Unix()
+	stored, err := subordinateConfiguration.asJSON()
+	_, invalid := ValidateEntityIdentifier(string(identifier))
 
 	i.mu.Lock()
 	defer i.mu.Unlock()
+	if err != nil {
+		delete(i.subordinates, identifier)
+		delete(i.unlisted, identifier)
+		if i.refused == nil {
+			i.refused = map[EntityIdentifier]error{}
+		}
+		i.refused[identifier] = err
+		i.listed = nil
+		return
+	}
+	stored.JWKs.Opts.EnforceUniqueKIDs = true
+	stored.CachedAt = time.Now().UTC().Unix()
 	if i.subordinates == nil {
 		i.subordinates = map[EntityIdentifier]*SubordinateConfiguration{}
 	}
 	i.subordinates[identifier] = stored
+	i.listed = nil
+	if invalid != nil {
+		if i.unlisted == nil {
+			i.unlisted = map[EntityIdentifier]struct{}{}
+		}
+		i.unlisted[identifier] = struct{}{}
+	}
 }
 
 func (s *SubordinateConfiguration) clone() *SubordinateConfiguration {
-	copied := *s
-	copied.Policies = *s.Policies.deepClone()
+	copied := s.copyFields()
 	copied.JWKs.Keys = cloneValue(s.JWKs.Keys).([]map[string]any)
 	if s.Metadata != nil {
 		copied.Metadata = s.Metadata.deepClone()
 	}
+	return copied
+}
+
+func (s *SubordinateConfiguration) asJSON() (*SubordinateConfiguration, error) {
+	copied := s.copyFields()
+	keys, err := storedKeys(s.JWKs.Keys)
+	if err != nil {
+		return nil, err
+	}
+	copied.JWKs.Keys = keys
+	if s.Metadata != nil {
+		if copied.Metadata, err = s.Metadata.asJSON(); err != nil {
+			return nil, err
+		}
+	}
+	return copied, nil
+}
+
+func storedKeys(keys []map[string]any) ([]map[string]any, error) {
+	if keys == nil {
+		return nil, nil
+	}
+	stored := make([]map[string]any, len(keys))
+	for i, key := range keys {
+		value, err := storedValue(key)
+		if err != nil {
+			return nil, err
+		}
+		stored[i], _ = value.(map[string]any)
+	}
+	return stored, nil
+}
+
+func (s *SubordinateConfiguration) copyFields() *SubordinateConfiguration {
+	copied := *s
+	copied.Policies = *s.Policies.deepClone()
+	copied.JWKs.Keys = nil
+	copied.Metadata = nil
 	if s.Constraints != nil {
 		copied.Constraints = s.Constraints.clone()
 	}
@@ -547,18 +623,18 @@ func (e EntityStatement) DecodedValues() int {
 	return e.decodedValues
 }
 
-func CountDecodedValues(value any) int {
+func countDecodedValues(value any) int {
 	switch typed := value.(type) {
 	case map[string]any:
 		count := 1
 		for _, element := range typed {
-			count += CountDecodedValues(element)
+			count += countDecodedValues(element)
 		}
 		return count
 	case []any:
 		count := 1
 		for _, element := range typed {
-			count += CountDecodedValues(element)
+			count += countDecodedValues(element)
 		}
 		return count
 	default:
@@ -737,7 +813,7 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 	if err := VerifyUniqueClaimNames(data); err != nil {
 		return err
 	}
-	e.decodedValues = CountDecodedValues(jsonMap)
+	e.decodedValues = countDecodedValues(jsonMap)
 
 	if iss, ok := jsonMap["iss"]; !ok {
 		return fmt.Errorf("missing required body claim 'iss'")
@@ -781,7 +857,7 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	if time.Now().Add(-ClockSkewLeeway).UTC().Unix() >= exp {
-		return fmt.Errorf("entity statement has expired")
+		return fmt.Errorf("%wentity statement has expired", ErrExpired)
 	}
 	if iat >= exp {
 		return fmt.Errorf("entity statement 'iat' claim must be before its 'exp' claim")
@@ -888,7 +964,7 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 	}
 
 	if constraints, ok := jsonMap["constraints"]; ok {
-		parsed, err := ParseConstraints(constraints)
+		parsed, err := parseConstraints(constraints)
 		if err != nil {
 			return err
 		}
@@ -941,7 +1017,7 @@ func (e *EntityStatement) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-type EntityTypeIdentifier interface {
+type entityTypeIdentifier interface {
 	VerifyMetadata() error
 }
 
@@ -998,7 +1074,7 @@ func (t *TrustMarkHolder) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("the 'trust_mark' member of a 'trust_marks' entry has a malformed 'trust_mark_type' claim")
 	}
 	if sClaimed != trustMarkType {
-		return fmt.Errorf("the 'trust_mark_type' member %q does not match the 'trust_mark_type' claim %q in the trust mark itself", TruncateForResponse(trustMarkType), TruncateForResponse(sClaimed))
+		return fmt.Errorf("the 'trust_mark_type' member %q does not match the 'trust_mark_type' claim %q in the trust mark itself", truncate.TruncateForResponse(trustMarkType), truncate.TruncateForResponse(sClaimed))
 	}
 
 	t.TrustMarkType = trustMarkType
@@ -1102,7 +1178,7 @@ func (m *Metadata) UnmarshalJSON(data []byte) error {
 	}
 
 	if federation, ok := bytesMap["federation_entity"]; ok {
-		m.FederationMetadata, err = ReMarshalJsonAsEntityMetadata[FederationMetadata](federation)
+		m.FederationMetadata, err = reMarshalJsonAsEntityMetadata[FederationMetadata](federation)
 		if err != nil {
 			return fmt.Errorf("malformed federation entity metadata: %s", err.Error())
 		}
@@ -1114,7 +1190,7 @@ func (m *Metadata) UnmarshalJSON(data []byte) error {
 		}
 	}
 	if openidRelyingParty, ok := bytesMap["openid_relying_party"]; ok {
-		m.OpenIDRelyingPartyMetadata, err = ReMarshalJsonAsEntityMetadata[OpenIDRelyingPartyMetadata](openidRelyingParty)
+		m.OpenIDRelyingPartyMetadata, err = reMarshalJsonAsEntityMetadata[OpenIDRelyingPartyMetadata](openidRelyingParty)
 		if err != nil {
 			return fmt.Errorf("malformed openid relying party metadata: %s", err.Error())
 		}
@@ -1126,7 +1202,7 @@ func (m *Metadata) UnmarshalJSON(data []byte) error {
 		}
 	}
 	if openidProvider, ok := bytesMap["openid_provider"]; ok {
-		m.OpenIDConnectOpenIDProviderMetadata, err = ReMarshalJsonAsEntityMetadata[OpenIDConnectOpenIDProviderMetadata](openidProvider)
+		m.OpenIDConnectOpenIDProviderMetadata, err = reMarshalJsonAsEntityMetadata[OpenIDConnectOpenIDProviderMetadata](openidProvider)
 		if err != nil {
 			return fmt.Errorf("malformed openid provider metadata: %s", err.Error())
 		}
@@ -1138,7 +1214,7 @@ func (m *Metadata) UnmarshalJSON(data []byte) error {
 		}
 	}
 	if oauthAuthorizationServer, ok := bytesMap["oauth_authorization_server"]; ok {
-		m.OAuthAuthorizationServerMetadata, err = ReMarshalJsonAsEntityMetadata[OAuthAuthorizationServerMetadata](oauthAuthorizationServer)
+		m.OAuthAuthorizationServerMetadata, err = reMarshalJsonAsEntityMetadata[OAuthAuthorizationServerMetadata](oauthAuthorizationServer)
 		if err != nil {
 			return fmt.Errorf("malformed oauth authorization server metadata: %s", err.Error())
 		}
@@ -1150,7 +1226,7 @@ func (m *Metadata) UnmarshalJSON(data []byte) error {
 		}
 	}
 	if oauthClient, ok := bytesMap["oauth_client"]; ok {
-		m.OAuthClientMetadata, err = ReMarshalJsonAsEntityMetadata[OAuthClientMetadata](oauthClient)
+		m.OAuthClientMetadata, err = reMarshalJsonAsEntityMetadata[OAuthClientMetadata](oauthClient)
 		if err != nil {
 			return fmt.Errorf("malformed oauth client metadata: %s", err.Error())
 		}
@@ -1162,7 +1238,7 @@ func (m *Metadata) UnmarshalJSON(data []byte) error {
 		}
 	}
 	if oauthResource, ok := bytesMap["oauth_resource"]; ok {
-		m.OAuthResourceMetadata, err = ReMarshalJsonAsEntityMetadata[OAuthResourceMetadata](oauthResource)
+		m.OAuthResourceMetadata, err = reMarshalJsonAsEntityMetadata[OAuthResourceMetadata](oauthResource)
 		if err != nil {
 			return fmt.Errorf("malformed oauth resource metadata: %s", err.Error())
 		}
@@ -1174,7 +1250,7 @@ func (m *Metadata) UnmarshalJSON(data []byte) error {
 		}
 	}
 	if openidWalletProvider, ok := bytesMap["openid_wallet_provider"]; ok {
-		m.OpenIDWalletProviderMetadata, err = ReMarshalJsonAsEntityMetadata[OpenIDWalletProviderMetadata](openidWalletProvider)
+		m.OpenIDWalletProviderMetadata, err = reMarshalJsonAsEntityMetadata[OpenIDWalletProviderMetadata](openidWalletProvider)
 		if err != nil {
 			return fmt.Errorf("malformed openid wallet provider metadata: %s", err.Error())
 		}
@@ -1186,7 +1262,7 @@ func (m *Metadata) UnmarshalJSON(data []byte) error {
 		}
 	}
 	if openidCredentialIssuer, ok := bytesMap["openid_credential_issuer"]; ok {
-		m.OpenIDCredentialIssuerMetadata, err = ReMarshalJsonAsEntityMetadata[OpenIDCredentialIssuerMetadata](openidCredentialIssuer)
+		m.OpenIDCredentialIssuerMetadata, err = reMarshalJsonAsEntityMetadata[OpenIDCredentialIssuerMetadata](openidCredentialIssuer)
 		if err != nil {
 			return fmt.Errorf("malformed openid credential issuer metadata: %s", err.Error())
 		}
@@ -1198,7 +1274,7 @@ func (m *Metadata) UnmarshalJSON(data []byte) error {
 		}
 	}
 	if openidCredentialVerifier, ok := bytesMap["openid_credential_verifier"]; ok {
-		m.OpenIDCredentialVerifierMetadata, err = ReMarshalJsonAsEntityMetadata[OpenIDCredentialVerifierMetadata](openidCredentialVerifier)
+		m.OpenIDCredentialVerifierMetadata, err = reMarshalJsonAsEntityMetadata[OpenIDCredentialVerifierMetadata](openidCredentialVerifier)
 		if err != nil {
 			return fmt.Errorf("malformed openid credential verifier metadata: %s", err.Error())
 		}
@@ -1210,7 +1286,7 @@ func (m *Metadata) UnmarshalJSON(data []byte) error {
 		}
 	}
 	if openidCredentialVerifierProvider, ok := bytesMap["openid_credential_verifier_provider"]; ok {
-		m.OpenIDCredentialVerifierProviderMetadata, err = ReMarshalJsonAsEntityMetadata[OpenIDCredentialVerifierProviderMetadata](openidCredentialVerifierProvider)
+		m.OpenIDCredentialVerifierProviderMetadata, err = reMarshalJsonAsEntityMetadata[OpenIDCredentialVerifierProviderMetadata](openidCredentialVerifierProvider)
 		if err != nil {
 			return fmt.Errorf("malformed openid credential verifier provider metadata: %s", err.Error())
 		}
@@ -1225,7 +1301,7 @@ func (m *Metadata) UnmarshalJSON(data []byte) error {
 		if slices.Contains(builtInEntityTypes, entityType) {
 			continue
 		}
-		parsed, err := ReMarshalJsonAsEntityMetadata[map[string]any](entityMetadata)
+		parsed, err := reMarshalJsonAsEntityMetadata[map[string]any](entityMetadata)
 		if err != nil {
 			return fmt.Errorf("malformed %s metadata: %s", entityType, err.Error())
 		}
@@ -1293,70 +1369,70 @@ func (m *MetadataPolicy) UnmarshalJSON(data []byte) error {
 		}
 	}
 	if federation, ok := bytesMap["federation_entity"]; ok {
-		federationPolicyOperators, err := ReMarshalJsonAsEntityMetadata[map[string]PolicyOperators](federation)
+		federationPolicyOperators, err := reMarshalJsonAsEntityMetadata[map[string]PolicyOperators](federation)
 		if err != nil {
 			return fmt.Errorf("malformed federation entity metadata policy: %s", err.Error())
 		}
 		m.FederationMetadata = *federationPolicyOperators
 	}
 	if openidRelyingParty, ok := bytesMap["openid_relying_party"]; ok {
-		openidRelyingPartyOperators, err := ReMarshalJsonAsEntityMetadata[map[string]PolicyOperators](openidRelyingParty)
+		openidRelyingPartyOperators, err := reMarshalJsonAsEntityMetadata[map[string]PolicyOperators](openidRelyingParty)
 		if err != nil {
 			return fmt.Errorf("malformed openid relying party metadata policy: %s", err.Error())
 		}
 		m.OpenIDRelyingPartyMetadata = *openidRelyingPartyOperators
 	}
 	if openidProvider, ok := bytesMap["openid_provider"]; ok {
-		openidProviderOperators, err := ReMarshalJsonAsEntityMetadata[map[string]PolicyOperators](openidProvider)
+		openidProviderOperators, err := reMarshalJsonAsEntityMetadata[map[string]PolicyOperators](openidProvider)
 		if err != nil {
 			return fmt.Errorf("malformed openid provider metadata policy: %s", err.Error())
 		}
 		m.OpenIDConnectOpenIDProviderMetadata = *openidProviderOperators
 	}
 	if oauthAuthorizationServer, ok := bytesMap["oauth_authorization_server"]; ok {
-		oauthAuthorizationServerOperators, err := ReMarshalJsonAsEntityMetadata[map[string]PolicyOperators](oauthAuthorizationServer)
+		oauthAuthorizationServerOperators, err := reMarshalJsonAsEntityMetadata[map[string]PolicyOperators](oauthAuthorizationServer)
 		if err != nil {
 			return fmt.Errorf("malformed oauth authorization server metadata policy: %s", err.Error())
 		}
 		m.OAuthAuthorizationServerMetadata = *oauthAuthorizationServerOperators
 	}
 	if oauthClient, ok := bytesMap["oauth_client"]; ok {
-		oauthClientOperators, err := ReMarshalJsonAsEntityMetadata[map[string]PolicyOperators](oauthClient)
+		oauthClientOperators, err := reMarshalJsonAsEntityMetadata[map[string]PolicyOperators](oauthClient)
 		if err != nil {
 			return fmt.Errorf("malformed oauth client metadata policy: %s", err.Error())
 		}
 		m.OAuthClientMetadata = *oauthClientOperators
 	}
 	if oauthResource, ok := bytesMap["oauth_resource"]; ok {
-		oauthResourceOperators, err := ReMarshalJsonAsEntityMetadata[map[string]PolicyOperators](oauthResource)
+		oauthResourceOperators, err := reMarshalJsonAsEntityMetadata[map[string]PolicyOperators](oauthResource)
 		if err != nil {
 			return fmt.Errorf("malformed oauth resource metadata policy: %s", err.Error())
 		}
 		m.OAuthResourceMetadata = *oauthResourceOperators
 	}
 	if openidWalletProvider, ok := bytesMap["openid_wallet_provider"]; ok {
-		openidWalletProviderOperators, err := ReMarshalJsonAsEntityMetadata[map[string]PolicyOperators](openidWalletProvider)
+		openidWalletProviderOperators, err := reMarshalJsonAsEntityMetadata[map[string]PolicyOperators](openidWalletProvider)
 		if err != nil {
 			return fmt.Errorf("malformed openid wallet provider metadata policy: %s", err.Error())
 		}
 		m.OpenIDWalletProviderMetadata = *openidWalletProviderOperators
 	}
 	if openidCredentialIssuer, ok := bytesMap["openid_credential_issuer"]; ok {
-		openidCredentialIssuerOperators, err := ReMarshalJsonAsEntityMetadata[map[string]PolicyOperators](openidCredentialIssuer)
+		openidCredentialIssuerOperators, err := reMarshalJsonAsEntityMetadata[map[string]PolicyOperators](openidCredentialIssuer)
 		if err != nil {
 			return fmt.Errorf("malformed openid credential issuer metadata policy: %s", err.Error())
 		}
 		m.OpenIDCredentialIssuerMetadata = *openidCredentialIssuerOperators
 	}
 	if openidCredentialVerifier, ok := bytesMap["openid_credential_verifier"]; ok {
-		openidCredentialVerifierOperators, err := ReMarshalJsonAsEntityMetadata[map[string]PolicyOperators](openidCredentialVerifier)
+		openidCredentialVerifierOperators, err := reMarshalJsonAsEntityMetadata[map[string]PolicyOperators](openidCredentialVerifier)
 		if err != nil {
 			return fmt.Errorf("malformed openid credential verifier metadata policy: %s", err.Error())
 		}
 		m.OpenIDCredentialVerifierMetadata = *openidCredentialVerifierOperators
 	}
 	if openidCredentialVerifierProvider, ok := bytesMap["openid_credential_verifier_provider"]; ok {
-		openidCredentialVerifierProviderOperators, err := ReMarshalJsonAsEntityMetadata[map[string]PolicyOperators](openidCredentialVerifierProvider)
+		openidCredentialVerifierProviderOperators, err := reMarshalJsonAsEntityMetadata[map[string]PolicyOperators](openidCredentialVerifierProvider)
 		if err != nil {
 			return fmt.Errorf("malformed openid credential verifier provider metadata policy: %s", err.Error())
 		}
@@ -1366,7 +1442,7 @@ func (m *MetadataPolicy) UnmarshalJSON(data []byte) error {
 		if slices.Contains(builtInEntityTypes, entityType) {
 			continue
 		}
-		operators, err := ReMarshalJsonAsEntityMetadata[map[string]PolicyOperators](entityPolicy)
+		operators, err := reMarshalJsonAsEntityMetadata[map[string]PolicyOperators](entityPolicy)
 		if err != nil {
 			return fmt.Errorf("malformed %s metadata policy: %s", entityType, err.Error())
 		}
@@ -1489,20 +1565,6 @@ func (m *MetadataPolicy) UnrecognisedOperators() []string {
 	return names
 }
 
-func (m *MetadataPolicy) OneOfOnScope() []string {
-	var entityTypes []string
-	for entityType, parameters := range m.byEntityType() {
-		if slices.ContainsFunc(parameters["scope"].Metadata, func(operator MetadataPolicyOperator) bool {
-			_, isOneOf := operator.(OneOf)
-			return isOneOf
-		}) {
-			entityTypes = append(entityTypes, entityType)
-		}
-	}
-	slices.Sort(entityTypes)
-	return entityTypes
-}
-
 func (m *MetadataPolicy) HasParameterPolicies() bool {
 	for _, parameters := range m.byEntityType() {
 		for _, operators := range parameters {
@@ -1607,8 +1669,12 @@ func (p PolicyOperators) deepClone() PolicyOperators {
 }
 
 func cloneOperator(operator MetadataPolicyOperator) MetadataPolicyOperator {
-	switch operator.(type) {
-	case Value, Default, Add, Essential, OneOf, SubsetOf, SupersetOf:
+	if held := reflect.ValueOf(operator); held.Kind() == reflect.Pointer && !held.IsNil() {
+		if pointed, ok := held.Elem().Interface().(MetadataPolicyOperator); ok && isBuiltInOperator(pointed) {
+			operator = pointed
+		}
+	}
+	if isBuiltInOperator(operator) {
 		if copied, err := parsePolicyOperator(operator.String(), operator.OperatorValue()); err == nil {
 			return copied
 		}
@@ -1616,12 +1682,20 @@ func cloneOperator(operator MetadataPolicyOperator) MetadataPolicyOperator {
 	return operator
 }
 
+func isBuiltInOperator(operator MetadataPolicyOperator) bool {
+	switch operator.(type) {
+	case Value, Default, Add, Essential, OneOf, SubsetOf, SupersetOf:
+		return true
+	}
+	return false
+}
+
 func (m *Metadata) ForEntityTypes(entityTypes []string) *Metadata {
 	if m == nil {
 		return nil
 	}
 	copied := m.deepClone()
-	copied.FilterByEntityTypes(entityTypes)
+	copied.filterByEntityTypes(entityTypes)
 	return copied
 }
 
@@ -1638,12 +1712,55 @@ func (m *Metadata) deepClone() *Metadata {
 	return copied
 }
 
-func (m *Metadata) clone() *Metadata {
+func (m *Metadata) asJSON() (*Metadata, error) {
+	typed := *m
+	typed.Extensions = nil
+	copied := &Metadata{}
+	for entityType, parameters := range typed.byEntityType() {
+		stored, err := parametersAsJSON(parameters)
+		if err != nil {
+			return nil, err
+		}
+		copied.setEntityType(entityType, stored)
+	}
+	if m.Extensions != nil {
+		copied.Extensions = make(map[string]map[string]any, len(m.Extensions))
+		for entityType, parameters := range m.Extensions {
+			stored, err := parametersAsJSON(parameters)
+			if err != nil {
+				return nil, err
+			}
+			copied.Extensions[entityType] = stored
+		}
+	}
+	return copied, nil
+}
+
+func parametersAsJSON(parameters map[string]any) (map[string]any, error) {
+	if parameters == nil {
+		return nil, nil
+	}
+	copied := make(map[string]any, len(parameters))
+	for parameter, value := range parameters {
+		stored, err := storedValue(value)
+		if err != nil {
+			return nil, fmt.Errorf("the metadata parameter %q: %w", parameter, err)
+		}
+		copied[parameter] = stored
+	}
+	return copied, nil
+}
+
+func (m *Metadata) clone() (*Metadata, error) {
 	copied := &Metadata{}
 	for entityType, parameters := range m.byEntityType() {
-		copied.setEntityType(entityType, cloneValue(parameters).(map[string]any))
+		copiedParameters, err := copyValue(parameters)
+		if err != nil {
+			return nil, fmt.Errorf("the %s metadata: %w", entityType, err)
+		}
+		copied.setEntityType(entityType, copiedParameters.(map[string]any))
 	}
-	return copied
+	return copied, nil
 }
 
 func (m *MetadataPolicy) setEntityType(entityType string, operators map[string]PolicyOperators) {
@@ -1676,7 +1793,7 @@ func (m *MetadataPolicy) setEntityType(entityType string, operators map[string]P
 	}
 }
 
-func (m *Metadata) FilterByEntityTypes(entityTypes []string) {
+func (m *Metadata) filterByEntityTypes(entityTypes []string) {
 	if len(entityTypes) == 0 {
 		return
 	}
@@ -1775,7 +1892,7 @@ type TrustMarkStatusResponse struct {
 	Status string `json:"status"`
 }
 
-func Pointer[T any](v T) *T {
+func pointer[T any](v T) *T {
 	return &v
 }
 

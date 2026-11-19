@@ -13,6 +13,7 @@ import (
 	"github.com/MichaelFraser99/go-jose/jws"
 	"github.com/MichaelFraser99/go-jose/jwt"
 	josemodel "github.com/MichaelFraser99/go-jose/model"
+	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -119,7 +120,7 @@ func TestServer_Resolve_RefusesASuperiorsUnusableRegisteredKeyWithoutReflectingI
 			if strings.Contains(string(raw), marker) {
 				t.Fatalf("[%s] a superior's registered key material reached the resolve body: %s", tc.reference, raw)
 			}
-			if len(raw) > model.MaxErrorDescriptionBytes+256 {
+			if len(raw) > truncate.MaxErrorDescriptionBytes+256 {
 				t.Errorf("[%s] expected a bounded body, got %d bytes", tc.reference, len(raw))
 			}
 		})

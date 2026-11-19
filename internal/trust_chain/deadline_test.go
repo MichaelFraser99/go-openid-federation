@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -147,17 +148,30 @@ func deadlineConfiguration(client *http.Client) model.Configuration {
 	return model.Configuration{HttpClient: client, MaxResolveTime: requestDeadline, MaxPeerResponseTime: peerResponseLimit}
 }
 
-func assertEndedAtTheRequestDeadline(t *testing.T, elapsed time.Duration, err error) {
+const resolveTimeLimitDescription = "the resolver reached the maximum time it may spend on one request"
+
+func assertResolveTimeLimit(t *testing.T, err error) {
 	t.Helper()
 	if err == nil {
-		t.Fatal("[8.9] expected the request to stop at its deadline")
+		t.Fatal("[18.1] expected the request to stop at its time limit")
 	}
-	if !errors.Is(err, model.ErrTemporarilyUnavailable) {
-		t.Errorf("[8.9] this server not completing its own request within its deadline is temporarily_unavailable, got %v", err)
+	if !errors.Is(err, model.ErrLimitReached) || !errors.Is(err, model.ErrInvalidTrustAnchor) {
+		t.Errorf("[18.1] peers choose how long a walk takes, so reaching the resolver's own time limit is a bound like the entity and depth limits, invalid_trust_anchor, got %v", err)
+	}
+	if errors.Is(err, model.ErrTemporarilyUnavailable) || errors.Is(err, model.ErrServerError) {
+		t.Errorf("[18.1] a bound peers can reach is neither a fault nor temporary, got %v", err)
+	}
+	if err.Error() != resolveTimeLimitDescription {
+		t.Errorf("expected the fixed description naming the time limit, got %q", err.Error())
 	}
 	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Errorf("[8.9] expected the deadline to be reported rather than masked, got %v", err)
+		t.Errorf("expected the deadline to stay visible to errors.Is, got %v", err)
 	}
+}
+
+func assertEndedAtTheRequestDeadline(t *testing.T, elapsed time.Duration, err error) {
+	t.Helper()
+	assertResolveTimeLimit(t, err)
 	if elapsed < requestDeadline {
 		t.Errorf("expected the request to run until its deadline of %s, it ended after %s", requestDeadline, elapsed)
 	}
@@ -220,4 +234,206 @@ func TestResolveMetadata_FetchingAnOmittedAnchorIsBoundedByTheRequestDeadline(t 
 	started := time.Now()
 	_, err = ResolveMetadata(t.Context(), deadlineConfiguration(federation.client), federation.entity("ta"), federation.entity("ta"), built[:2], resolvecache.New())
 	assertEndedAtTheRequestDeadline(t, time.Since(started), err)
+}
+
+func TestBuildTrustChain_OnlyTheResolversOwnTimeLimitIsReportedAsALimit(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference string
+		limit     time.Duration
+		caller    func(context.Context) (context.Context, context.CancelFunc)
+		ownLimit  bool
+		cause     error
+	}{
+		{
+			name:      "the resolver's own time limit is reached first",
+			reference: "18.1",
+			limit:     requestDeadline,
+			caller: func(ctx context.Context) (context.Context, context.CancelFunc) {
+				return context.WithTimeout(ctx, time.Minute)
+			},
+			ownLimit: true,
+		},
+		{
+			name:      "the caller's own deadline is shorter than the resolver's time limit",
+			reference: "8.9",
+			limit:     time.Minute,
+			caller: func(ctx context.Context) (context.Context, context.CancelFunc) {
+				return context.WithTimeout(ctx, requestDeadline)
+			},
+			cause: context.DeadlineExceeded,
+		},
+		{
+			name:      "the caller cancels the request",
+			reference: "8.9",
+			limit:     time.Minute,
+			caller: func(ctx context.Context) (context.Context, context.CancelFunc) {
+				ctx, cancel := context.WithCancel(ctx)
+				time.AfterFunc(requestDeadline, cancel)
+				return ctx, cancel
+			},
+			cause: context.Canceled,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			federation := newSlowFederation(t, map[string][]string{"leaf": {"ta"}})
+			federation.slow("leaf", slowerThanDeadline)
+			cfg := model.Configuration{HttpClient: federation.client, MaxResolveTime: tc.limit, MaxPeerResponseTime: peerResponseLimit}
+			ctx, cancel := tc.caller(t.Context())
+			defer cancel()
+
+			_, _, _, err := BuildTrustChain(ctx, cfg, federation.entity("leaf"), federation.entity("ta"), resolvecache.New())
+			if tc.ownLimit {
+				assertResolveTimeLimit(t, err)
+				return
+			}
+			if !errors.Is(err, model.ErrTemporarilyUnavailable) || !errors.Is(err, tc.cause) {
+				t.Errorf("[%s] a deadline or cancellation the caller chose is this request not completing, temporarily_unavailable carrying %v, got %v", tc.reference, tc.cause, err)
+			}
+			if errors.Is(err, model.ErrLimitReached) {
+				t.Errorf("[%s] the caller's own deadline is not a bound of this resolver, got %v", tc.reference, err)
+			}
+		})
+	}
+}
+
+func TestResolveMetadata_OnlyTheResolversOwnTimeLimitIsReportedAsALimit(t *testing.T) {
+	federation := newSlowFederation(t, map[string][]string{"leaf": {"ta"}})
+	built, _, _, err := BuildTrustChain(t.Context(), deadlineConfiguration(federation.client), federation.entity("leaf"), federation.entity("ta"), resolvecache.New())
+	if err != nil {
+		t.Fatalf("the fixture is wrong: the chain does not build, %v", err)
+	}
+	federation.slow("ta", slowerThanDeadline)
+
+	ctx, cancel := context.WithTimeout(t.Context(), requestDeadline)
+	defer cancel()
+	_, err = ResolveMetadata(ctx, model.Configuration{HttpClient: federation.client, MaxPeerResponseTime: peerResponseLimit}, federation.entity("ta"), federation.entity("ta"), built[:2], resolvecache.New())
+	if !errors.Is(err, model.ErrTemporarilyUnavailable) || !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, model.ErrLimitReached) {
+		t.Errorf("[8.9] a caller's deadline shorter than the resolver's time limit is this request not completing, not a bound, got %v", err)
+	}
+}
+
+type stallsUntilDeadline struct {
+	message string
+}
+
+func (h stallsUntilDeadline) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h stallsUntilDeadline) Handle(ctx context.Context, record slog.Record) error {
+	if record.Message == h.message {
+		<-ctx.Done()
+	}
+	return nil
+}
+
+func (h stallsUntilDeadline) WithAttrs([]slog.Attr) slog.Handler { return h }
+
+func (h stallsUntilDeadline) WithGroup(string) slog.Handler { return h }
+
+func TestBuildTrustChain_TheTimeLimitIsALimitUnlessThisServersOwnWorkWasRunning(t *testing.T) {
+	blocksUntilDeadline := func(ctx context.Context) (*string, *model.EntityStatement, error) {
+		<-ctx.Done()
+		return nil, nil, ctx.Err()
+	}
+	issuesUntilDeadline := func(ctx context.Context, _ model.EntityStatement, _ model.EntityIdentifier) (*string, *model.EntityStatement, error) {
+		<-ctx.Done()
+		return nil, nil, ctx.Err()
+	}
+
+	tests := []struct {
+		name      string
+		reference string
+		hints     map[string][]string
+		subject   string
+		slow      map[string]time.Duration
+		stallOn   string
+		own       string
+		ownBuilds bool
+		ownIssues bool
+		limit     bool
+	}{
+		{
+			name:      "the limit passes between two steps of the walk",
+			reference: "18.1",
+			hints:     map[string][]string{"leaf": {"ta"}},
+			stallOn:   "checking authority hints",
+			limit:     true,
+		},
+		{
+			name:      "the limit passes as a superior turns out to be a dead end",
+			reference: "18.1",
+			hints:     map[string][]string{"leaf": {"d"}, "d": {"unknown"}},
+			stallOn:   "dead end in path traversal",
+			limit:     true,
+		},
+		{
+			name:      "a peer's subordinate statement answers within its own bound but after the limit",
+			reference: "18.1",
+			hints:     map[string][]string{"leaf": {"ta"}},
+			slow:      map[string]time.Duration{"ta/fetch": slowerThanDeadline},
+			limit:     true,
+		},
+		{
+			name:      "this server's own entity configuration as an intermediate is still being built at the limit",
+			reference: "8.9",
+			hints:     map[string][]string{"leaf": {"own"}},
+			own:       "own",
+			ownBuilds: true,
+		},
+		{
+			name:      "this server's own entity configuration as the anchor is still being built at the limit",
+			reference: "8.9",
+			hints:     map[string][]string{},
+			subject:   "ta",
+			own:       "ta",
+			ownBuilds: true,
+		},
+		{
+			name:      "this server's own subordinate statement is still being issued at the limit",
+			reference: "8.9",
+			hints:     map[string][]string{"leaf": {"ta"}},
+			own:       "ta",
+			ownIssues: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			federation := newSlowFederation(t, tc.hints)
+			for name, delay := range tc.slow {
+				federation.slow(name, delay)
+			}
+			cfg := deadlineConfiguration(federation.client)
+			if tc.stallOn != "" {
+				cfg.Logger = slog.New(stallsUntilDeadline{message: tc.stallOn})
+			}
+			cache := resolvecache.New()
+			if tc.own != "" {
+				var builds resolvecache.OwnEntityConfiguration
+				var issues resolvecache.OwnSubordinateStatement
+				if tc.ownBuilds {
+					builds = blocksUntilDeadline
+				}
+				if tc.ownIssues {
+					issues = issuesUntilDeadline
+				}
+				cache.SetOwn(federation.entity(tc.own), builds, issues)
+			}
+			subject := "leaf"
+			if tc.subject != "" {
+				subject = tc.subject
+			}
+
+			_, _, _, err := BuildTrustChain(t.Context(), cfg, federation.entity(subject), federation.entity("ta"), cache)
+			if tc.limit {
+				assertResolveTimeLimit(t, err)
+				return
+			}
+			if !errors.Is(err, model.ErrTemporarilyUnavailable) || !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, model.ErrLimitReached) {
+				t.Errorf("[%s] the time went to this server's own store or signer, which no peer chose, so this is the request not completing, got %v", tc.reference, err)
+			}
+		})
+	}
 }

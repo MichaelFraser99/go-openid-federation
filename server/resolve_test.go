@@ -308,7 +308,7 @@ func TestServer_Resolve(t *testing.T) {
 		},
 		"missing trust_anchor parameter returns an error": {
 			requestSub:  validEntityIdentifier,
-			trustAnchor: model.Pointer(""),
+			trustAnchor: josemodel.Pointer(""),
 			validate: func(t *testing.T, response *http.Response, err error) {
 				validateErrorResponse(t, response, err, http.StatusBadRequest, "invalid_request", "missing required parameter 'trust_anchor'")
 			},
@@ -321,7 +321,7 @@ func TestServer_Resolve(t *testing.T) {
 		},
 		"invalid trust_anchor parameter returns an error": {
 			requestSub:  validEntityIdentifier,
-			trustAnchor: model.Pointer("invalid-url"), // Invalid URL format
+			trustAnchor: josemodel.Pointer("invalid-url"),
 			validate: func(t *testing.T, response *http.Response, err error) {
 				validateErrorResponse(t, response, err, http.StatusBadRequest, "invalid_request", "malformed 'trust_anchor' parameter")
 			},
@@ -346,7 +346,7 @@ func TestServer_Resolve(t *testing.T) {
 		},
 		"trust anchor not found returns an error": {
 			requestSub:  validEntityIdentifier,
-			trustAnchor: model.Pointer("https://non-existent-trust-anchor.com/"), // Trust anchor that doesn't exist
+			trustAnchor: josemodel.Pointer("https://non-existent-trust-anchor.com/"), // Trust anchor that doesn't exist
 			validate: func(t *testing.T, response *http.Response, err error) {
 				validateErrorResponse(t, response, err, http.StatusNotFound, "invalid_trust_anchor", "unable to build trust chain from specified 'sub' to specified 'trust_anchor'")
 			},
@@ -469,8 +469,11 @@ func TestServer_Resolve(t *testing.T) {
 				Policies: tt.trustAnchorPolicy,
 			})
 
-			directChildEntityServer.AddAuthorityHint(model.EntityIdentifier(s.URL))
-			walletEntityServer.AddAuthorityHint(model.EntityIdentifier(s.URL))
+			for _, subordinate := range []*Server{directChildEntityServer, walletEntityServer} {
+				if err := subordinate.AddAuthorityHint(model.EntityIdentifier(s.URL)); err != nil {
+					t.Fatalf("failed to add the authority hint: %v", err)
+				}
+			}
 
 			// Build the request URL with the test-specific parameters
 			requestURL := fmt.Sprintf("%s/resolve", s.URL)

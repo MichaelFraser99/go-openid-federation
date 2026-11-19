@@ -53,110 +53,110 @@ func TestSigningAlgorithmClaims_NonePerParameter(t *testing.T) {
 		key         string
 		reference   string
 		noneAllowed bool
-		build       func(value any) EntityTypeIdentifier
+		build       func(value any) entityTypeIdentifier
 	}{
 		{
 			entityType: "openid_provider", key: "id_token_signing_alg_values_supported",
 			reference: `OIDC Discovery 3: "The value none MAY be supported"`, noneAllowed: true,
-			build: func(v any) EntityTypeIdentifier {
+			build: func(v any) entityTypeIdentifier {
 				return providerBase(map[string]any{"id_token_signing_alg_values_supported": v})
 			},
 		},
 		{
 			entityType: "openid_provider", key: "request_object_signing_alg_values_supported",
 			reference: `OIDC Discovery 3: "Servers SHOULD support none and RS256"`, noneAllowed: true,
-			build: func(v any) EntityTypeIdentifier {
+			build: func(v any) entityTypeIdentifier {
 				return providerBase(map[string]any{"request_object_signing_alg_values_supported": v})
 			},
 		},
 		{
 			entityType: "openid_provider", key: "userinfo_signing_alg_values_supported",
 			reference: `OIDC Discovery 3: "The value none MAY be included"`, noneAllowed: true,
-			build: func(v any) EntityTypeIdentifier {
+			build: func(v any) entityTypeIdentifier {
 				return providerBase(map[string]any{"userinfo_signing_alg_values_supported": v})
 			},
 		},
 		{
 			entityType: "openid_provider", key: "token_endpoint_auth_signing_alg_values_supported",
 			reference: `OIDC Discovery 3: "The value none MUST NOT be used"`, noneAllowed: false,
-			build: func(v any) EntityTypeIdentifier {
+			build: func(v any) entityTypeIdentifier {
 				return providerBase(map[string]any{"token_endpoint_auth_signing_alg_values_supported": v})
 			},
 		},
 		{
 			entityType: "oauth_authorization_server", key: "token_endpoint_auth_signing_alg_values_supported",
 			reference: `RFC 8414 2: "The value none MUST NOT be used"`, noneAllowed: false,
-			build: func(v any) EntityTypeIdentifier {
+			build: func(v any) entityTypeIdentifier {
 				return authorizationServerBase(map[string]any{"token_endpoint_auth_signing_alg_values_supported": v})
 			},
 		},
 		{
 			entityType: "oauth_authorization_server", key: "revocation_endpoint_auth_signing_alg_values_supported",
 			reference: `RFC 8414 2: "The value none MUST NOT be used"`, noneAllowed: false,
-			build: func(v any) EntityTypeIdentifier {
+			build: func(v any) entityTypeIdentifier {
 				return authorizationServerBase(map[string]any{"revocation_endpoint_auth_signing_alg_values_supported": v})
 			},
 		},
 		{
 			entityType: "oauth_authorization_server", key: "introspection_endpoint_auth_signing_alg_values_supported",
 			reference: `RFC 8414 2: "The value none MUST NOT be used"`, noneAllowed: false,
-			build: func(v any) EntityTypeIdentifier {
+			build: func(v any) entityTypeIdentifier {
 				return authorizationServerBase(map[string]any{"introspection_endpoint_auth_signing_alg_values_supported": v})
 			},
 		},
 		{
 			entityType: "openid_relying_party", key: "token_endpoint_auth_signing_alg",
 			reference: `OIDC Registration 2: "The value none MUST NOT be used"`, noneAllowed: false,
-			build: func(v any) EntityTypeIdentifier {
+			build: func(v any) entityTypeIdentifier {
 				return relyingPartyBase(map[string]any{"token_endpoint_auth_signing_alg": v})
 			},
 		},
 		{
 			entityType: "openid_relying_party", key: "id_token_signed_response_alg",
 			reference: `OIDC Registration 2: none permitted for a client using only response types that return no ID Token from the authorization endpoint`, noneAllowed: true,
-			build: func(v any) EntityTypeIdentifier {
+			build: func(v any) entityTypeIdentifier {
 				return relyingPartyBase(map[string]any{"id_token_signed_response_alg": v})
 			},
 		},
 		{
 			entityType: "openid_relying_party", key: "request_object_signing_alg",
 			reference: `OIDC Registration 2: "The value none MAY be used"`, noneAllowed: true,
-			build: func(v any) EntityTypeIdentifier {
+			build: func(v any) entityTypeIdentifier {
 				return relyingPartyBase(map[string]any{"request_object_signing_alg": v})
 			},
 		},
 		{
 			entityType: "oauth_client", key: "token_endpoint_auth_signing_alg",
 			reference: `OIDC Registration 2: "The value none MUST NOT be used"`, noneAllowed: false,
-			build: func(v any) EntityTypeIdentifier {
+			build: func(v any) entityTypeIdentifier {
 				return oauthClientBase(map[string]any{"token_endpoint_auth_signing_alg": v})
 			},
 		},
 		{
 			entityType: "oauth_client", key: "id_token_signed_response_alg",
 			reference: `OIDC Registration 2: none permitted for a client using only response types that return no ID Token from the authorization endpoint`, noneAllowed: true,
-			build: func(v any) EntityTypeIdentifier {
+			build: func(v any) entityTypeIdentifier {
 				return oauthClientBase(map[string]any{"id_token_signed_response_alg": v})
 			},
 		},
 		{
 			entityType: "oauth_client", key: "request_object_signing_alg",
 			reference: `OIDC Registration 2: "The value none MAY be used"`, noneAllowed: true,
-			build: func(v any) EntityTypeIdentifier {
+			build: func(v any) entityTypeIdentifier {
 				return oauthClientBase(map[string]any{"request_object_signing_alg": v})
 			},
 		},
 		{
 			entityType: "federation_entity", key: "endpoint_auth_signing_alg_values_supported",
 			reference: `OpenID Federation 1.1 5.1.1`, noneAllowed: false,
-			build: func(v any) EntityTypeIdentifier {
+			build: func(v any) entityTypeIdentifier {
 				return FederationMetadata{"endpoint_auth_signing_alg_values_supported": v}
 			},
 		},
 		{
 			entityType: "oauth_resource", key: "resource_signing_alg_values_supported",
 			reference: `RFC 9728 2`, noneAllowed: false,
-			build: func(v any) EntityTypeIdentifier {
+			build: func(v any) entityTypeIdentifier {
 				return OAuthResourceMetadata{"resource": "https://rs.example.com", "resource_signing_alg_values_supported": v}
 			},
 		},

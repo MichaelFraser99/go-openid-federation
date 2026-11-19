@@ -43,7 +43,7 @@ func TestPolicyOperands_ASelfReferencingOperandIsUnmatchableNotFatal(t *testing.
 			if operandsEqual(value, value) {
 				t.Errorf("expected a value with no end not to equal even itself")
 			}
-			if got := DeduplicateSlice([]any{value, value, "kept"}); len(got) != 3 {
+			if got := deduplicateSlice([]any{value, value, "kept"}); len(got) != 3 {
 				t.Errorf("expected an unmatchable value never to be merged away, got %d entries", len(got))
 			}
 			if newOperandSet([]any{value}).contains(value) {
@@ -61,7 +61,7 @@ func TestPolicyOperands_SharedStructureIsWalkedWithinTheBudget(t *testing.T) {
 		canonicalOperandKey(value)
 		operandCanMatch(value)
 		operandHash(value)
-		DeduplicateSlice([]any{value, value})
+		deduplicateSlice([]any{value, value})
 	}()
 	select {
 	case <-done:
@@ -135,7 +135,7 @@ func TestOperandHash_EqualValuesHashEqually(t *testing.T) {
 			if operandHash(pair[0]) != operandHash(pair[1]) {
 				t.Errorf("two equal operands hashed differently, so a deduplication can keep both")
 			}
-			if got := DeduplicateSlice([]any{pair[0], pair[1]}); len(got) != 1 {
+			if got := deduplicateSlice([]any{pair[0], pair[1]}); len(got) != 1 {
 				t.Errorf("expected two equal operands to deduplicate to one, got %d", len(got))
 			}
 			if !newOperandSet([]any{pair[0]}).contains(pair[1]) {
@@ -158,7 +158,7 @@ func TestPolicyOperands_UnkeyedOperandsScaleLinearly(t *testing.T) {
 		assertScalesLinearly(t, func(t *testing.T, n int) time.Duration {
 			values := unkeyedOperandsOf(n)
 			started := time.Now()
-			if got := DeduplicateSlice(append(values, values...)); len(got) != n {
+			if got := deduplicateSlice(append(values, values...)); len(got) != n {
 				t.Fatalf("expected %d distinct values to survive, got %d", n, len(got))
 			}
 			return time.Since(started)

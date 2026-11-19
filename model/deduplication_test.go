@@ -62,7 +62,7 @@ func TestDeduplicateSlice(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			result := DeduplicateSlice(tt.input)
+			result := deduplicateSlice(tt.input)
 			if !reflect.DeepEqual(result, tt.expected) {
 				t.Errorf("DeduplicateSlice() = %v, want %v", result, tt.expected)
 			}
@@ -293,7 +293,7 @@ func TestDeduplication_ComplexMaps(t *testing.T) {
 		map[string]any{"x": 1, "y": 2, "z": 4},
 	}
 
-	result := DeduplicateSlice(input)
+	result := deduplicateSlice(input)
 	if len(result) != len(expected) {
 		t.Fatalf("DeduplicateSlice() length = %d, want %d", len(result), len(expected))
 	}
@@ -310,7 +310,7 @@ func TestDeduplication_EdgeCases(t *testing.T) {
 	t.Run("single element", func(t *testing.T) {
 		input := []any{"single"}
 		expected := []any{"single"}
-		result := DeduplicateSlice(input)
+		result := deduplicateSlice(input)
 		if !reflect.DeepEqual(result, expected) {
 			t.Errorf("DeduplicateSlice() = %v, want %v", result, expected)
 		}
@@ -319,7 +319,7 @@ func TestDeduplication_EdgeCases(t *testing.T) {
 	t.Run("two identical elements", func(t *testing.T) {
 		input := []any{"same", "same"}
 		expected := []any{"same"}
-		result := DeduplicateSlice(input)
+		result := deduplicateSlice(input)
 		if !reflect.DeepEqual(result, expected) {
 			t.Errorf("DeduplicateSlice() = %v, want %v", result, expected)
 		}
@@ -328,7 +328,7 @@ func TestDeduplication_EdgeCases(t *testing.T) {
 	t.Run("nil values in slice", func(t *testing.T) {
 		input := []any{"a", nil, "b", nil, "c"}
 		expected := []any{"a", nil, "b", "c"}
-		result := DeduplicateSlice(input)
+		result := deduplicateSlice(input)
 		if !reflect.DeepEqual(result, expected) {
 			t.Errorf("DeduplicateSlice() = %v, want %v", result, expected)
 		}

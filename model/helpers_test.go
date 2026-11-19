@@ -963,7 +963,7 @@ func TestReMarshalJsonAsEntityMetadata(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			result, err := ReMarshalJsonAsEntityMetadata[TestStruct](tt.data)
+			result, err := reMarshalJsonAsEntityMetadata[TestStruct](tt.data)
 			tt.validate(t, result, err)
 		})
 	}
@@ -1114,7 +1114,7 @@ func TestVerifyFederationEndpoint(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			err := VerifyFederationEndpoint(tt.endpoint)
+			err := verifyFederationEndpoint(tt.endpoint)
 			tt.validate(t, err)
 		})
 	}
@@ -1203,108 +1203,7 @@ func TestConvertStringsToAnySlice(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			result := ConvertStringsToAnySlice(tt.input)
-			tt.validate(t, result)
-		})
-	}
-}
-
-func TestCalculateChainExpiration(t *testing.T) {
-	now := time.Now().UTC().Unix()
-	future1 := now + 3600  // 1 hour from now
-	future2 := now + 7200  // 2 hours from now
-	future3 := now + 10800 // 3 hours from now
-
-	tests := map[string]struct {
-		chain    []EntityStatement
-		validate func(t *testing.T, result int64)
-	}{
-		"returns expiration from single statement chain": {
-			chain: []EntityStatement{
-				{Exp: future1},
-			},
-			validate: func(t *testing.T, result int64) {
-				if result != future1 {
-					t.Errorf("expected expiration %d, got %d", future1, result)
-				}
-			},
-		},
-		"returns minimum expiration from chain with multiple statements": {
-			chain: []EntityStatement{
-				{Exp: future3},
-				{Exp: future1},
-				{Exp: future2},
-			},
-			validate: func(t *testing.T, result int64) {
-				if result != future1 {
-					t.Errorf("expected minimum expiration %d, got %d", future1, result)
-				}
-			},
-		},
-		"returns minimum when first statement has minimum": {
-			chain: []EntityStatement{
-				{Exp: future1},
-				{Exp: future2},
-				{Exp: future3},
-			},
-			validate: func(t *testing.T, result int64) {
-				if result != future1 {
-					t.Errorf("expected minimum expiration %d, got %d", future1, result)
-				}
-			},
-		},
-		"returns minimum when last statement has minimum": {
-			chain: []EntityStatement{
-				{Exp: future3},
-				{Exp: future2},
-				{Exp: future1},
-			},
-			validate: func(t *testing.T, result int64) {
-				if result != future1 {
-					t.Errorf("expected minimum expiration %d, got %d", future1, result)
-				}
-			},
-		},
-		"handles chain with same expiration": {
-			chain: []EntityStatement{
-				{Exp: future2},
-				{Exp: future2},
-				{Exp: future2},
-			},
-			validate: func(t *testing.T, result int64) {
-				if result != future2 {
-					t.Errorf("expected expiration %d, got %d", future2, result)
-				}
-			},
-		},
-		"handles chain with expired statements": {
-			chain: []EntityStatement{
-				{Exp: now - 3600}, // Expired 1 hour ago
-				{Exp: future1},
-				{Exp: future2},
-			},
-			validate: func(t *testing.T, result int64) {
-				if result != now-3600 {
-					t.Errorf("expected minimum expiration %d, got %d", now-3600, result)
-				}
-			},
-		},
-		"handles chain with two statements": {
-			chain: []EntityStatement{
-				{Exp: future2},
-				{Exp: future1},
-			},
-			validate: func(t *testing.T, result int64) {
-				if result != future1 {
-					t.Errorf("expected minimum expiration %d, got %d", future1, result)
-				}
-			},
-		},
-	}
-
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			result := CalculateChainExpiration(tt.chain)
+			result := convertStringsToAnySlice(tt.input)
 			tt.validate(t, result)
 		})
 	}

@@ -14,6 +14,7 @@ import (
 
 	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jws"
+	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -30,11 +31,11 @@ func TestServer_SubordinateStatus_AResponseLifetimeUnderOneSecondIsAConfiguratio
 		validFor int64
 	}{
 		{name: "no lifetime, so the response carries no exp", lifetime: nil},
-		{name: "one second", lifetime: model.Pointer(time.Second), validFor: 1},
-		{name: "one hour", lifetime: model.Pointer(time.Hour), validFor: 3600},
-		{name: "just under one second", lifetime: model.Pointer(999 * time.Millisecond), refused: true},
-		{name: "zero", lifetime: model.Pointer(time.Duration(0)), refused: true},
-		{name: "negative", lifetime: model.Pointer(-time.Hour), refused: true},
+		{name: "one second", lifetime: josemodel.Pointer(time.Second), validFor: 1},
+		{name: "one hour", lifetime: josemodel.Pointer(time.Hour), validFor: 3600},
+		{name: "just under one second", lifetime: josemodel.Pointer(999 * time.Millisecond), refused: true},
+		{name: "zero", lifetime: josemodel.Pointer(time.Duration(0)), refused: true},
+		{name: "negative", lifetime: josemodel.Pointer(-time.Hour), refused: true},
 	}
 
 	for _, tc := range tests {

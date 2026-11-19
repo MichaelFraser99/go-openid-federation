@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 )
 
 func TestTruncateAtCharacter_EveryBoundCutsOnACharacter(t *testing.T) {
@@ -13,9 +15,9 @@ func TestTruncateAtCharacter_EveryBoundCutsOnACharacter(t *testing.T) {
 		limit    int
 		truncate func(string) string
 	}{
-		"an error description": {limit: MaxErrorDescriptionBytes, truncate: TruncateForResponse},
+		"an error description": {limit: truncate.MaxErrorDescriptionBytes, truncate: truncate.TruncateForResponse},
 		"a logged value":       {limit: MaxLoggedValueBytes, truncate: truncateLoggedValue},
-		"any limit":            {limit: 64, truncate: func(value string) string { return TruncateAtCharacter(value, 64) }},
+		"any limit":            {limit: 64, truncate: func(value string) string { return truncate.TruncateAtCharacter(value, 64) }},
 	}
 	characters := map[string]string{
 		"a two byte character":   "é",
@@ -61,7 +63,7 @@ func TestTruncateAtCharacter_EveryBoundCutsOnACharacter(t *testing.T) {
 }
 
 func TestTruncateForResponse_AnErrorDescriptionMarshalsWithoutAReplacementCharacter(t *testing.T) {
-	description := TruncateForResponse(strings.Repeat("a", MaxErrorDescriptionBytes-1) + "é" + "tail")
+	description := truncate.TruncateForResponse(strings.Repeat("a", truncate.MaxErrorDescriptionBytes-1) + "é" + "tail")
 	body, err := json.Marshal(map[string]string{"error_description": description})
 	if err != nil {
 		t.Fatalf("failed to marshal: %v", err)
@@ -88,7 +90,7 @@ func TestTruncateAtCharacter_ALimitBelowOneKeepsNothing(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			if got := TruncateAtCharacter(tc.value, tc.limit); got != tc.want {
+			if got := truncate.TruncateAtCharacter(tc.value, tc.limit); got != tc.want {
 				t.Errorf("expected %q, got %q", tc.want, got)
 			}
 		})

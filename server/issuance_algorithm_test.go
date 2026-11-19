@@ -14,6 +14,7 @@ import (
 
 	"github.com/MichaelFraser99/go-jose/jwa"
 	"github.com/MichaelFraser99/go-jose/jws"
+	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_configuration"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
@@ -65,7 +66,7 @@ func TestServer_ASignedResponseIsNotIssuedUnderAnAlgorithmThisLibraryCannotSignW
 			ts := uncheckedContractServer(t, func(cfg *model.ServerConfiguration) {
 				cfg.SignerConfiguration.Algorithm = algorithm
 				cfg.Logger = slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
-				cfg.TrustMarkRetriever = testTrustMarkRetriever{status: model.Pointer("active")}
+				cfg.TrustMarkRetriever = testTrustMarkRetriever{status: josemodel.Pointer("active")}
 			})
 			response, err := ts.Client().Post(ts.URL+"/trust-mark-status", "application/x-www-form-urlencoded", strings.NewReader(url.Values{"trust_mark": {markIssuedBy(t, ts.URL)}}.Encode()))
 			if err != nil {

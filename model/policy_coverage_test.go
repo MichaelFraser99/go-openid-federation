@@ -113,7 +113,7 @@ func TestMetadata_FilterByEntityTypes(t *testing.T) {
 
 	t.Run("empty entity types leaves metadata untouched", func(t *testing.T) {
 		m := newMetadata()
-		m.FilterByEntityTypes(nil)
+		m.filterByEntityTypes(nil)
 		if m.FederationMetadata == nil || m.OAuthClientMetadata == nil || m.OpenIDWalletProviderMetadata == nil {
 			t.Error("expected all metadata to be retained when no entity types are requested")
 		}
@@ -121,7 +121,7 @@ func TestMetadata_FilterByEntityTypes(t *testing.T) {
 
 	t.Run("retains only requested types", func(t *testing.T) {
 		m := newMetadata()
-		m.FilterByEntityTypes([]string{"oauth_client"})
+		m.filterByEntityTypes([]string{"oauth_client"})
 		if m.OAuthClientMetadata == nil {
 			t.Error("expected oauth_client metadata to be retained")
 		}
@@ -135,7 +135,7 @@ func TestMetadata_FilterByEntityTypes(t *testing.T) {
 
 	t.Run("retains multiple requested types", func(t *testing.T) {
 		m := newMetadata()
-		m.FilterByEntityTypes([]string{"oauth_client", "openid_wallet_provider"})
+		m.filterByEntityTypes([]string{"oauth_client", "openid_wallet_provider"})
 		if m.OAuthClientMetadata == nil || m.OpenIDWalletProviderMetadata == nil {
 			t.Error("expected both requested types to be retained")
 		}

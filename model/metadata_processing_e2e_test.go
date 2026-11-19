@@ -102,7 +102,7 @@ func TestMetadataProcessingE2E(t *testing.T) {
 
 				finalMetadata, err := ApplyPolicy(EntityStatement{
 					Metadata: &Metadata{
-						FederationMetadata: (*FederationMetadata)(Pointer(tc.Metadata)),
+						FederationMetadata: (*FederationMetadata)(pointer(tc.Metadata)),
 					},
 				}, *mergedPolicy)
 

@@ -1,6 +1,7 @@
 package subordinate_statement
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -343,7 +344,9 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 	}
 
 	var subordinateStatementMap map[string]any
-	err = json.Unmarshal(subordinateStatementBytes, &subordinateStatementMap)
+	decoder := json.NewDecoder(bytes.NewReader(subordinateStatementBytes))
+	decoder.UseNumber()
+	err = decoder.Decode(&subordinateStatementMap)
 	if err != nil {
 		return nil, fmt.Errorf("failed to deserialize entity configuration: %s", err.Error())
 	}

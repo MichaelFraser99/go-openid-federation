@@ -6,7 +6,10 @@ import (
 )
 
 func NewDefault(operatorValue any) (*Default, error) {
-	operatorValue = asJSONOperand(operatorValue)
+	operatorValue, err := storedValue(operatorValue)
+	if err != nil {
+		return nil, err
+	}
 	if operatorValue == nil {
 		return nil, fmt.Errorf("operator value cannot be nil")
 	}
@@ -42,6 +45,9 @@ func (d Default) ToSlice(key string) MetadataPolicyOperator {
 	}
 	if reflect.TypeOf(d.operatorValue).Kind() != reflect.Slice {
 		if key == "scope" {
+			if _, isString := d.operatorValue.(string); !isString {
+				return d
+			}
 			return Default{
 				operatorValue: scopeOperatorSlice(d.operatorValue),
 			}

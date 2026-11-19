@@ -1,6 +1,7 @@
 package entity_configuration
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"encoding/base64"
@@ -384,7 +385,9 @@ func New(ctx context.Context, cfg model.ServerConfiguration) (*string, error) {
 	}
 
 	var entityConfigurationMap map[string]any
-	err = json.Unmarshal(entityConfigurationBytes, &entityConfigurationMap)
+	decoder := json.NewDecoder(bytes.NewReader(entityConfigurationBytes))
+	decoder.UseNumber()
+	err = decoder.Decode(&entityConfigurationMap)
 	if err != nil {
 		return nil, fmt.Errorf("failed to deserialize entity cfg: %s", err.Error())
 	}

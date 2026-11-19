@@ -100,19 +100,14 @@ func TestConfiguration_ProcessAndExtractPolicy_BoundsTheOperandsAMergedOperatorH
 	}
 }
 
-func TestConfiguration_ProcessAndExtractPolicy_HoldsANarrowingOperatorToTheStatementBound(t *testing.T) {
+func TestConfiguration_ProcessAndExtractPolicy_LeavesNarrowingOperatorsUnbounded(t *testing.T) {
 	cfg := Configuration{MaxStatementValues: 5}
-	policy, err := cfg.ProcessAndExtractPolicy(chainWithOperandLevels(t, "subset_of", operandsNamed("a", 5), operandsNamed("a", 5)))
+	policy, err := cfg.ProcessAndExtractPolicy(chainWithOperandLevels(t, "subset_of", operandsNamed("a", 7), operandsNamed("a", 7)))
 	if err != nil {
-		t.Fatalf("expected subset_of at the bound to merge, got %v", err)
+		t.Fatalf("expected subset_of, which narrows when merged, to be left to the statement bound, got %v", err)
 	}
-	if got := mergedOperandCount(t, policy); got != 5 {
-		t.Errorf("expected the intersection of five operands, got %d", got)
-	}
-
-	_, err = cfg.ProcessAndExtractPolicy(chainWithOperandLevels(t, "subset_of", operandsNamed("a", 6), operandsNamed("a", 6)))
-	if !errors.Is(err, ErrLimitReached) {
-		t.Fatalf("expected subset_of over the bound to be refused, since no statement holds more values than the bound, got %v", err)
+	if got := mergedOperandCount(t, policy); got != 7 {
+		t.Errorf("expected the intersection of seven operands, got %d", got)
 	}
 }
 
@@ -246,17 +241,10 @@ func TestConfiguration_ProcessAndExtractPolicy_BoundsTheOperandsTheWholeMergedPo
 			},
 			refused: true,
 		},
-		"narrowing operators count towards the total": {
+		"narrowing operators do not count towards the total": {
 			levels: []spreadLevel{
-				{entityTypes: relyingParty, parameters: 3, operands: 4, prefix: "same", operator: "subset_of"},
-				{entityTypes: relyingParty, parameters: 3, operands: 4, prefix: "same", operator: "subset_of"},
-			},
-			refused: true,
-		},
-		"narrowing operators within the total": {
-			levels: []spreadLevel{
-				{entityTypes: relyingParty, parameters: 2, operands: 5, prefix: "same", operator: "subset_of"},
-				{entityTypes: relyingParty, parameters: 2, operands: 5, prefix: "same", operator: "subset_of"},
+				{entityTypes: relyingParty, parameters: 3, operands: 20, prefix: "same", operator: "subset_of"},
+				{entityTypes: relyingParty, parameters: 3, operands: 20, prefix: "same", operator: "subset_of"},
 			},
 		},
 	}

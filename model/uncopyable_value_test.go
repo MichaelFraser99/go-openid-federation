@@ -196,3 +196,53 @@ func TestMetadataForEntityTypes_KeepsAnEntityTypePastTheBudgetThatItCannotCopy(t
 		t.Errorf("expected x_bulk to be kept with %d elements", len(bulk))
 	}
 }
+
+type writtenAsAString struct{ Held map[string]any }
+
+func (writtenAsAString) MarshalJSON() ([]byte, error) { return []byte(`"written"`), nil }
+
+func TestMetadataForEntityTypes_KeepsAnElementItCannotDecodeIntoItsTypeAndCopiesTheRest(t *testing.T) {
+	held := map[string]any{"kid": "pinned"}
+	input := &Metadata{OpenIDRelyingPartyMetadata: &OpenIDRelyingPartyMetadata{
+		"contacts": []any{"ops@example.com"},
+		"x_list":   []writtenAsAString{{Held: held}},
+	}}
+
+	got := input.ForEntityTypes(nil)
+
+	parameters := *got.OpenIDRelyingPartyMetadata
+	list, ok := parameters["x_list"].([]writtenAsAString)
+	if !ok || len(list) != 1 || !reflect.DeepEqual(list[0].Held, held) {
+		t.Fatalf("expected the element the library cannot copy to be kept as it was, got %#v", parameters["x_list"])
+	}
+	writeIntoResolved(parameters["contacts"])
+	if got := marshalled(t, (*input.OpenIDRelyingPartyMetadata)["contacts"]); got != `["ops@example.com"]` {
+		t.Errorf("[#156] a write to a value the library can copy reached the input: %s", got)
+	}
+}
+
+func TestApplyPolicy_RefusesAnElementItCannotDecodeIntoItsType(t *testing.T) {
+	subject := EntityStatement{Metadata: &Metadata{OpenIDRelyingPartyMetadata: &OpenIDRelyingPartyMetadata{
+		"client_name": "ops",
+		"x_list":      []writtenAsAString{{Held: map[string]any{"kid": "pinned"}}},
+	}}}
+
+	_, err := ApplyPolicy(subject, MetadataPolicy{})
+
+	if !errors.Is(err, errUnstorableValue) {
+		t.Errorf("expected an element whose copy would share its map to be refused with errUnstorableValue, got %v", err)
+	}
+}
+
+type holdsAList struct{ List []any }
+
+func TestMetadataForEntityTypes_CopiesAValueWhoseWalkRunsPastTheBudget(t *testing.T) {
+	pointed := &holdsAList{List: make([]any, operandWalkBudget)}
+	input := &Metadata{OpenIDRelyingPartyMetadata: &OpenIDRelyingPartyMetadata{"x_pointed": pointed}}
+
+	got := input.ForEntityTypes(nil)
+
+	if kept := (*got.OpenIDRelyingPartyMetadata)["x_pointed"]; kept == any(pointed) {
+		t.Errorf("[#156] expected a value the library can copy past the walk budget to be copied, got the caller's pointer")
+	}
+}

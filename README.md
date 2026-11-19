@@ -302,10 +302,55 @@ if err != nil {
 }
 ```
 
-Both calls refuse a malformed subject or trust anchor with `model.ErrInvalidRequest`. `HttpClient` is required, because both calls fetch from peers. It must enforce your network policy, as [ServerConfiguration](#serverconfiguration) describes. A peer chooses every URL the library fetches after the first, so a client that can reach your internal network lets a peer make requests there. This client refuses to connect to any address that is not public:
+Both calls refuse a malformed subject or trust anchor with `model.ErrInvalidRequest`. `HttpClient` is required, because both calls fetch from peers. It must enforce your network policy, as [ServerConfiguration](#serverconfiguration) describes. A peer chooses every URL the library fetches after the first, so a client that can reach your internal network lets a peer make requests there. This client refuses to connect to an address in any special-purpose range that IANA registers for IPv4 and IPv6, such as loopback, private, link-local, carrier-grade NAT (which holds Alibaba Cloud's metadata address `100.100.100.200`), benchmarking, reserved, NAT64 and 6to4:
 
 ```go
 var errNotPublic = errors.New("refused to connect to an address that is not public")
+
+var specialPurpose = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),
+	netip.MustParsePrefix("10.0.0.0/8"),
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("127.0.0.0/8"),
+	netip.MustParsePrefix("169.254.0.0/16"),
+	netip.MustParsePrefix("172.16.0.0/12"),
+	netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("192.0.2.0/24"),
+	netip.MustParsePrefix("192.88.99.0/24"),
+	netip.MustParsePrefix("192.168.0.0/16"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("198.51.100.0/24"),
+	netip.MustParsePrefix("203.0.113.0/24"),
+	netip.MustParsePrefix("224.0.0.0/4"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("::/128"),
+	netip.MustParsePrefix("::1/128"),
+	netip.MustParsePrefix("::ffff:0:0/96"),
+	netip.MustParsePrefix("64:ff9b::/96"),
+	netip.MustParsePrefix("64:ff9b:1::/48"),
+	netip.MustParsePrefix("100::/64"),
+	netip.MustParsePrefix("2001::/23"),
+	netip.MustParsePrefix("2001:db8::/32"),
+	netip.MustParsePrefix("2002::/16"),
+	netip.MustParsePrefix("3fff::/20"),
+	netip.MustParsePrefix("5f00::/16"),
+	netip.MustParsePrefix("fc00::/7"),
+	netip.MustParsePrefix("fe80::/10"),
+	netip.MustParsePrefix("ff00::/8"),
+}
+
+func publicAddress(ip netip.Addr) bool {
+	ip = ip.Unmap()
+	if !ip.IsGlobalUnicast() {
+		return false
+	}
+	for _, prefix := range specialPurpose {
+		if prefix.Contains(ip) {
+			return false
+		}
+	}
+	return true
+}
 
 func federationHTTPClient() *http.Client {
 	dialer := &net.Dialer{
@@ -319,8 +364,7 @@ func federationHTTPClient() *http.Client {
 			if err != nil {
 				return err
 			}
-			ip = ip.Unmap()
-			if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+			if !publicAddress(ip) {
 				return errNotPublic
 			}
 			return nil
@@ -337,7 +381,7 @@ func federationHTTPClient() *http.Client {
 }
 ```
 
-The check runs in the dialer's `Control` function, on the address the connection is about to use. A host name that resolves to a private address is therefore refused too, and so is a redirect to one. `Proxy: nil` stops an environment proxy setting from carrying requests past the check. The library refuses a redirect to a URL that does not use `https` itself. Set `TrustAnchors` to verify each anchor against keys you hold. See [Anchoring a chain a caller supplies](#anchoring-a-chain-a-caller-supplies).
+The list is a snapshot of the IANA IPv4 and IPv6 Special-Purpose Address Registries, so review it against them when you update. Add any range that your own network routes internally, such as a public range your cloud provider uses for its services. The check runs in the dialer's `Control` function, on the address the connection is about to use. A host name that resolves to a private address is therefore refused too, and so is a redirect to one. `Proxy: nil` stops an environment proxy setting from carrying requests past the check. The library refuses a redirect to a URL that does not use `https` itself. Set `TrustAnchors` to verify each anchor against keys you hold. See [Anchoring a chain a caller supplies](#anchoring-a-chain-a-caller-supplies).
 
 ## Endpoints
 
@@ -648,8 +692,8 @@ The library refuses a redirect to a URL that does not use `https` on every fetch
 | `Configuration.MaxEntitiesTraversed` | `model.DefaultMaxEntitiesTraversed`, 1024 | Entity configurations one request may fetch while walking `authority_hints`, across every chain it builds, plus the subordinate statements it fetches while retrying another route after one failed |
 | `Configuration.MaxTrustMarkIssuers` | `model.DefaultMaxTrustMarkIssuers`, 64 | Distinct trust mark issuers resolved for one subject |
 | `Configuration.MaxTrustMarks` | `model.DefaultMaxTrustMarks`, 64 | Trust marks one resolve verifies for its subject, in the order the subject lists them. Only a mark whose type the trust anchor lists in `trust_mark_issuers` counts, whether or not it then verifies. A mark of any other type is left out without any cost, for example a mark from another federation. Trusted marks past the limit are left out of the response without being verified. If you raise it above `MaxTrustMarkIssuers`, a subject whose marks name more issuers than that is refused with 404 `invalid_subject` |
-| `Configuration.MaxResolveTime` | `model.DefaultMaxResolveTime`, 30s | How long one `/resolve` request, or one `Client.BuildTrustChain` or `Client.ResolveMetadata` call, may take, trust mark issuer walks included |
-| `Configuration.MaxStatementValues` | `model.DefaultMaxStatementValues`, 10,000 | JSON values in the header or body of one peer statement, trust mark or delegation, or of one entry in a chain passed to `Client.ResolveMetadata`. Separately, JSON values in the headers and bodies of all the trust marks one statement carries, and of their delegations. Also the operands that the `add` and `superset_of` operators of a merged policy hold in total |
+| `Configuration.MaxResolveTime` | `model.DefaultMaxResolveTime`, 30s | How long one `/resolve` request, or one `Client.BuildTrustChain` or `Client.ResolveMetadata` call, may take, trust mark issuer walks included. Reaching it answers 404 `invalid_trust_anchor` with `model.ErrLimitReached` |
+| `Configuration.MaxStatementValues` | `model.DefaultMaxStatementValues`, 10,000 | JSON values in the header or body of one peer statement, trust mark or delegation, or of one entry in a chain passed to `Client.ResolveMetadata`. Separately, JSON values in the headers and bodies of all the trust marks one statement carries, and of their delegations. Also the operands that the `add` and `superset_of` operators of a merged policy hold in total, and the scope values in one statement's `scope` operands |
 | `Configuration.MaxAuthorityHints` | `model.DefaultMaxAuthorityHints`, 64 | `authority_hints` an entity configuration may list when the walk is to follow them |
 
 > **Breaking change.** These bounds now apply by default, to both `Server` and `Client`.
@@ -1024,7 +1068,7 @@ The validators the built-in types use are exported for custom types to reuse.
 | `VerifyScopeClaim(m)` | `scope`, if present, is a string that holds at least one scope value |
 | `VerifyJWKSetClaims(m)` | `jwks`, if present, is a JWK Set, and `jwks_uri` and `signed_jwks_uri`, if present, are HTTPS URLs. Call it from a custom type that may carry keys. It does not enforce section 5.2.1's prohibition on these parameters in `federation_entity` metadata, which `FederationMetadata` carries |
 
-`VerifyPublishableJWK(key)` refuses a key carrying private key material, and `VerifyKeyStrength(key, alg)` holds an RSA key to its algorithm's minimum modulus size, `MinimumRSAKeyBits`. `PrivateJWKMembers(key)` names the private members a key carries, and `VerifyPublishableMetadataKeys` and `VerifyPublishableTrustMarkOwnerKeys` apply the first to a whole `Metadata` or `trust_mark_owners` map. Call them from a consumer that assembles its own key sets before handing them to the library.
+`VerifyPublishableJWK(key)` refuses a key carrying private key material, and `VerifyKeyStrength(key, alg)` holds an RSA key to its algorithm's minimum modulus size, `MinimumRSAKeyBits`. `PrivateJWKMembers(key)` names the private members a key carries. Call `VerifyPublishableJWK` on each key of a set that you assemble before you hand it to the library. The library applies the same check to every `jwks` it publishes.
 
 The private-member check is a denylist of the member names the JOSE specifications define, applied to every JSON object inside a value under the member name `jwks`, whatever its shape: a `keys` array, a bare JWK, an array of keys, or a `keys` member that is an object. Three things are therefore not caught: a vendor extension that stores private material under another member name, or inside `x5c`; a bare JWK under a name other than `jwks`, such as a `cnf.jwk` in a custom entity type; and a statement nested deeper than the scan goes, which is refused rather than published. A resolver also still republishes a peer's leaked key verbatim in the `trust_chain` claim and in resolved metadata, because stripping it would break the chain's signatures.
 
@@ -1126,7 +1170,7 @@ To issue a `constraints` claim, set `SubordinateConfiguration.Constraints` to a 
 
 Resolving by hand, rather than through `ResolveMetadata`, means four steps in this order: `model.ApplySuperiorMetadata` to apply the immediate superior's `metadata` claim over the subject's own, `model.ProcessAndExtractPolicy` to merge the chain's policy, `model.ApplyPolicy` to apply it, and `Metadata.VerifyResolved` to judge the result. Skipping the first drops a superior's pinned parameters; skipping the last accepts resolved metadata that no entity type would.
 
-**`model.ApplyPolicy` checks no operator *combination*.** It does judge an operator against the metadata it is applied to — a `superset_of` that is not met, a `one_of` that does not match, a `value` of the wrong type, a non-string `scope` — but nothing about whether the operators are permitted together. `model.ProcessAndExtractPolicy` is what enforces section 6.1.3.1's combination rules: that the values of `add` are a subset of the values of `value`, that `value` is a subset of `subset_of`, and the rest. It applies them to each statement's own policy as well as across a merge, so a chain of one statement is checked too.
+**`model.ApplyPolicy` checks no operator *combination*.** It does judge an operator against the metadata it is applied to — a `superset_of` that is not met, a `one_of` that does not match, a metadata value of a type the operator does not support, a non-string `scope` — but nothing about whether the operators are permitted together. `model.ProcessAndExtractPolicy` is what enforces section 6.1.3.1's combination rules: that the values of `add` are a subset of the values of `value`, that `value` is a subset of `subset_of`, and the rest. It applies them to each statement's own policy as well as across a merge, so a chain of one statement is checked too.
 
 Calling `ApplyPolicy` on a policy that has not been through `ProcessAndExtractPolicy` therefore applies it as written, including combinations the specification makes a policy error — `{"value": ["a"], "add": ["b"]}` resolves to `["a","b"]` with no error rather than refusing. Skipping the step is what does it, not the length of the chain.
 

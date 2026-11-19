@@ -1751,12 +1751,16 @@ func parametersAsJSON(parameters map[string]any) (map[string]any, error) {
 	return copied, nil
 }
 
-func (m *Metadata) clone() *Metadata {
+func (m *Metadata) clone() (*Metadata, error) {
 	copied := &Metadata{}
 	for entityType, parameters := range m.byEntityType() {
-		copied.setEntityType(entityType, cloneValue(parameters).(map[string]any))
+		copiedParameters, err := copyValue(parameters)
+		if err != nil {
+			return nil, fmt.Errorf("the %s metadata: %w", entityType, err)
+		}
+		copied.setEntityType(entityType, copiedParameters.(map[string]any))
 	}
-	return copied
+	return copied, nil
 }
 
 func (m *MetadataPolicy) setEntityType(entityType string, operators map[string]PolicyOperators) {

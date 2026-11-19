@@ -24,6 +24,7 @@ import (
 	"github.com/MichaelFraser99/go-openid-federation/internal/boundedjson"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
 	"github.com/MichaelFraser99/go-openid-federation/internal/errclass"
+	"github.com/MichaelFraser99/go-openid-federation/internal/keyops"
 	"github.com/MichaelFraser99/go-openid-federation/internal/keyscan"
 	"github.com/MichaelFraser99/go-openid-federation/internal/peerclient"
 	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
@@ -581,13 +582,13 @@ func VerifySignerPublished(published josemodel.Jwks, signer model.SignerConfigur
 }
 
 func verifyConfiguredKey(key map[string]any, strength func(key map[string]any, alg string) error) error {
-	if err := keyscan.ValidateKeyOps(key); err != nil {
+	if err := keyops.Validate(key); err != nil {
 		return err
 	}
 	if declared, ok := key["alg"].(string); ok {
 		return strength(key, declared)
 	}
-	return keyscan.VerifyKeyStrengthForAnySignatureAlgorithm(key)
+	return model.VerifyKeyStrengthForAnySignatureAlgorithm(key)
 }
 
 type publicKeyComparer interface {
@@ -613,7 +614,7 @@ func publishedKeyUsableForSigning(existing, intended map[string]any, signerPubli
 			return fmt.Errorf("declares a 'use' of %v rather than \"sig\"", use)
 		}
 	}
-	if !keyscan.KeyOpsPermitVerify(existing) {
+	if !keyops.PermitVerify(existing) {
 		return fmt.Errorf("declares 'key_ops' without \"verify\"")
 	}
 	if alg, present := existing["alg"]; present {

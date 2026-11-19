@@ -21,6 +21,7 @@ import (
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entityid"
 	"github.com/MichaelFraser99/go-openid-federation/internal/errclass"
+	"github.com/MichaelFraser99/go-openid-federation/internal/keyops"
 	"github.com/MichaelFraser99/go-openid-federation/internal/keyscan"
 	"github.com/MichaelFraser99/go-openid-federation/internal/peerclient"
 	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
@@ -282,7 +283,7 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 			configuration.LogError(ctx, "dropping a registered key from a subordinate statement because it carries private key material", slog.String("subject", string(subjectIdentifier)), slog.String("kid", truncate.TruncateForResponse(sKid)), slog.String("error", err.Error()))
 			continue
 		}
-		if err := keyscan.ValidateKeyOps(k); err != nil {
+		if err := keyops.Validate(k); err != nil {
 			configuration.LogError(ctx, "dropping a registered key from a subordinate statement because its 'key_ops' is malformed", slog.String("subject", string(subjectIdentifier)), slog.String("kid", truncate.TruncateForResponse(sKid)), slog.String("error", err.Error()))
 			continue
 		}
@@ -291,7 +292,7 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 				configuration.LogError(ctx, "dropping a registered key from a subordinate statement because its modulus is outside the sizes this library verifies for the algorithm it is registered for", slog.String("subject", string(subjectIdentifier)), slog.String("kid", truncate.TruncateForResponse(sKid)), slog.String("error", err.Error()))
 				continue
 			}
-		} else if err := keyscan.VerifyKeyStrengthForAnySignatureAlgorithm(k); err != nil {
+		} else if err := model.VerifyKeyStrengthForAnySignatureAlgorithm(k); err != nil {
 			configuration.LogError(ctx, "dropping a registered key from a subordinate statement because it names no algorithm and its modulus is below the size every RSA signature algorithm requires", slog.String("subject", string(subjectIdentifier)), slog.String("kid", truncate.TruncateForResponse(sKid)), slog.String("error", err.Error()))
 			continue
 		}

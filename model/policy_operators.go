@@ -134,7 +134,8 @@ func jsonTypeName(value any) string {
 const operandWalkBudget = 100_000
 
 type operandWalk struct {
-	remaining int
+	remaining       int
+	keepsUncopyable bool
 }
 
 func newOperandWalk() *operandWalk {
@@ -152,15 +153,21 @@ var (
 )
 
 func cloneValue(value any) any {
-	copied, err := copyValue(value)
+	walk := newOperandWalk()
+	walk.keepsUncopyable = true
+	copied, err := walk.copy(value)
 	if err != nil {
-		return reflect.Zero(reflect.TypeOf(value)).Interface()
+		return value
 	}
 	return copied
 }
 
 func copyValue(value any) (any, error) {
-	copied, err := newOperandWalk().clone(value)
+	return newOperandWalk().copy(value)
+}
+
+func (w *operandWalk) copy(value any) (any, error) {
+	copied, err := w.clone(value)
 	if !errors.Is(err, errPastOperandWalkBudget) {
 		return copied, err
 	}
@@ -210,7 +217,11 @@ func (w *operandWalk) clone(value any) (any, error) {
 		}
 		return copied.Interface(), nil
 	case reflect.Pointer, reflect.Struct, reflect.Array:
-		return w.storedValue(value)
+		stored, err := w.storedValue(value)
+		if err != nil && w.keepsUncopyable && !errors.Is(err, errPastOperandWalkBudget) {
+			return value, nil
+		}
+		return stored, err
 	default:
 		return value, nil
 	}
@@ -232,6 +243,9 @@ func (w *operandWalk) cloneInto(elementType reflect.Type, element reflect.Value)
 		return held, nil
 	}
 	decoded, err := decodedJSONAs(elementType, element.Interface())
+	if err != nil && w.keepsUncopyable {
+		return element, nil
+	}
 	if err != nil {
 		return reflect.Value{}, err
 	}

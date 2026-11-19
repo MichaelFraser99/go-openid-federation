@@ -389,7 +389,10 @@ func metadataPolicySetContains(policySet []MetadataPolicyOperator, policyType re
 }
 
 func ApplyPolicy(subject EntityStatement, policy MetadataPolicy) (*EntityStatement, error) {
-	subject = subject.clone()
+	subject, err := subject.clone()
+	if err != nil {
+		return nil, err
+	}
 	if subject.Metadata == nil {
 		return &subject, nil
 	}
@@ -407,14 +410,20 @@ func ApplyPolicy(subject EntityStatement, policy MetadataPolicy) (*EntityStateme
 	return &subject, nil
 }
 
-func (e EntityStatement) clone() EntityStatement {
+func (e EntityStatement) clone() (EntityStatement, error) {
 	copied := e
-	copied.JWKs.Keys = cloneValue(e.JWKs.Keys).([]map[string]any)
+	keys, err := copyValue(e.JWKs.Keys)
+	if err != nil {
+		return EntityStatement{}, fmt.Errorf("the jwks claim: %w", err)
+	}
+	copied.JWKs.Keys = keys.([]map[string]any)
 	copied.AuthorityHints = slices.Clone(e.AuthorityHints)
 	copied.TrustAnchorHints = slices.Clone(e.TrustAnchorHints)
 	copied.TrustMarks = slices.Clone(e.TrustMarks)
 	if e.Metadata != nil {
-		copied.Metadata = e.Metadata.clone()
+		if copied.Metadata, err = e.Metadata.clone(); err != nil {
+			return EntityStatement{}, err
+		}
 	}
 	if e.MetadataPolicy != nil {
 		copied.MetadataPolicy = e.MetadataPolicy.deepClone()
@@ -431,8 +440,16 @@ func (e EntityStatement) clone() EntityStatement {
 	if e.TrustMarkOwners != nil {
 		copied.TrustMarkOwners = make(map[string]TrustMarkOwner, len(e.TrustMarkOwners))
 		for trustMarkType, owner := range e.TrustMarkOwners {
-			owner.JWKs.Keys = cloneValue(owner.JWKs.Keys).([]map[string]any)
-			owner.AdditionalClaims = cloneValue(owner.AdditionalClaims).(map[string]any)
+			ownerKeys, err := copyValue(owner.JWKs.Keys)
+			if err != nil {
+				return EntityStatement{}, fmt.Errorf("the jwks of the trust mark owner of %s: %w", trustMarkType, err)
+			}
+			claims, err := copyValue(owner.AdditionalClaims)
+			if err != nil {
+				return EntityStatement{}, fmt.Errorf("the claims of the trust mark owner of %s: %w", trustMarkType, err)
+			}
+			owner.JWKs.Keys = ownerKeys.([]map[string]any)
+			owner.AdditionalClaims = claims.(map[string]any)
 			copied.TrustMarkOwners[trustMarkType] = owner
 		}
 	}
@@ -440,7 +457,7 @@ func (e EntityStatement) clone() EntityStatement {
 		endpoint := *e.SourceEndpoint
 		copied.SourceEndpoint = &endpoint
 	}
-	return copied
+	return copied, nil
 }
 
 func applyPolicyToMetadata(metadata map[string]any, policy map[string]PolicyOperators) error {
@@ -473,9 +490,13 @@ func applyPolicyToMetadata(metadata map[string]any, policy map[string]PolicyOper
 			}
 			if resolved == nil {
 				delete(metadata, k)
-			} else {
-				metadata[k] = cloneValue(resolved)
+				continue
 			}
+			copied, err := copyValue(resolved)
+			if err != nil {
+				return fmt.Errorf("the resolved metadata parameter %q: %w", k, err)
+			}
+			metadata[k] = copied
 		}
 	}
 	return nil

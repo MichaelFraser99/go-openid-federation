@@ -411,6 +411,7 @@ func TestStoredValue_RefusesAValueThatReachesItselfPastTheWalkBudget(t *testing.
 	}
 
 	done := make(chan []error)
+	var keptNested any
 	go func() {
 		var errs []error
 		for _, value := range []any{cyclic, nested, shared, sharedMap, sharedSlice, sharedArray, sharedEmbedded} {
@@ -419,9 +420,7 @@ func TestStoredValue_RefusesAValueThatReachesItselfPastTheWalkBudget(t *testing.
 		}
 		_ = cloneValue(cyclic)
 		_ = cloneValue(shared)
-		if copied := cloneValue(nested); copied.(map[string]any) != nil {
-			errs = append(errs, errors.New("cloneValue handed out a map that holds itself"))
-		}
+		keptNested = cloneValue(nested)
 		done <- errs
 	}()
 	select {
@@ -430,6 +429,9 @@ func TestStoredValue_RefusesAValueThatReachesItselfPastTheWalkBudget(t *testing.
 			if !errors.Is(err, errUnstorableValue) {
 				t.Errorf("expected value %d, which no copy can hold, to be refused, got %v", i, err)
 			}
+		}
+		if reflect.ValueOf(keptNested).UnsafePointer() != reflect.ValueOf(nested).UnsafePointer() {
+			t.Errorf("expected cloneValue to keep a map that holds itself as it was, got %#v", keptNested)
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("storing a value that refers to itself did not finish")

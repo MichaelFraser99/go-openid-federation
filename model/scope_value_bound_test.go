@@ -3,7 +3,9 @@ package model
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -97,7 +99,7 @@ func TestMergePolicyOperators_ChargesScopeValuesAgainstTheDefaultBound(t *testin
 	}
 }
 
-func TestConfiguration_ProcessAndExtractPolicy_CountsEveryListOperatorInTheMergedTotal(t *testing.T) {
+func TestConfiguration_ProcessAndExtractPolicy_CountsOnlyAddAndSupersetOfInTheMergedTotal(t *testing.T) {
 	cfg := Configuration{MaxStatementValues: 10}
 	leaf := EntityStatement{Iss: "https://leaf.example.com", Sub: "https://leaf.example.com"}
 
@@ -107,20 +109,20 @@ func TestConfiguration_ProcessAndExtractPolicy_CountsEveryListOperatorInTheMerge
 		refused bool
 	}{
 		{name: "one_of and subset_of that pass the bound together", policy: map[string]any{"oauth_client": map[string]any{
-			"token_endpoint_auth_method": map[string]any{"one_of": operandsNamed("m", 5)},
+			"token_endpoint_auth_method": map[string]any{"one_of": operandsNamed("m", 6)},
 			"grant_types":                map[string]any{"subset_of": operandsNamed("g", 6)},
-		}}, refused: true},
+		}}},
 		{name: "subset_of and superset_of that pass the bound together", policy: map[string]any{"oauth_client": map[string]any{
 			"grant_types":    map[string]any{"subset_of": operandsNamed("g", 6)},
 			"response_types": map[string]any{"superset_of": operandsNamed("r", 5)},
-		}}, refused: true},
-		{name: "list operators at the bound together", policy: map[string]any{"oauth_client": map[string]any{
-			"token_endpoint_auth_method": map[string]any{"one_of": operandsNamed("m", 5)},
-			"grant_types":                map[string]any{"subset_of": operandsNamed("g", 5)},
 		}}},
 		{name: "a scope subset_of whose scope values pass the bound with an add", policy: map[string]any{"oauth_client": map[string]any{
 			"scope":    map[string]any{"subset_of": []any{scopeOfTokens(6, "s")}},
 			"contacts": map[string]any{"add": operandsNamed("c", 5)},
+		}}},
+		{name: "add and superset_of that pass the bound together", policy: map[string]any{"oauth_client": map[string]any{
+			"contacts":       map[string]any{"add": operandsNamed("c", 6)},
+			"response_types": map[string]any{"superset_of": operandsNamed("r", 5)},
 		}}, refused: true},
 	}
 
@@ -129,15 +131,68 @@ func TestConfiguration_ProcessAndExtractPolicy_CountsEveryListOperatorInTheMerge
 			_, err := cfg.ProcessAndExtractPolicy([]EntityStatement{leaf, scopeTokenPolicyStatement(t, "https://ta.example.com", "https://leaf.example.com", tc.policy)})
 			if !tc.refused {
 				if err != nil {
-					t.Fatalf("expected the policy to merge, got %v", err)
+					t.Fatalf("expected an intersection, which only shrinks when merged, to be left out of the total, got %v", err)
 				}
 				return
 			}
 			if !errors.Is(err, ErrLimitReached) {
-				t.Fatalf("expected the merged list operators to be held to the statement bound in total, got %v", err)
+				t.Fatalf("expected the merged add and superset_of operators to be held to the statement bound in total, got %v", err)
 			}
 			if !strings.Contains(err.Error(), "more than 10 operands") {
 				t.Errorf("expected the error to name the bound, got %v", err)
+			}
+		})
+	}
+}
+
+func TestMergePolicyOperators_LeavesAMergedNarrowingOperatorToTheStatementBound(t *testing.T) {
+	for _, operator := range []string{"subset_of", "one_of"} {
+		t.Run(operator, func(t *testing.T) {
+			over := operandsNamed("a", DefaultMaxStatementValues+1)
+			left, err := parsePolicyOperator(operator, over)
+			if err != nil {
+				t.Fatalf("expected the operator to build, got %v", err)
+			}
+			right, err := parsePolicyOperator(operator, over)
+			if err != nil {
+				t.Fatalf("expected the operator to build, got %v", err)
+			}
+			merged, err := MergePolicyOperators("grant_types", PolicyOperators{Metadata: []MetadataPolicyOperator{left}}, PolicyOperators{Metadata: []MetadataPolicyOperator{right}})
+			if err != nil {
+				t.Fatalf("expected the intersection of two %s operands to merge, got %v", operator, err)
+			}
+			if got := len(merged[0].OperatorValue().([]any)); got != DefaultMaxStatementValues+1 {
+				t.Errorf("expected the intersection to hold every operand, got %d", got)
+			}
+		})
+	}
+}
+
+func TestProcessAndExtractPolicy_RefusesTheScopeStringAttackOnTheStatementChargeAlone(t *testing.T) {
+	tokens := make([]string, 200_000)
+	for i := range tokens {
+		tokens[i] = strconv.FormatInt(int64(i), 36)
+	}
+	scope := strings.Join(tokens, " ")
+	leaf := EntityStatement{Iss: "https://leaf.example.com", Sub: "https://leaf.example.com"}
+	for _, operator := range []string{"subset_of", "one_of"} {
+		t.Run(operator, func(t *testing.T) {
+			chain := []EntityStatement{leaf}
+			for i := range 9 {
+				subject := "https://leaf.example.com"
+				if i > 0 {
+					subject = fmt.Sprintf("https://i%d.example.com", i)
+				}
+				chain = append(chain, scopeTokenPolicyStatement(t, fmt.Sprintf("https://i%d.example.com", i+1), subject, map[string]any{
+					"openid_relying_party": map[string]any{"scope": map[string]any{operator: []any{scope}}},
+				}))
+			}
+			_, err := ProcessAndExtractPolicy(chain)
+			if !errors.Is(err, ErrLimitReached) {
+				t.Fatalf("expected 200,000 scope values in one string to be refused, got %v", err)
+			}
+			if !strings.Contains(err.Error(), "once each scope string is read as its scope values") {
+				t.Errorf("expected the statement's scope charge to refuse it, got %v", err)
 			}
 		})
 	}

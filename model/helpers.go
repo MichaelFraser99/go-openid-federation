@@ -273,7 +273,7 @@ func verifyMergedPolicyOperandCount(policy *MetadataPolicy, operandLimit int) er
 		}
 	}
 	if operands > operandLimit {
-		return fmt.Errorf("%wthe merged list operators hold more than %d operands in total, the most one statement may hold", ErrLimitReached, operandLimit)
+		return fmt.Errorf("%wthe merged 'add' and 'superset_of' operators hold more than %d operands in total, the most one statement may hold", ErrLimitReached, operandLimit)
 	}
 	return nil
 }
@@ -283,10 +283,6 @@ func unionOperandCount(operator MetadataPolicyOperator) int {
 	case Add:
 		return len(typed.operatorValue)
 	case SupersetOf:
-		return len(typed.operatorValue)
-	case SubsetOf:
-		return len(typed.operatorValue)
-	case OneOf:
 		return len(typed.operatorValue)
 	}
 	return 0

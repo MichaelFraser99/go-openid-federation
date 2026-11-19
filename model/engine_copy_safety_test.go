@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	josemodel "github.com/MichaelFraser99/go-jose/model"
@@ -204,5 +205,33 @@ func TestApplySuperiorMetadata_TheResultSharesNothingWithEitherInput(t *testing.
 
 	if after := marshalled(t, []any{subject, superior}); after != before {
 		t.Errorf("[#156] a write to what ApplySuperiorMetadata returned reached an input:\nwant %s\ngot  %s", before, after)
+	}
+}
+
+type ownMapOperator struct{ held map[string]any }
+
+func (o ownMapOperator) String() string                            { return "x_own_map" }
+func (o ownMapOperator) Resolve(any) (any, error)                  { return o.held, nil }
+func (o ownMapOperator) ResolutionHierarchy() int                  { return 97 }
+func (o ownMapOperator) Merge(any) (MetadataPolicyOperator, error) { return o, nil }
+func (o ownMapOperator) OperatorValue() any                        { return o.held }
+func (o ownMapOperator) ToSlice(string) MetadataPolicyOperator     { return o }
+func (o ownMapOperator) CheckForConflict(func(reflect.Type) (MetadataPolicyOperator, bool)) error {
+	return nil
+}
+
+func TestApplyPolicy_TheResultSharesNothingWithWhatAnOperatorResolves(t *testing.T) {
+	operator := ownMapOperator{held: map[string]any{"kid": "pinned"}}
+	subject := EntityStatement{Metadata: &Metadata{OpenIDRelyingPartyMetadata: &OpenIDRelyingPartyMetadata{"client_name": "ops"}}}
+	policy := MetadataPolicy{OpenIDRelyingPartyMetadata: map[string]PolicyOperators{"x_param": {Metadata: []MetadataPolicyOperator{operator}}}}
+
+	result, err := ApplyPolicy(subject, policy)
+	if err != nil {
+		t.Fatalf("expected the policy to apply, got %v", err)
+	}
+	writeIntoResolved((*result.Metadata.OpenIDRelyingPartyMetadata)["x_param"])
+
+	if got := marshalled(t, operator.held); got != `{"kid":"pinned"}` {
+		t.Errorf("a write to the applied metadata reached the map the operator resolved to: %s", got)
 	}
 }

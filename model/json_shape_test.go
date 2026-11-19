@@ -119,12 +119,12 @@ func goTypedValues() []goTypedValue {
 			shaped: "OPS",
 		},
 		{
-			name: "a map keyed by a type that writes its own text",
+			name: "a map keyed by a string type that writes its own text",
 			build: func() (any, func()) {
 				keyed := map[shoutedKey]string{"ops": "a"}
 				return keyed, func() { keyed["ops"] = "written" }
 			},
-			shaped: map[string]any{"OPS": "a"},
+			shaped: asEncodingJSONWritesIt(map[shoutedKey]string{"ops": "a"}),
 		},
 		{
 			name: "an array of integers a float64 cannot hold exactly",
@@ -146,6 +146,18 @@ type shoutedKey string
 
 func (s shoutedKey) MarshalText() ([]byte, error) {
 	return []byte(strings.ToUpper(string(s))), nil
+}
+
+func asEncodingJSONWritesIt(value any) any {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	var decoded any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		panic(err)
+	}
+	return decoded
 }
 
 type counters struct {

@@ -70,6 +70,8 @@ Each change you may have to act on is marked **Breaking change** in the README s
 - [Errors](README.md#errors): `/resolve` answers a 500 with the fixed description `unable to resolve entities at this time` and logs its cause at error level, where the description carried the cause, such as `no http client present`.
 - [ServerConfiguration](README.md#serverconfiguration): an `EntityIdentifierResolver` error that wraps no `model.Err*` class answers 500 with the endpoint's fixed description, where its own text reached the caller, and a resolver that returns no identifier and no error answers the same, where it panicked.
 - [Claim validators](README.md#claim-validators): `model.PrivateJWKMembers` and `model.VerifyPublishableJWK` match a member name as `encoding/json` does, with Unicode simple case folding, so a key with a `D` or `K` member is refused in this server's own statements and dropped from a registrant's. The names they return are always the lowercase names RFC 7518 defines.
+- [Limits](README.md#limits): a resolve whose `MaxResolveTime` passes during a signature check answers 404 `invalid_trust_anchor` with `model.ErrLimitReached`, or `model.ErrTemporarilyUnavailable` when your own context ended, where it answered 400 `invalid_trust_chain` and logged a fault of the trust anchor at error level.
+- [Errors](README.md#errors): this server's own work stalling inside a trust mark issuer walk answers 503, where it answered 404.
 
 ## From v0.11.0
 

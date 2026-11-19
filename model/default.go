@@ -6,7 +6,10 @@ import (
 )
 
 func NewDefault(operatorValue any) (*Default, error) {
-	operatorValue = asJSONOperand(operatorValue)
+	operatorValue, err := storedValue(operatorValue)
+	if err != nil {
+		return nil, err
+	}
 	if operatorValue == nil {
 		return nil, fmt.Errorf("operator value cannot be nil")
 	}

@@ -10,8 +10,12 @@ var (
 )
 
 func NewValue(operatorValue any) (*Value, error) {
+	stored, err := storedValue(operatorValue)
+	if err != nil {
+		return nil, err
+	}
 	return &Value{
-		operatorValue: asJSONOperand(operatorValue),
+		operatorValue: stored,
 	}, nil
 }
 

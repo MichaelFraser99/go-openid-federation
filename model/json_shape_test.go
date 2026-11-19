@@ -3,6 +3,8 @@ package model
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"math"
 	"reflect"
 	"strings"
 	"testing"
@@ -78,7 +80,47 @@ func goTypedValues() []goTypedValue {
 			},
 			shaped: []any{"OPS"},
 		},
+		{
+			name: "a typed map of structs",
+			build: func() (any, func()) {
+				pairs := map[string]pair{"a": {X: 1}}
+				return pairs, func() { pairs["a"] = pair{X: 2} }
+			},
+			shaped: map[string]any{"a": map[string]any{"x": int64(1)}},
+		},
+		{
+			name: "a named integer a float64 cannot hold exactly",
+			build: func() (any, func()) {
+				return serial(1<<53 + 1), func() {}
+			},
+			shaped: int64(1<<53 + 1),
+		},
+		{
+			name: "a struct holding the largest uint64",
+			build: func() (any, func()) {
+				return counter{Total: math.MaxUint64}, func() {}
+			},
+			shaped: map[string]any{"total": uint64(math.MaxUint64)},
+		},
+		{
+			name: "a []byte, which encoding/json writes as base64",
+			build: func() (any, func()) {
+				raw := []byte{0xfb, 0xff, 0x01}
+				return raw, func() { raw[0] = 0 }
+			},
+			shaped: "+/8B",
+		},
 	}
+}
+
+type pair struct {
+	X int `json:"x"`
+}
+
+type serial int64
+
+type counter struct {
+	Total uint64 `json:"total"`
 }
 
 func TestSubordinateStore_HoldsAGoTypedMetadataValueAsItsJSON(t *testing.T) {
@@ -257,7 +299,7 @@ func TestCloneValue_CopiesAGoTypedElementOfATypedContainer(t *testing.T) {
 	}
 }
 
-func TestJSONShape_KeepsWhatIsAlreadyJSON(t *testing.T) {
+func TestStoredValue_KeepsWhatIsAlreadyJSON(t *testing.T) {
 	tests := []struct {
 		name  string
 		value any
@@ -273,14 +315,18 @@ func TestJSONShape_KeepsWhatIsAlreadyJSON(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := jsonShape(tc.value); !reflect.DeepEqual(got, tc.value) {
+			got, err := storedValue(tc.value)
+			if err != nil {
+				t.Fatalf("expected %#v to be stored, got %v", tc.value, err)
+			}
+			if !reflect.DeepEqual(got, tc.value) {
 				t.Errorf("expected %#v to be kept as it is, got %#v", tc.value, got)
 			}
 		})
 	}
 }
 
-func TestJSONShape_GivesUpOnAValuePastTheWalkBudget(t *testing.T) {
+func TestStoredValue_RefusesAValueThatReachesItselfPastTheWalkBudget(t *testing.T) {
 	type node struct {
 		Next *node `json:"next"`
 	}
@@ -296,32 +342,137 @@ func TestJSONShape_GivesUpOnAValuePastTheWalkBudget(t *testing.T) {
 	for range 64 {
 		shared = &pair{Left: shared, Right: shared}
 	}
+	sharedMap := map[string]any{}
+	for range 64 {
+		sharedMap = map[string]any{"left": sharedMap, "right": sharedMap}
+	}
+	sharedSlice := []any{"leaf"}
+	for range 64 {
+		sharedSlice = []any{sharedSlice, sharedSlice}
+	}
 
-	done := make(chan struct{})
+	done := make(chan []error)
 	go func() {
-		defer close(done)
-		_ = jsonShape(cyclic)
-		_ = jsonShape(nested)
-		_ = jsonShape(shared)
+		var errs []error
+		for _, value := range []any{cyclic, nested, shared, sharedMap, sharedSlice} {
+			_, err := storedValue(value)
+			errs = append(errs, err)
+		}
 		_ = cloneValue(cyclic)
 		_ = cloneValue(shared)
+		if copied := cloneValue(nested); copied.(map[string]any) != nil {
+			errs = append(errs, errors.New("cloneValue handed out a map that holds itself"))
+		}
+		done <- errs
 	}()
 	select {
-	case <-done:
+	case errs := <-done:
+		for i, err := range errs {
+			if !errors.Is(err, errUnstorableValue) {
+				t.Errorf("expected value %d, which no copy can hold, to be refused, got %v", i, err)
+			}
+		}
 	case <-time.After(10 * time.Second):
-		t.Fatal("normalising a value that refers to itself did not finish")
+		t.Fatal("storing a value that refers to itself did not finish")
 	}
 }
 
-func TestJSONShape_WritesANilPointerAsNull(t *testing.T) {
+func TestStoredValue_WritesANilPointerAsNull(t *testing.T) {
 	var contacts *[]string
-	if got := jsonShape(contacts); got != nil {
-		t.Errorf("expected a nil pointer to be held as JSON null, got %#v", got)
+	if got, err := storedValue(contacts); err != nil || got != nil {
+		t.Errorf("expected a nil pointer to be held as JSON null, got %#v, %v", got, err)
 	}
-	if got := jsonShape([]any{contacts}); !reflect.DeepEqual(got, []any{nil}) {
-		t.Errorf("expected a nil pointer in an array to be held as JSON null, got %#v", got)
+	if got, err := storedValue([]any{contacts}); err != nil || !reflect.DeepEqual(got, []any{nil}) {
+		t.Errorf("expected a nil pointer in an array to be held as JSON null, got %#v, %v", got, err)
 	}
 	if _, err := NewDefault(contacts); err == nil {
 		t.Errorf("expected default to refuse an operand whose JSON is null, as it refuses null itself")
+	}
+}
+
+type emptyMarker struct{}
+
+type privateLinks struct {
+	Name  string `json:"name"`
+	left  *typedContact
+	right *typedContact
+}
+
+type sharedInside struct {
+	left, right *typedContact
+}
+
+func (s sharedInside) MarshalJSON() ([]byte, error) {
+	return json.Marshal(s.left.Name)
+}
+
+type preciseDecimal struct{}
+
+func (preciseDecimal) MarshalJSON() ([]byte, error) {
+	return []byte("0.10000000000000000001"), nil
+}
+
+type measured struct {
+	Ratio float64 `json:"ratio"`
+}
+
+func TestStoredValue_StoresAValuePastTheWalkBudgetThatReachesNothingTwice(t *testing.T) {
+	contact := &typedContact{Name: "ops"}
+	extras := []any{
+		[]any{}, []any{},
+		&emptyMarker{}, &emptyMarker{},
+		privateLinks{Name: "links", left: contact, right: contact},
+		sharedInside{left: contact, right: contact},
+	}
+	values := make([]any, 0, operandWalkBudget+len(extras))
+	for i := range operandWalkBudget {
+		values = append(values, map[string]any{"v": i})
+	}
+	values = append(values, extras...)
+
+	stored, err := storedValue(values)
+	if err != nil {
+		t.Fatalf("expected a value that reaches no map, slice or pointer twice to be stored, got %v", err)
+	}
+	tail := stored.([]any)[operandWalkBudget:]
+	want := []any{[]any{}, []any{}, map[string]any{}, map[string]any{}, map[string]any{"name": "links"}, "ops"}
+	if !reflect.DeepEqual(tail, want) {
+		t.Errorf("expected the tail as encoding/json writes it, %#v, got %#v", want, tail)
+	}
+}
+
+func TestStoredValue_KeepsANumberAFloat64CannotHoldAsWritten(t *testing.T) {
+	tests := []struct {
+		name  string
+		value any
+		want  any
+	}{
+		{name: "a decimal a float64 rounds", value: preciseDecimal{}, want: json.Number("0.10000000000000000001")},
+		{name: "a float a float64 holds", value: measured{Ratio: 1.5}, want: map[string]any{"ratio": 1.5}},
+		{name: "a negative integer", value: serial(-(1<<53 + 1)), want: int64(-(1<<53 + 1))},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := storedValue(tc.value)
+			if err != nil {
+				t.Fatalf("expected the value to be stored, got %v", err)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("expected %#v, got %#v", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestCloneValue_CopiesAPointerKey(t *testing.T) {
+	key := &pair{X: 1}
+	copied := cloneValue(map[*pair]string{key: "a"}).(map[*pair]string)
+	for copiedKey, value := range copied {
+		if copiedKey == key || *copiedKey != *key || value != "a" {
+			t.Errorf("expected the key to be a copy of %+v, got %p %+v %q", *key, copiedKey, *copiedKey, value)
+		}
+	}
+	if len(copied) != 1 {
+		t.Errorf("expected one entry, got %d", len(copied))
 	}
 }

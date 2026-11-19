@@ -351,6 +351,9 @@ func (cfg *ServerConfiguration) GetSubordinate(ctx context.Context, identifier E
 		if cached != nil {
 			return cached.clone(), nil
 		}
+		if refused := i.refusal(identifier); refused != nil {
+			return nil, NewServerError(fmt.Sprintf("the subordinate configuration given to AddSubordinate for %s was not stored: %v", identifier, refused))
+		}
 		return nil, NewNotFoundError(fmt.Sprintf("subordinate entity %s not found", identifier))
 	}
 
@@ -366,7 +369,10 @@ func (cfg *ServerConfiguration) GetSubordinate(ctx context.Context, identifier E
 		return nil, NewNotFoundError(fmt.Sprintf("subordinate entity %s not found", identifier))
 	}
 
-	stored := entity.asJSON()
+	stored, err := entity.asJSON()
+	if err != nil {
+		return nil, NewServerError(fmt.Sprintf("the subordinate configuration the Retriever returned for %s cannot be stored: %v", identifier, err))
+	}
 	stored.CachedAt = time.Now().UTC().Unix()
 	if i.SubordinateCacheTime < time.Second {
 		return stored, nil
@@ -457,6 +463,7 @@ type IntermediateConfiguration struct {
 	subordinates                 map[EntityIdentifier]*SubordinateConfiguration
 	listed                       []EntityIdentifier
 	unlisted                     map[EntityIdentifier]struct{}
+	refused                      map[EntityIdentifier]error
 	SubordinateStatementLifetime time.Duration
 	SubordinateCacheTime         time.Duration
 }
@@ -467,19 +474,36 @@ func (i *IntermediateConfiguration) FlushCache() {
 	i.subordinates = map[EntityIdentifier]*SubordinateConfiguration{}
 	i.listed = nil
 	i.unlisted = nil
+	i.refused = nil
+}
+
+func (i *IntermediateConfiguration) refusal(identifier EntityIdentifier) error {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	return i.refused[identifier]
 }
 
 func (i *IntermediateConfiguration) AddSubordinate(identifier EntityIdentifier, subordinateConfiguration *SubordinateConfiguration) {
 	if subordinateConfiguration == nil {
 		return
 	}
-	stored := subordinateConfiguration.asJSON()
-	stored.JWKs.Opts.EnforceUniqueKIDs = true
-	stored.CachedAt = time.Now().UTC().Unix()
+	stored, err := subordinateConfiguration.asJSON()
 	_, invalid := ValidateEntityIdentifier(string(identifier))
 
 	i.mu.Lock()
 	defer i.mu.Unlock()
+	if err != nil {
+		delete(i.subordinates, identifier)
+		delete(i.unlisted, identifier)
+		if i.refused == nil {
+			i.refused = map[EntityIdentifier]error{}
+		}
+		i.refused[identifier] = err
+		i.listed = nil
+		return
+	}
+	stored.JWKs.Opts.EnforceUniqueKIDs = true
+	stored.CachedAt = time.Now().UTC().Unix()
 	if i.subordinates == nil {
 		i.subordinates = map[EntityIdentifier]*SubordinateConfiguration{}
 	}
@@ -494,20 +518,49 @@ func (i *IntermediateConfiguration) AddSubordinate(identifier EntityIdentifier, 
 }
 
 func (s *SubordinateConfiguration) clone() *SubordinateConfiguration {
-	return s.copyWith((*Metadata).deepClone)
-}
-
-func (s *SubordinateConfiguration) asJSON() *SubordinateConfiguration {
-	return s.copyWith((*Metadata).asJSON)
-}
-
-func (s *SubordinateConfiguration) copyWith(copyMetadata func(*Metadata) *Metadata) *SubordinateConfiguration {
-	copied := *s
-	copied.Policies = *s.Policies.deepClone()
+	copied := s.copyFields()
 	copied.JWKs.Keys = cloneValue(s.JWKs.Keys).([]map[string]any)
 	if s.Metadata != nil {
-		copied.Metadata = copyMetadata(s.Metadata)
+		copied.Metadata = s.Metadata.deepClone()
 	}
+	return copied
+}
+
+func (s *SubordinateConfiguration) asJSON() (*SubordinateConfiguration, error) {
+	copied := s.copyFields()
+	keys, err := storedKeys(s.JWKs.Keys)
+	if err != nil {
+		return nil, err
+	}
+	copied.JWKs.Keys = keys
+	if s.Metadata != nil {
+		if copied.Metadata, err = s.Metadata.asJSON(); err != nil {
+			return nil, err
+		}
+	}
+	return copied, nil
+}
+
+func storedKeys(keys []map[string]any) ([]map[string]any, error) {
+	if keys == nil {
+		return nil, nil
+	}
+	stored := make([]map[string]any, len(keys))
+	for i, key := range keys {
+		value, err := storedValue(key)
+		if err != nil {
+			return nil, err
+		}
+		stored[i], _ = value.(map[string]any)
+	}
+	return stored, nil
+}
+
+func (s *SubordinateConfiguration) copyFields() *SubordinateConfiguration {
+	copied := *s
+	copied.Policies = *s.Policies.deepClone()
+	copied.JWKs.Keys = nil
+	copied.Metadata = nil
 	if s.Constraints != nil {
 		copied.Constraints = s.Constraints.clone()
 	}
@@ -1630,13 +1683,25 @@ func (p PolicyOperators) deepClone() PolicyOperators {
 }
 
 func cloneOperator(operator MetadataPolicyOperator) MetadataPolicyOperator {
-	switch operator.(type) {
-	case Value, Default, Add, Essential, OneOf, SubsetOf, SupersetOf:
+	if held := reflect.ValueOf(operator); held.Kind() == reflect.Pointer && !held.IsNil() {
+		if pointed, ok := held.Elem().Interface().(MetadataPolicyOperator); ok && isBuiltInOperator(pointed) {
+			operator = pointed
+		}
+	}
+	if isBuiltInOperator(operator) {
 		if copied, err := parsePolicyOperator(operator.String(), operator.OperatorValue()); err == nil {
 			return copied
 		}
 	}
 	return operator
+}
+
+func isBuiltInOperator(operator MetadataPolicyOperator) bool {
+	switch operator.(type) {
+	case Value, Default, Add, Essential, OneOf, SubsetOf, SupersetOf:
+		return true
+	}
+	return false
 }
 
 func (m *Metadata) ForEntityTypes(entityTypes []string) *Metadata {
@@ -1661,32 +1726,43 @@ func (m *Metadata) deepClone() *Metadata {
 	return copied
 }
 
-func (m *Metadata) asJSON() *Metadata {
+func (m *Metadata) asJSON() (*Metadata, error) {
 	typed := *m
 	typed.Extensions = nil
 	copied := &Metadata{}
 	for entityType, parameters := range typed.byEntityType() {
-		copied.setEntityType(entityType, parametersAsJSON(parameters))
+		stored, err := parametersAsJSON(parameters)
+		if err != nil {
+			return nil, err
+		}
+		copied.setEntityType(entityType, stored)
 	}
 	if m.Extensions != nil {
 		copied.Extensions = make(map[string]map[string]any, len(m.Extensions))
 		for entityType, parameters := range m.Extensions {
-			copied.Extensions[entityType] = parametersAsJSON(parameters)
+			stored, err := parametersAsJSON(parameters)
+			if err != nil {
+				return nil, err
+			}
+			copied.Extensions[entityType] = stored
 		}
 	}
-	return copied
+	return copied, nil
 }
 
-func parametersAsJSON(parameters map[string]any) map[string]any {
+func parametersAsJSON(parameters map[string]any) (map[string]any, error) {
 	if parameters == nil {
-		return nil
+		return nil, nil
 	}
-	walk := newOperandWalk()
 	copied := make(map[string]any, len(parameters))
 	for parameter, value := range parameters {
-		copied[parameter] = walk.jsonShape(value)
+		stored, err := storedValue(value)
+		if err != nil {
+			return nil, fmt.Errorf("the metadata parameter %q: %w", parameter, err)
+		}
+		copied[parameter] = stored
 	}
-	return copied
+	return copied, nil
 }
 
 func (m *Metadata) clone() *Metadata {

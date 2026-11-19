@@ -92,8 +92,9 @@ func (s *Server) Resolve(w http.ResponseWriter, r *http.Request) ResponseFunc {
 		"alg": s.cfg.SignerConfiguration.Algorithm,
 	}, resolvedMap, jwt.Opts{Algorithm: jwa.GetAlgorithm(s.cfg.SignerConfiguration.Algorithm)})
 	if err != nil {
-		s.cfg.LogError(ctx, "error creating resolve response", slog.String("error", err.Error()))
-		return s.respondWithError(ctx, w, errclass.ClassifySignerError(err, resolveUnavailableError))
+		classified := errclass.ClassifySignerError(err, resolveUnavailableError)
+		s.logFailure(ctx, "error creating resolve response", classified, slog.String("error", err.Error()))
+		return s.respondWithError(ctx, w, classified)
 	}
 
 	return s.respondWithResolveResponse(w, []byte(*token))

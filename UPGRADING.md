@@ -67,8 +67,8 @@ Each change you may have to act on is marked **Breaking change** in the README s
 - [Errors](README.md#errors): `page_not_found` from your `HttpClient`'s transport is an unclassified error, so `/resolve` no longer answers 404 `page_not_found`.
 - [Errors](README.md#errors): `model.ErrPeerUnreachable`, `model.ErrPeerTimeout` and `model.ErrExpired` mark why a peer or a chain failed, and `model.CarryMarkers` keeps them when you rebuild an error. No class or response changed.
 - [Extensions](README.md#extensions): a `SubordinateStatus.ResponseLifetime` under one second answers 500 instead of signing an expired response.
-- [Errors](README.md#errors): `/resolve` answers a 500 with a fixed description, and logs its cause at error level, where the description carried the cause and the log was at Info.
-- [ServerConfiguration](README.md#serverconfiguration): an `EntityIdentifierResolver` error that wraps no `model.Err*` class, or a resolver that returns no identifier and no error, answers 500 with a fixed description.
+- [Errors](README.md#errors): `/resolve` answers a 500 with the fixed description `unable to resolve entities at this time` and logs its cause at error level, where the description carried the cause, such as `no http client present`.
+- [ServerConfiguration](README.md#serverconfiguration): an `EntityIdentifierResolver` error that wraps no `model.Err*` class answers 500 with the endpoint's fixed description, where its own text reached the caller, and a resolver that returns no identifier and no error answers the same, where it panicked.
 
 ## From v0.11.0
 

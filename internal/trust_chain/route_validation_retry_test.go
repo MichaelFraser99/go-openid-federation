@@ -1,10 +1,13 @@
 package trust_chain
 
 import (
+	"context"
 	"crypto/rsa"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -29,6 +32,7 @@ type routeFederation struct {
 	publishesRogue map[string]bool
 	mu             sync.Mutex
 	asked          map[string]int
+	hosts          map[string]string
 }
 
 func newRouteFederation(t *testing.T, key, rogue *rsa.PrivateKey, hints map[string][]string) *routeFederation {
@@ -51,7 +55,28 @@ func newRouteFederation(t *testing.T, key, rogue *rsa.PrivateKey, hints map[stri
 }
 
 func (f *routeFederation) entity(name string) model.EntityIdentifier {
+	if host, named := f.hosts[name]; named {
+		address, err := url.Parse(f.base)
+		if err != nil {
+			f.t.Fatalf("failed to parse the test server address: %v", err)
+		}
+		return model.EntityIdentifier("https://" + net.JoinHostPort(host, address.Port()) + "/" + name)
+	}
 	return model.EntityIdentifier(f.base + "/" + name)
+}
+
+func (f *routeFederation) onHosts(hosts map[string]string) {
+	address, err := url.Parse(f.base)
+	if err != nil {
+		f.t.Fatalf("failed to parse the test server address: %v", err)
+	}
+	f.hosts = hosts
+	transport := f.client.Transport.(*http.Transport).Clone()
+	transport.TLSClientConfig.ServerName = "example.com"
+	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, address.Host)
+	}
+	f.client = &http.Client{Transport: transport}
 }
 
 func (f *routeFederation) bothKeys() map[string]any {
@@ -91,8 +116,9 @@ func (f *routeFederation) serve(w http.ResponseWriter, r *http.Request) {
 			statement["jwks"] = f.bothKeys()
 		}
 	} else if node, fetch := strings.CutSuffix(path, "/fetch"); fetch && f.hints[node] != nil {
-		subject := strings.TrimPrefix(r.URL.Query().Get("sub"), f.base+"/")
-		if !slices.Contains(f.hints[subject], node) {
+		asked := r.URL.Query().Get("sub")
+		subject := asked[strings.LastIndex(asked, "/")+1:]
+		if f.entity(subject) != model.EntityIdentifier(asked) || !slices.Contains(f.hints[subject], node) {
 			http.NotFound(w, r)
 			return
 		}

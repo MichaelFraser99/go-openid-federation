@@ -94,14 +94,28 @@ func routeLink(route []model.EntityStatement, i int) *resolvecache.Link {
 type routeRefusal struct {
 	link           resolvecache.Link
 	below          model.EntityIdentifier
+	within         model.EntityIdentifier
 	fromPathLength int
 }
 
-func (r routeRefusal) matches(path []model.EntityStatement) bool {
-	if r.below != "" && (len(path) < 2 || path[len(path)-2].Sub != r.below) {
-		return false
+const independentOfPath = math.MaxInt
+
+func (r routeRefusal) matches(path []model.EntityStatement) (bool, int) {
+	dependsOn := independentOfPath
+	if r.below != "" {
+		if len(path) < 2 || path[len(path)-2].Sub != r.below {
+			return false, 0
+		}
+		dependsOn = len(path) - 2
 	}
-	return len(path) >= r.fromPathLength
+	if r.within != "" {
+		at := slices.IndexFunc(path, func(statement model.EntityStatement) bool { return statement.Sub == r.within })
+		if at < 0 {
+			return false, 0
+		}
+		dependsOn = min(dependsOn, at)
+	}
+	return len(path) >= r.fromPathLength, dependsOn
 }
 
 func refuseLink(link *resolvecache.Link) *routeRefusal {
@@ -118,10 +132,12 @@ func signatureRefusal(route []model.EntityStatement, entry int) *routeRefusal {
 	return &routeRefusal{link: *routeLink(route, entry+1), below: route[entry-1].Sub}
 }
 
-func constraintRefusal(route, chain []model.EntityStatement, statement int) *routeRefusal {
+func constraintRefusal(route, chain []model.EntityStatement, statement, outside int) *routeRefusal {
 	refusal := refuseLink(routeLink(route, statement))
 	if limit := chain[statement].Constraints.MaxPathLength; limit != nil && statement-1 > *limit {
 		refusal.fromPathLength = *limit + 2
+	} else if entity := chain[outside].Sub; entity != route[0].Sub {
+		refusal.within = entity
 	}
 	return refusal
 }
@@ -153,8 +169,8 @@ func verifyRoute(ctx context.Context, cfg model.Configuration, route []model.Ent
 		return 0, signatureRefusal(route, entry), err
 	}
 
-	if statement, err := verifyChainConstraints(ctx, cfg, parsedTrustChain); err != nil {
-		return 0, constraintRefusal(route, parsedTrustChain, statement), err
+	if statement, outside, err := verifyChainConstraints(ctx, cfg, parsedTrustChain); err != nil {
+		return 0, constraintRefusal(route, parsedTrustChain, statement, outside), err
 	}
 	return exp, nil, nil
 }
@@ -339,7 +355,7 @@ func verifyChainLinks(ctx context.Context, cfg model.Configuration, signedChain 
 	return 0, nil
 }
 
-func verifyChainConstraints(ctx context.Context, cfg model.Configuration, parsedChain []model.EntityStatement) (int, error) {
+func verifyChainConstraints(ctx context.Context, cfg model.Configuration, parsedChain []model.EntityStatement) (int, int, error) {
 	for k := 1; k < len(parsedChain); k++ {
 		statement := parsedChain[k]
 		if statement.Constraints == nil || statement.Iss == statement.Sub {
@@ -349,7 +365,7 @@ func verifyChainConstraints(ctx context.Context, cfg model.Configuration, parsed
 		if limit := statement.Constraints.MaxPathLength; limit != nil {
 			if intermediates := k - 1; intermediates > *limit {
 				cfg.LogInfo(ctx, "trust chain exceeds a max_path_length constraint", slog.String("issuer", issuer), slog.Int("max_path_length", *limit), slog.Int("intermediates", intermediates))
-				return k, model.NewInvalidTrustChainError(fmt.Sprintf("the subordinate statement issued by %s allows at most %d intermediates below it, and the trust chain has %d", issuer, *limit, intermediates))
+				return k, 0, model.NewInvalidTrustChainError(fmt.Sprintf("the subordinate statement issued by %s allows at most %d intermediates below it, and the trust chain has %d", issuer, *limit, intermediates))
 			}
 		}
 		if naming := statement.Constraints.NamingConstraints; naming != nil {
@@ -357,12 +373,12 @@ func verifyChainConstraints(ctx context.Context, cfg model.Configuration, parsed
 				subordinate := parsedChain[j].Sub
 				if host, ok := constraintHost(cfg, subordinate); !ok || !naming.Permits(host) {
 					cfg.LogInfo(ctx, "trust chain entity outside a naming_constraints constraint", slog.String("issuer", issuer), slog.String("entity", string(subordinate)))
-					return k, model.NewInvalidTrustChainError(fmt.Sprintf("the entity identifier %s is outside the naming constraints set by %s", truncate.TruncateForResponse(string(subordinate)), issuer))
+					return k, j, model.NewInvalidTrustChainError(fmt.Sprintf("the entity identifier %s is outside the naming constraints set by %s", truncate.TruncateForResponse(string(subordinate)), issuer))
 				}
 			}
 		}
 	}
-	return 0, nil
+	return 0, 0, nil
 }
 
 func constraintHost(cfg model.Configuration, identifier model.EntityIdentifier) (string, bool) {
@@ -467,6 +483,7 @@ type walkMemo struct {
 	entries       map[walkKey]bool
 	refused       map[resolvecache.Link][]routeRefusal
 	fault         error
+	dependsOn     int
 	described     int
 	steps         int
 	knownNoRoute  int
@@ -475,20 +492,22 @@ type walkMemo struct {
 }
 
 func newWalkMemo(refused map[resolvecache.Link][]routeRefusal) *walkMemo {
-	return &walkMemo{entries: map[walkKey]bool{}, refused: refused}
+	return &walkMemo{entries: map[walkKey]bool{}, refused: refused, dependsOn: independentOfPath}
 }
 
-func (m *walkMemo) refuses(link resolvecache.Link, path []model.EntityStatement) (refused, belowDependent bool) {
+func (m *walkMemo) refuses(link resolvecache.Link, path []model.EntityStatement) (refused bool, dependsOn int) {
+	dependsOn = independentOfPath
 	for _, refusal := range m.refused[link] {
-		if !refusal.matches(path) {
+		matched, on := refusal.matches(path)
+		if !matched {
 			continue
 		}
-		if refusal.below == "" {
-			return true, false
+		if on == independentOfPath {
+			return true, independentOfPath
 		}
-		refused = true
+		refused, dependsOn = true, min(dependsOn, on)
 	}
-	return refused, refused
+	return refused, dependsOn
 }
 
 func (m *walkMemo) count(counter *int) {
@@ -650,15 +669,16 @@ func chainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 	}
 	tainted := false
 	depthRefused := false
-	reachedFromBelow := false
+	outerDependsOn := walk.dependsOn
+	walk.dependsOn = independentOfPath
 	var toCheck []model.EntityIdentifier
 	for _, trustIssuer := range subjectEntityStatement.AuthorityHints {
-		refused, belowDependent := walk.refuses(resolvecache.Link{Issuer: trustIssuer, Subject: subject}, path)
+		refused, dependsOn := walk.refuses(resolvecache.Link{Issuer: trustIssuer, Subject: subject}, path)
 		if cache.IsDeadLink(resolvecache.Link{Issuer: trustIssuer, Subject: subject}) {
 			continue
 		} else if refused {
 			tainted = true
-			reachedFromBelow = reachedFromBelow || belowDependent
+			walk.dependsOn = min(walk.dependsOn, dependsOn)
 		} else if trustIssuer == target {
 			toCheck = []model.EntityIdentifier{trustIssuer}
 			break
@@ -697,9 +717,10 @@ func chainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 	if describe {
 		cfg.LogInfo(ctx, "dead end in path traversal", slog.String("subject", truncate.TruncateForResponse(string(subject))), slog.Int("depth", len(path)))
 	}
-	if !reachedFromBelow {
+	if walk.dependsOn >= len(path)-1 {
 		walk.record(subjectWalkKey, tainted)
 	}
+	walk.dependsOn = min(outerDependsOn, walk.dependsOn)
 	if !tainted {
 		cache.RecordDeadEnd(subjectKey)
 	}
@@ -946,7 +967,7 @@ func ResolveMetadataForEntityTypes(ctx context.Context, cfg model.Configuration,
 		TrustChain: trustChain,
 	}
 
-	if _, err := verifyChainConstraints(ctx, cfg, processedChain); err != nil {
+	if _, _, err := verifyChainConstraints(ctx, cfg, processedChain); err != nil {
 		return nil, err
 	}
 

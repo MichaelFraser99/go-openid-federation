@@ -1512,20 +1512,6 @@ func (m *MetadataPolicy) UnrecognisedOperators() []string {
 	return names
 }
 
-func (m *MetadataPolicy) OneOfOnScope() []string {
-	var entityTypes []string
-	for entityType, parameters := range m.byEntityType() {
-		if slices.ContainsFunc(parameters["scope"].Metadata, func(operator MetadataPolicyOperator) bool {
-			_, isOneOf := operator.(OneOf)
-			return isOneOf
-		}) {
-			entityTypes = append(entityTypes, entityType)
-		}
-	}
-	slices.Sort(entityTypes)
-	return entityTypes
-}
-
 func (m *MetadataPolicy) HasParameterPolicies() bool {
 	for _, parameters := range m.byEntityType() {
 		for _, operators := range parameters {

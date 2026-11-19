@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -319,9 +320,6 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 	if unrecognised := subjectSubordinateConfiguration.Policies.UnrecognisedOperators(); len(unrecognised) > 0 {
 		return nil, unusableRecord(fmt.Errorf("the metadata policy configured for %s holds operators this library does not understand, so it cannot publish them: %s", truncate.TruncateForResponse(string(subjectIdentifier)), truncate.TruncateForResponse(strings.Join(unrecognised, ", "))))
 	}
-	if entityTypes := subjectSubordinateConfiguration.Policies.OneOfOnScope(); len(entityTypes) > 0 {
-		configuration.LogError(ctx, "the metadata policy configured for a subordinate puts one_of on scope, which fails whenever scope is present because policy operators process scope as an array; use subset_of to limit scope values", slog.String("subject", string(subjectIdentifier)), slog.String("entity_types", strings.Join(entityTypes, ", ")))
-	}
 	if policy := subjectSubordinateConfiguration.Policies; policy.HasParameterPolicies() {
 		subordinateStatement.MetadataPolicy = &policy
 	}
@@ -348,6 +346,10 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 	err = json.Unmarshal(subordinateStatementBytes, &subordinateStatementMap)
 	if err != nil {
 		return nil, fmt.Errorf("failed to deserialize entity configuration: %s", err.Error())
+	}
+
+	if entityTypes := oneOfOnScope(subordinateStatementMap["metadata_policy"]); len(entityTypes) > 0 {
+		configuration.LogError(ctx, "the metadata policy configured for a subordinate puts one_of on scope, which fails whenever scope is present because policy operators process scope as an array; use subset_of to limit scope values", slog.String("subject", string(subjectIdentifier)), slog.String("entity_types", strings.Join(entityTypes, ", ")))
 	}
 
 	if err = keyscan.VerifyPublishableStatementKeys(subordinateStatementMap); err != nil {
@@ -416,4 +418,18 @@ func fetchEnded(ctx, fetchCtx context.Context, cfg model.Configuration, issuer m
 	}
 	cfg.LogInfo(ctx, "the issuer's federation fetch response did not arrive within the peer deadline", slog.String("issuer", string(issuer.Sub)))
 	return fmt.Errorf("%w%w", model.ErrPeerTimeout, model.NewInvalidTrustChainError("the issuer's federation fetch response did not arrive within the peer deadline"))
+}
+
+func oneOfOnScope(policy any) []string {
+	entityTypes, _ := policy.(map[string]any)
+	var named []string
+	for entityType, parameters := range entityTypes {
+		parameterPolicies, _ := parameters.(map[string]any)
+		operators, _ := parameterPolicies["scope"].(map[string]any)
+		if _, present := operators["one_of"]; present {
+			named = append(named, entityType)
+		}
+	}
+	slices.Sort(named)
+	return named
 }

@@ -100,6 +100,29 @@ func TestNew_RefusesToPublishAKeyCarryingPrivateMembers(t *testing.T) {
 			key:       map[string]any{"kid": "configured", "kty": "OKP", "crv": "Ed25519", "x": "AQAB", "d": "AQAB"},
 			expectErr: "private key members",
 		},
+		{
+			name:      "an OKP key carrying its private exponent under a name encoding/json reads as d",
+			reference: "RFC 8037 2",
+			key:       map[string]any{"kid": "configured", "kty": "OKP", "crv": "Ed25519", "x": "AQAB", "D": "AQAB"},
+			expectErr: "private key members [d]",
+		},
+		{
+			name:      "a symmetric key whose k is spelled with the KELVIN SIGN",
+			reference: "RFC 7518 6.4.1",
+			key:       map[string]any{"kid": "configured", "kty": "oct", "\u212a": "AQAB"},
+			expectErr: "private key members [k]",
+		},
+		{
+			name:      "an AKP key carrying its private member under a name encoding/json reads as priv",
+			reference: "AKP",
+			key:       map[string]any{"kid": "configured", "kty": "AKP", "alg": "ML-DSA-44", "pub": "AQAB", "PRIV": "AQAB"},
+			expectErr: "private key members [priv]",
+		},
+		{
+			name:      "a public key with a member whose name only contains private member letters",
+			reference: "RFC 7517 4",
+			key:       map[string]any{"kid": "configured", "kty": "OKP", "crv": "Ed25519", "x": "AQAB", "x_d": "AQAB", "dd": "AQAB"},
+		},
 	}
 
 	for _, tc := range tests {

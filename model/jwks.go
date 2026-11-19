@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"math/big"
+	"strings"
 
 	josemodel "github.com/MichaelFraser99/go-jose/model"
 	"github.com/MichaelFraser99/go-openid-federation/internal/keyops"
@@ -16,9 +17,17 @@ const MaximumRSAKeyBits = 8192
 var privateJWKMembers = []string{"d", "p", "q", "dp", "dq", "qi", "oth", "k", "priv"}
 
 func PrivateJWKMembers(key map[string]any) []string {
+	found := map[string]bool{}
+	for name := range key {
+		for _, member := range privateJWKMembers {
+			if strings.EqualFold(name, member) {
+				found[member] = true
+			}
+		}
+	}
 	var members []string
 	for _, member := range privateJWKMembers {
-		if _, present := key[member]; present {
+		if found[member] {
 			members = append(members, member)
 		}
 	}

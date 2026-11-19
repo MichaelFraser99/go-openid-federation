@@ -77,14 +77,16 @@ func (s *Server) SubordinateStatus(w http.ResponseWriter, r *http.Request) Respo
 
 	statusBytes, err := json.Marshal(response)
 	if err != nil {
-		s.cfg.LogError(ctx, "error marshalling subordinate status response", slog.String("error", err.Error()))
-		return s.respondWithError(ctx, w, model.NewServerError(subordinateStatusUnavailableError))
+		failure := model.NewServerError(subordinateStatusUnavailableError)
+		s.logFailure(ctx, "error marshalling subordinate status response", failure, slog.String("error", err.Error()))
+		return s.respondWithError(ctx, w, failure)
 	}
 
 	var statusMap map[string]any
 	if err = json.Unmarshal(statusBytes, &statusMap); err != nil {
-		s.cfg.LogError(ctx, "error unmarshalling subordinate status response", slog.String("error", err.Error()))
-		return s.respondWithError(ctx, w, model.NewServerError(subordinateStatusUnavailableError))
+		failure := model.NewServerError(subordinateStatusUnavailableError)
+		s.logFailure(ctx, "error unmarshalling subordinate status response", failure, slog.String("error", err.Error()))
+		return s.respondWithError(ctx, w, failure)
 	}
 	statusMap["sub"] = *parsedSubject
 	statusMap["iss"] = s.cfg.EntityIdentifier

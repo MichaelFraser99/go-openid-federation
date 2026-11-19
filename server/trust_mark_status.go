@@ -38,14 +38,16 @@ func (s *Server) TrustMarkStatus(w http.ResponseWriter, r *http.Request) Respons
 
 	statusBytes, err := json.Marshal(status)
 	if err != nil {
-		s.cfg.LogError(ctx, "error marshalling trust mark status response", slog.String("error", err.Error()))
-		return s.respondWithError(ctx, w, model.NewServerError(trustMarkStatusUnavailableError))
+		failure := model.NewServerError(trustMarkStatusUnavailableError)
+		s.logFailure(ctx, "error marshalling trust mark status response", failure, slog.String("error", err.Error()))
+		return s.respondWithError(ctx, w, failure)
 	}
 
 	var statusMap map[string]any
 	if err = json.Unmarshal(statusBytes, &statusMap); err != nil {
-		s.cfg.LogError(ctx, "error unmarshalling trust mark status response", slog.String("error", err.Error()))
-		return s.respondWithError(ctx, w, model.NewServerError(trustMarkStatusUnavailableError))
+		failure := model.NewServerError(trustMarkStatusUnavailableError)
+		s.logFailure(ctx, "error unmarshalling trust mark status response", failure, slog.String("error", err.Error()))
+		return s.respondWithError(ctx, w, failure)
 	}
 	statusMap["iss"] = s.cfg.EntityIdentifier
 	statusMap["iat"] = time.Now().UTC().Unix()

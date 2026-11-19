@@ -86,6 +86,14 @@ func TestVerifyPublishableStatementKeys_FindsAPrivateKeyAnywhereInsideAJwksValue
 			expectErr: "trust_mark_owners.https://tm.example.com/a.jwks",
 		},
 		{
+			name:      "a jwks member inside an object held in an array of a custom entity type",
+			reference: "RFC 7518 6.4.1",
+			statement: func() map[string]any {
+				return map[string]any{"metadata": map[string]any{"custom": map[string]any{"list": []any{map[string]any{"jwks": map[string]any{"keys": []any{map[string]any{"kty": "oct", "kid": "x", "k": "c2VjcmV0"}}}}}}}}
+			},
+			expectErr: "metadata.custom.list.jwks",
+		},
+		{
 			name:      "a jwks keys array holding a key whose private exponent is named D, which encoding/json reads as d",
 			reference: "RFC 7518 6.2.2",
 			statement: func() map[string]any {
@@ -246,6 +254,15 @@ func TestStripUnpublishableKeys_RemovesEveryPrivateKeyInsideAJwksValue(t *testin
 			},
 			expect:  map[string]any{"x_rows": []any{[]any{map[string]any{"jwks": map[string]any{"keys": []any{}}}}}},
 			dropped: []string{"deep"},
+		},
+		{
+			name:      "a jwks member inside an object held in an array of a custom entity type",
+			reference: "RFC 7518 6.4.1",
+			entity: func() map[string]any {
+				return map[string]any{"metadata": map[string]any{"custom": map[string]any{"list": []any{map[string]any{"jwks": map[string]any{"keys": []any{publicKey("good"), map[string]any{"kty": "oct", "kid": "x", "k": "c2VjcmV0"}}}}}}}}
+			},
+			expect:  map[string]any{"metadata": map[string]any{"custom": map[string]any{"list": []any{map[string]any{"jwks": map[string]any{"keys": []any{publicKey("good")}}}}}}},
+			dropped: []string{"x"},
 		},
 		{
 			name:      "a jwks that is an array of arrays",

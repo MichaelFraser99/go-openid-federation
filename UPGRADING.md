@@ -5,7 +5,7 @@ Each change you may have to act on is marked **Breaking change** in the README s
 ## From v0.11.1
 
 - [Installation](README.md#installation): this release requires `go-jose` v0.12.0, so a module that imports `go-jose` itself is lifted to v0.12.0 too. Read go-jose's upgrade notes for its `jwt.Validate` signature and Ed25519 key types.
-- [Installation](README.md#installation): go-jose v0.12.0 refuses some peer tokens that v0.11.0 accepted, and this library passes the refusal on. A peer's entity configuration or subordinate statement is refused, and a trust mark or delegation is left out of a resolve response, when its JOSE header carries a `jwk` with a private key member, or a `jku` or `x5u` that is not an `https` URL with a host, even though this library uses neither header.
+- [Entity statements and metadata](README.md#entity-statements-and-metadata): go-jose v0.12.0 refuses some peer tokens that v0.11.0 accepted, and this library passes the refusal on. A peer's entity configuration or subordinate statement is refused, and a trust mark or delegation is left out of a resolve response, when its JOSE header carries a `jwk` with a private key member, or a `jku` or `x5u` that is an `https` URL with an empty host or that holds a character outside RFC 3986 section 2, such as a space or a raw non-ASCII letter, even though this library uses neither header.
 - [Packages](README.md#packages): helpers that were exported but never documented are now private or under `internal/`, so code that calls them no longer compiles. In `model`: `StripUnpublishableKeys`, `NestsDeeperThanTheKeyScan`, `VerifyPublishableStatementKeys`, `LogPrivateKeyMembers`, `LogPrivateKeyMembersInRawSet`, `ValidateKeyOps`, `KeyOpsPermitVerify`, `VerifyIssuanceAlgorithm`, `VerifyIssuedStatement`, `ResolveStatementLifetime`, `IsEntityStatementMediaType`, `EntityStatementMediaType`, `StatementCost`, `CountDecodedValues`, `CountJSONValues`, `VerifyJSONValueCount`, `VerifyTrustMarkValueCount`, `VerifyTokenValueCount`, `TruncateAtCharacter`, `TruncateForResponse`, `MaxErrorDescriptionBytes`, `ClassifySignerError`, `NamesTheSameEntity`, `VerifyChainExpiry`, `ChainHasExpired`, `CalculateChainExpiration`, `ParseConstraints`, `ReMarshalJsonAsEntityMetadata`, `VerifyFederationEndpoint`, `ConvertStringsToAnySlice`, `DeduplicateSlice`, `Pointer`, `EntityTypeIdentifier` and `Metadata.FilterByEntityTypes`. In `server`: the seven `Server.RespondWith…` methods. Use only what the README documents. For `model.Pointer`, use go-jose's `josemodel.Pointer`, which is the same function. For `Metadata.FilterByEntityTypes`, use `Metadata.ForEntityTypes`, which returns a copy. For a `RespondWith…` method, call the endpoint's handler, such as `Server.Fetch`, and the `ResponseFunc` it returns. No wire behaviour changed.
 - [An intermediate or trust anchor](README.md#an-intermediate-or-trust-anchor): a leaf no longer publishes a `federation_fetch_endpoint` or `federation_list_endpoint` typed into its metadata.
 - [Query parameters](README.md#query-parameters): one subordinate's unusable record or signer no longer takes down `/extended-list` or `/.well-known/openid-federation`.
@@ -70,8 +70,9 @@ Each change you may have to act on is marked **Breaking change** in the README s
 - [ServerConfiguration](README.md#serverconfiguration): an `EntityIdentifierResolver` error that wraps no `model.Err*` class answers 500 with the endpoint's fixed description, where its own text reached the caller, and a resolver that returns no identifier and no error answers the same, where it panicked.
 - [Claim validators](README.md#claim-validators): `model.PrivateJWKMembers` and `model.VerifyPublishableJWK` match a member name as `encoding/json` does, with Unicode simple case folding, so a key with a `D` or `K` member is refused in this server's own statements and dropped from a registrant's. The names they return are always the lowercase names RFC 7518 defines.
 - [Retriever interfaces](README.md#retriever-interfaces): a value that cannot be stored safely, such as a map that holds itself or a value whose `MarshalJSON` fails, makes `AddSubordinate` drop that record, so `/fetch` answers `server_error` for it, and makes the operator constructors return an error.
-- [Entity statements and metadata](README.md#entity-statements-and-metadata): an integer above 2^53 in metadata or a policy operand is published exactly, where v0.11.1 rounded it.
+- [Entity statements and metadata](README.md#entity-statements-and-metadata): an integer above 2^53 in the metadata or a policy operand of a statement this server issues, on `/.well-known/openid-federation` and `/fetch`, is published exactly, where v0.11.1 rounded it. `/resolve` and `Client.ResolveMetadata` still read a peer's numbers as `float64`, so they round an integer above 2^53 in a peer's statement.
 - [Metadata policy](README.md#metadata-policy): a `scope` that is not a string no longer refuses the whole chain as a policy error. It is refused as `invalid_metadata` for `openid_relying_party` and `oauth_client`, and only when the request asks for that type.
+- [Errors](README.md#errors): the `Server.RespondWith…` methods are private, so a router of your own that answers errors itself has no typed writer from this library. Write the status and JSON body that the table under [Errors](README.md#errors) gives for each error class.
 
 ## From v0.11.0
 
@@ -81,6 +82,8 @@ Every change listed under [From v0.11.1](#from-v0111) applies, and so does this 
 
 ## From v0.11.0-rc.2
 
+Apply this list, then [From v0.11.0](#from-v0110), which includes [From v0.11.1](#from-v0111).
+
 > **Breaking change.** v0.11.0 requires `go-jose` v0.11.0, which requires Go 1.27. Minimal version selection lifts every consumer to v0.11.0, so read its "Upgrading from 0.10.x" notes if your own code imports `go-jose`. The changes that reach a consumer of this library:
 >
 > - **`kid` values.** `jwk.PublicJwk` now derives a `kid` as the key's RFC 7638 thumbprint. If you compute your signing key's `KeyID` that way at startup, it changes on upgrade, and every superior that registered your old `kid` must be given the new one, or your entity configuration no longer verifies against its subordinate statement.
@@ -88,7 +91,7 @@ Every change listed under [From v0.11.1](#from-v0111) applies, and so does this 
 > - **Stricter keys from peers.** An EC key whose `x` or `y` is not the full size of its curve, and an RSA key whose `n` or `e` carries a leading zero octet, are now refused, as RFC 7518 sections 6.2.1.2 and 2 require. A peer publishing one can no longer be verified.
 > - **Expiry is exclusive.** A statement, trust mark or delegation has expired once the current time reaches its `exp` plus `model.ClockSkewLeeway`, as RFC 7519 section 4.1.4 requires ("MUST be before"). Earlier releases accepted it for one more second.
 
-- v0.11.0 requires `go-jose` v0.11.0 and Go 1.27, as the note below describes.
+- v0.11.0 requires `go-jose` v0.11.0 and Go 1.27, as the note above describes.
 - [Query parameters](README.md#query-parameters): a `sub` that spells the server's own identifier differently is refused.
 - [Limits](README.md#limits): `MaxRequestPeerBytes`, `MaxPeerResponseTime`, `MaxResolveTime`, `MaxTrustMarks`, `MaxStatementValues` and `MaxAuthorityHints` are new, and `Server.Configure` no longer installs `http.DefaultClient`.
 - [Retriever interfaces](README.md#retriever-interfaces): a subordinate added with `AddSubordinate` and no `Retriever` no longer expires.

@@ -129,7 +129,20 @@ func excludingEveryAddress() map[string]any {
 }
 
 func noIntermediatesBelow() map[string]any {
-	return map[string]any{"constraints": map[string]any{"max_path_length": 0}}
+	return atMostIntermediatesBelow(0)
+}
+
+func atMostIntermediatesBelow(limit int) map[string]any {
+	return map[string]any{"constraints": map[string]any{"max_path_length": limit}}
+}
+
+func (f *routeFederation) rogueKeyOnly() map[string]any {
+	rogue, err := jwk.PublicJwk(f.rogue.Public())
+	if err != nil {
+		f.t.Fatalf("failed to create the rogue jwk: %v", err)
+	}
+	(*rogue)["kid"] = "chain-key"
+	return map[string]any{"keys": []any{*rogue}}
 }
 
 func TestBuildTrustChain_ARouteThatFailsValidationGivesWayToAnother(t *testing.T) {
@@ -143,6 +156,7 @@ func TestBuildTrustChain_ARouteThatFailsValidationGivesWayToAnother(t *testing.T
 		hints     map[string][]string
 		setup     func(f *routeFederation)
 		via       string
+		avoids    string
 		refused   string
 	}{
 		{
@@ -243,6 +257,70 @@ func TestBuildTrustChain_ARouteThatFailsValidationGivesWayToAnother(t *testing.T
 			via:       "c",
 		},
 		{
+			name:      "the first hint registers a key for the subject that the subject does not sign with, and the second hint reaches the anchor through the first",
+			reference: "10.2",
+			hints:     map[string][]string{"leaf": {"a", "b"}, "b": {"a"}, "a": {"ta"}, "ta": {}},
+			setup:     func(f *routeFederation) { f.claims["a>leaf"] = map[string]any{"jwks": f.rogueKeyOnly()} },
+			via:       "b",
+		},
+		{
+			name:      "an intermediate signs its statement about the subject's superior with a key only its second superior registers",
+			reference: "10.2",
+			hints:     map[string][]string{"leaf": {"m"}, "m": {"x"}, "x": {"p", "q"}, "p": {"ta"}, "q": {"ta"}, "ta": {}},
+			setup: func(f *routeFederation) {
+				f.publishesRogue["x"] = true
+				f.rogueSigned["x>m"] = true
+				f.claims["q>x"] = map[string]any{"jwks": f.bothKeys()}
+			},
+			via:    "q",
+			avoids: "p",
+		},
+		{
+			name:      "an intermediate signs its statement about the subject with a key only its second superior registers",
+			reference: "10.2",
+			hints:     map[string][]string{"leaf": {"x"}, "x": {"p", "q"}, "p": {"ta"}, "q": {"ta"}, "ta": {}},
+			setup: func(f *routeFederation) {
+				f.publishesRogue["x"] = true
+				f.rogueSigned["x>leaf"] = true
+				f.claims["q>x"] = map[string]any{"jwks": f.bothKeys()}
+			},
+			via:    "q",
+			avoids: "p",
+		},
+		{
+			name:      "the anchor's statement about an intermediate allows one intermediate below it, and the subject also reaches that intermediate directly",
+			reference: "6.2.1",
+			hints:     map[string][]string{"leaf": {"m", "a"}, "m": {"a"}, "a": {"ta"}, "ta": {}},
+			setup:     func(f *routeFederation) { f.claims["ta>a"] = atMostIntermediatesBelow(1) },
+			via:       "a",
+			avoids:    "m",
+		},
+		{
+			name:      "the anchor's statement about an intermediate allows two intermediates below it, and a shorter route shares every link above the subject's first superior",
+			reference: "6.2.1",
+			hints:     map[string][]string{"leaf": {"x", "m"}, "x": {"m"}, "m": {"a"}, "a": {"ta"}, "ta": {}},
+			setup:     func(f *routeFederation) { f.claims["ta>a"] = atMostIntermediatesBelow(2) },
+			via:       "m",
+			avoids:    "x",
+		},
+		{
+			name:      "the only route's intermediate signs its statement about the subject's superior with a key its superior does not register",
+			reference: "10.2",
+			hints:     map[string][]string{"leaf": {"m"}, "m": {"x"}, "x": {"p"}, "p": {"ta"}, "ta": {}},
+			setup: func(f *routeFederation) {
+				f.publishesRogue["x"] = true
+				f.rogueSigned["x>m"] = true
+			},
+			refused: "entry 2 in the trust chain is not signed by a key published for it in the statement above it",
+		},
+		{
+			name:      "every route through the anchor's statement about an intermediate has more intermediates than it allows",
+			reference: "6.2.1",
+			hints:     map[string][]string{"leaf": {"x", "m"}, "x": {"m"}, "m": {"a"}, "a": {"ta"}, "ta": {}},
+			setup:     func(f *routeFederation) { f.claims["ta>a"] = atMostIntermediatesBelow(1) },
+			refused:   "allows at most 1 intermediates below it",
+		},
+		{
 			name:      "the only route sets a naming constraint the subject is outside",
 			reference: "6.2.2",
 			hints:     map[string][]string{"leaf": {"a"}, "a": {"ta"}, "ta": {}},
@@ -301,6 +379,11 @@ func TestBuildTrustChain_ARouteThatFailsValidationGivesWayToAnother(t *testing.T
 			}
 			if !through {
 				t.Errorf("[%s] expected the chain to pass through %s", tc.reference, tc.via)
+			}
+			for _, statement := range parsed {
+				if tc.avoids != "" && (statement.Iss == f.entity(tc.avoids) || statement.Sub == f.entity(tc.avoids)) {
+					t.Errorf("[%s] expected the chain to avoid %s, which only a route that fails validation passes through", tc.reference, tc.avoids)
+				}
 			}
 		})
 	}

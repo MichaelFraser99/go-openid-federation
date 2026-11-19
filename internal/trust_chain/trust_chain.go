@@ -39,7 +39,7 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 	var signedRoute []string
 	var route []model.EntityStatement
 	var statementFailure error
-	refused := map[resolvecache.Link]bool{}
+	refused := map[resolvecache.Link][]routeRefusal{}
 	for retries := 0; ; retries++ {
 		if retries > cfg.EntitiesTraversedLimit() {
 			cfg.LogError(ctx, "stopped trying other routes after more failed subordinate statements than the entity limit", slog.Int("retries", retries))
@@ -62,19 +62,20 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 			trustChain = append(trustChain, signedRoute[len(signedRoute)-1])
 			parsedTrustChain = append(parsedTrustChain, route[len(route)-1])
 			var exp int64
-			exp, failedLink, err = verifyRoute(ctx, cfg, route, trustChain, parsedTrustChain)
+			var refusal *routeRefusal
+			exp, refusal, err = verifyRoute(ctx, cfg, route, trustChain, parsedTrustChain)
 			if err == nil {
 				if err = verifyTrustAnchor(ctx, cfg, targetTrustAnchorEntityIdentifier, trustChain[len(trustChain)-1], parsedTrustChain[len(parsedTrustChain)-1]); err != nil {
 					return nil, nil, nil, err
 				}
 				return trustChain, parsedTrustChain, &exp, nil
 			}
-			if failedLink == nil {
+			if refusal == nil {
 				return nil, nil, nil, err
 			}
-			cfg.LogInfo(ctx, "the chosen route failed validation, so the walk tries another route", slog.String("issuer", string(failedLink.Issuer)), slog.String("subject", string(failedLink.Subject)))
+			cfg.LogInfo(ctx, "the chosen route failed validation, so the walk tries another route", slog.String("issuer", string(refusal.link.Issuer)), slog.String("subject", string(refusal.link.Subject)))
 			statementFailure = preferFailure(statementFailure, err)
-			refused[*failedLink] = true
+			refused[refusal.link] = append(refused[refusal.link], *refusal)
 			continue
 		}
 		if failedLink == nil || walkMustStop(err) {
@@ -90,6 +91,41 @@ func routeLink(route []model.EntityStatement, i int) *resolvecache.Link {
 	return &resolvecache.Link{Issuer: route[i].Sub, Subject: route[i-1].Sub}
 }
 
+type routeRefusal struct {
+	link           resolvecache.Link
+	below          model.EntityIdentifier
+	fromPathLength int
+}
+
+func (r routeRefusal) matches(path []model.EntityStatement) bool {
+	if r.below != "" && (len(path) < 2 || path[len(path)-2].Sub != r.below) {
+		return false
+	}
+	return len(path) >= r.fromPathLength
+}
+
+func refuseLink(link *resolvecache.Link) *routeRefusal {
+	if link == nil {
+		return nil
+	}
+	return &routeRefusal{link: *link}
+}
+
+func signatureRefusal(route []model.EntityStatement, entry int) *routeRefusal {
+	if entry == 0 || entry+1 >= len(route) {
+		return refuseLink(routeLink(route, max(entry, 1)))
+	}
+	return &routeRefusal{link: *routeLink(route, entry+1), below: route[entry-1].Sub}
+}
+
+func constraintRefusal(route, chain []model.EntityStatement, statement int) *routeRefusal {
+	refusal := refuseLink(routeLink(route, statement))
+	if limit := chain[statement].Constraints.MaxPathLength; limit != nil && statement-1 > *limit {
+		refusal.fromPathLength = *limit + 2
+	}
+	return refusal
+}
+
 func earliestExpiringLink(route, chain []model.EntityStatement) *resolvecache.Link {
 	exp := calculateChainExpiration(chain)
 	last := len(chain) - 1
@@ -99,11 +135,11 @@ func earliestExpiringLink(route, chain []model.EntityStatement) *resolvecache.Li
 	return routeLink(route, slices.IndexFunc(chain, func(statement model.EntityStatement) bool { return statement.Exp == exp }))
 }
 
-func verifyRoute(ctx context.Context, cfg model.Configuration, route []model.EntityStatement, trustChain []string, parsedTrustChain []model.EntityStatement) (int64, *resolvecache.Link, error) {
+func verifyRoute(ctx context.Context, cfg model.Configuration, route []model.EntityStatement, trustChain []string, parsedTrustChain []model.EntityStatement) (int64, *routeRefusal, error) {
 	exp := calculateChainExpiration(parsedTrustChain)
 	if err := VerifyChainExpiry(exp); err != nil {
 		cfg.LogInfo(ctx, "trust chain expiry unusable", slog.Int64("exp", exp), slog.String("error", truncate.TruncateForResponse(err.Error())))
-		return 0, earliestExpiringLink(route, parsedTrustChain), err
+		return 0, refuseLink(earliestExpiringLink(route, parsedTrustChain)), err
 	}
 
 	if len(parsedTrustChain) < 3 {
@@ -114,11 +150,11 @@ func verifyRoute(ctx context.Context, cfg model.Configuration, route []model.Ent
 		if walkMustStop(err) {
 			return 0, nil, err
 		}
-		return 0, routeLink(route, max(entry, 1)), err
+		return 0, signatureRefusal(route, entry), err
 	}
 
 	if statement, err := verifyChainConstraints(ctx, cfg, parsedTrustChain); err != nil {
-		return 0, routeLink(route, statement), err
+		return 0, constraintRefusal(route, parsedTrustChain, statement), err
 	}
 	return exp, nil, nil
 }
@@ -429,7 +465,7 @@ type walkKey struct {
 
 type walkMemo struct {
 	entries       map[walkKey]bool
-	refused       map[resolvecache.Link]bool
+	refused       map[resolvecache.Link][]routeRefusal
 	fault         error
 	described     int
 	steps         int
@@ -438,12 +474,18 @@ type walkMemo struct {
 	depthRefusals int
 }
 
-func newWalkMemo(refused map[resolvecache.Link]bool) *walkMemo {
+func newWalkMemo(refused map[resolvecache.Link][]routeRefusal) *walkMemo {
 	return &walkMemo{entries: map[walkKey]bool{}, refused: refused}
 }
 
-func (m *walkMemo) refuses(link resolvecache.Link) bool {
-	return m.refused[link]
+func (m *walkMemo) refuses(link resolvecache.Link, path []model.EntityStatement) (refused, belowDependent bool) {
+	for _, refusal := range m.refused[link] {
+		if refusal.matches(path) {
+			refused = true
+			belowDependent = belowDependent || refusal.below != ""
+		}
+	}
+	return refused, belowDependent
 }
 
 func (m *walkMemo) count(counter *int) {
@@ -605,12 +647,15 @@ func chainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 	}
 	tainted := false
 	depthRefused := false
+	reachedFromBelow := false
 	var toCheck []model.EntityIdentifier
 	for _, trustIssuer := range subjectEntityStatement.AuthorityHints {
+		refused, belowDependent := walk.refuses(resolvecache.Link{Issuer: trustIssuer, Subject: subject}, path)
 		if cache.IsDeadLink(resolvecache.Link{Issuer: trustIssuer, Subject: subject}) {
 			continue
-		} else if walk.refuses(resolvecache.Link{Issuer: trustIssuer, Subject: subject}) {
+		} else if refused {
 			tainted = true
+			reachedFromBelow = reachedFromBelow || belowDependent
 		} else if trustIssuer == target {
 			toCheck = []model.EntityIdentifier{trustIssuer}
 			break
@@ -649,7 +694,9 @@ func chainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 	if describe {
 		cfg.LogInfo(ctx, "dead end in path traversal", slog.String("subject", truncate.TruncateForResponse(string(subject))), slog.Int("depth", len(path)))
 	}
-	walk.record(subjectWalkKey, tainted)
+	if !reachedFromBelow {
+		walk.record(subjectWalkKey, tainted)
+	}
 	if !tainted {
 		cache.RecordDeadEnd(subjectKey)
 	}

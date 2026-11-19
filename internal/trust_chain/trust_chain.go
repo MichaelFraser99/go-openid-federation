@@ -39,7 +39,7 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 	var signedRoute []string
 	var route []model.EntityStatement
 	var statementFailure error
-	refused := map[resolvecache.Link]bool{}
+	refused := map[resolvecache.Link][]routeRefusal{}
 	for retries := 0; ; retries++ {
 		if retries > cfg.EntitiesTraversedLimit() {
 			cfg.LogError(ctx, "stopped trying other routes after more failed subordinate statements than the entity limit", slog.Int("retries", retries))
@@ -62,19 +62,20 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 			trustChain = append(trustChain, signedRoute[len(signedRoute)-1])
 			parsedTrustChain = append(parsedTrustChain, route[len(route)-1])
 			var exp int64
-			exp, failedLink, err = verifyRoute(ctx, cfg, route, trustChain, parsedTrustChain)
+			var refusal *routeRefusal
+			exp, refusal, err = verifyRoute(ctx, cfg, route, trustChain, parsedTrustChain)
 			if err == nil {
 				if err = verifyTrustAnchor(ctx, cfg, targetTrustAnchorEntityIdentifier, trustChain[len(trustChain)-1], parsedTrustChain[len(parsedTrustChain)-1]); err != nil {
 					return nil, nil, nil, err
 				}
 				return trustChain, parsedTrustChain, &exp, nil
 			}
-			if failedLink == nil {
+			if refusal == nil {
 				return nil, nil, nil, err
 			}
-			cfg.LogInfo(ctx, "the chosen route failed validation, so the walk tries another route", slog.String("issuer", string(failedLink.Issuer)), slog.String("subject", string(failedLink.Subject)))
+			cfg.LogInfo(ctx, "the chosen route failed validation, so the walk tries another route", slog.String("issuer", string(refusal.link.Issuer)), slog.String("subject", string(refusal.link.Subject)))
 			statementFailure = preferFailure(statementFailure, err)
-			refused[*failedLink] = true
+			refused[refusal.link] = append(refused[refusal.link], *refusal)
 			continue
 		}
 		if failedLink == nil || walkMustStop(err) {
@@ -90,6 +91,41 @@ func routeLink(route []model.EntityStatement, i int) *resolvecache.Link {
 	return &resolvecache.Link{Issuer: route[i].Sub, Subject: route[i-1].Sub}
 }
 
+type routeRefusal struct {
+	link           resolvecache.Link
+	below          model.EntityIdentifier
+	fromPathLength int
+}
+
+func (r routeRefusal) matches(path []model.EntityStatement) bool {
+	if r.below != "" && (len(path) < 2 || path[len(path)-2].Sub != r.below) {
+		return false
+	}
+	return len(path) >= r.fromPathLength
+}
+
+func refuseLink(link *resolvecache.Link) *routeRefusal {
+	if link == nil {
+		return nil
+	}
+	return &routeRefusal{link: *link}
+}
+
+func signatureRefusal(route []model.EntityStatement, entry int) *routeRefusal {
+	if entry == 0 || entry+1 >= len(route) {
+		return refuseLink(routeLink(route, max(entry, 1)))
+	}
+	return &routeRefusal{link: *routeLink(route, entry+1), below: route[entry-1].Sub}
+}
+
+func constraintRefusal(route, chain []model.EntityStatement, statement int) *routeRefusal {
+	refusal := refuseLink(routeLink(route, statement))
+	if limit := chain[statement].Constraints.MaxPathLength; limit != nil && statement-1 > *limit {
+		refusal.fromPathLength = *limit + 2
+	}
+	return refusal
+}
+
 func earliestExpiringLink(route, chain []model.EntityStatement) *resolvecache.Link {
 	exp := calculateChainExpiration(chain)
 	last := len(chain) - 1
@@ -99,11 +135,11 @@ func earliestExpiringLink(route, chain []model.EntityStatement) *resolvecache.Li
 	return routeLink(route, slices.IndexFunc(chain, func(statement model.EntityStatement) bool { return statement.Exp == exp }))
 }
 
-func verifyRoute(ctx context.Context, cfg model.Configuration, route []model.EntityStatement, trustChain []string, parsedTrustChain []model.EntityStatement) (int64, *resolvecache.Link, error) {
+func verifyRoute(ctx context.Context, cfg model.Configuration, route []model.EntityStatement, trustChain []string, parsedTrustChain []model.EntityStatement) (int64, *routeRefusal, error) {
 	exp := calculateChainExpiration(parsedTrustChain)
 	if err := VerifyChainExpiry(exp); err != nil {
 		cfg.LogInfo(ctx, "trust chain expiry unusable", slog.Int64("exp", exp), slog.String("error", truncate.TruncateForResponse(err.Error())))
-		return 0, earliestExpiringLink(route, parsedTrustChain), err
+		return 0, refuseLink(earliestExpiringLink(route, parsedTrustChain)), err
 	}
 
 	if len(parsedTrustChain) < 3 {
@@ -111,11 +147,14 @@ func verifyRoute(ctx context.Context, cfg model.Configuration, route []model.Ent
 	}
 
 	if entry, err := verifyChainLinks(ctx, cfg, trustChain, parsedTrustChain); err != nil {
-		return 0, routeLink(route, max(entry, 1)), err
+		if walkMustStop(err) {
+			return 0, nil, err
+		}
+		return 0, signatureRefusal(route, entry), err
 	}
 
 	if statement, err := verifyChainConstraints(ctx, cfg, parsedTrustChain); err != nil {
-		return 0, routeLink(route, statement), err
+		return 0, constraintRefusal(route, parsedTrustChain, statement), err
 	}
 	return exp, nil, nil
 }
@@ -154,7 +193,7 @@ func routeStatements(ctx context.Context, cfg model.Configuration, signedRoute [
 			if err != nil {
 				cfg.LogInfo(ctx, "this server did not issue its own subordinate statement", slog.String("subject", string(route[i].Sub)), slog.String("error", truncate.TruncateForResponse(err.Error())))
 				if ctx.Err() != nil {
-					return nil, nil, nil, walkNotCompleted(ctx, true)
+					return nil, nil, nil, fmt.Errorf("%w%w", resolvecache.ErrOwnIssuedFault, walkNotCompleted(ctx, true))
 				}
 				if errors.Is(err, model.ErrServerError) || errors.Is(err, model.ErrTemporarilyUnavailable) {
 					return nil, nil, link, fmt.Errorf("%w%w%w", resolvecache.ErrOwnFault, resolvecache.ErrOwnIssuedFault, err)
@@ -250,6 +289,9 @@ func verifyTrustAnchor(ctx context.Context, cfg model.Configuration, expected mo
 	}
 
 	if err := entity_statement.VerifyAgainstAnyKey(ctx, signedAnchor, usable, cfg.AcceptedSigningAlgorithms()); err != nil {
+		if ended := verificationInterrupted(ctx, cfg, "the trust anchor's entity configuration"); ended != nil {
+			return ended
+		}
 		cfg.LogError(ctx, "trust anchor entity configuration not signed by any key configured for it", slog.String("trust_anchor", string(expected)), slog.String("error", truncate.TruncateForResponse(err.Error())))
 		return model.NewInvalidTrustAnchorError("the trust anchor entity configuration is not signed by any key configured for it")
 	}
@@ -287,6 +329,9 @@ func verifyChainLinks(ctx context.Context, cfg model.Configuration, signedChain 
 			return i, model.NewInvalidTrustChainError(fmt.Sprintf("entry %d in the trust chain is malformed", i))
 		}
 		if err = entity_statement.VerifyAgainstJwks(ctx, signedChain[i], *kid, parsedChain[i+1].JWKs, cfg.AcceptedSigningAlgorithms()); err != nil {
+			if ended := verificationInterrupted(ctx, cfg, fmt.Sprintf("entry %d", i)); ended != nil {
+				return i, ended
+			}
 			cfg.LogInfo(ctx, "trust chain entry not signed by a key published in the statement above it", slog.Int("entry", i), slog.String("kid", truncate.TruncateForResponse(*kid)), slog.String("error", truncate.TruncateForResponse(err.Error())))
 			return i, model.NewInvalidTrustChainError(fmt.Sprintf("entry %d in the trust chain is not signed by a key published for it in the statement above it", i))
 		}
@@ -379,10 +424,21 @@ func ResolveTimeLimitReached(ctx context.Context) error {
 }
 
 func walkNotCompleted(ctx context.Context, own bool) error {
-	if limit := ResolveTimeLimitReached(ctx); limit != nil && !own {
+	if own {
+		return fmt.Errorf("%w%w%s: %w", resolvecache.ErrOwnFault, model.ErrTemporarilyUnavailable, "trust chain walk did not complete", ctx.Err())
+	}
+	if limit := ResolveTimeLimitReached(ctx); limit != nil {
 		return limit
 	}
 	return fmt.Errorf("%w%s: %w", model.ErrTemporarilyUnavailable, "trust chain walk did not complete", ctx.Err())
+}
+
+func verificationInterrupted(ctx context.Context, cfg model.Configuration, entry string) error {
+	if ctx.Err() == nil {
+		return nil
+	}
+	cfg.LogInfo(ctx, "the request ended before a trust chain entry was verified", slog.String("entry", entry))
+	return walkNotCompleted(ctx, false)
 }
 
 var errBudgetExhausted = errors.New("")
@@ -409,7 +465,7 @@ type walkKey struct {
 
 type walkMemo struct {
 	entries       map[walkKey]bool
-	refused       map[resolvecache.Link]bool
+	refused       map[resolvecache.Link][]routeRefusal
 	fault         error
 	described     int
 	steps         int
@@ -418,12 +474,21 @@ type walkMemo struct {
 	depthRefusals int
 }
 
-func newWalkMemo(refused map[resolvecache.Link]bool) *walkMemo {
+func newWalkMemo(refused map[resolvecache.Link][]routeRefusal) *walkMemo {
 	return &walkMemo{entries: map[walkKey]bool{}, refused: refused}
 }
 
-func (m *walkMemo) refuses(link resolvecache.Link) bool {
-	return m.refused[link]
+func (m *walkMemo) refuses(link resolvecache.Link, path []model.EntityStatement) (refused, belowDependent bool) {
+	for _, refusal := range m.refused[link] {
+		if !refusal.matches(path) {
+			continue
+		}
+		if refusal.below == "" {
+			return true, false
+		}
+		refused = true
+	}
+	return refused, refused
 }
 
 func (m *walkMemo) count(counter *int) {
@@ -585,12 +650,15 @@ func chainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 	}
 	tainted := false
 	depthRefused := false
+	reachedFromBelow := false
 	var toCheck []model.EntityIdentifier
 	for _, trustIssuer := range subjectEntityStatement.AuthorityHints {
+		refused, belowDependent := walk.refuses(resolvecache.Link{Issuer: trustIssuer, Subject: subject}, path)
 		if cache.IsDeadLink(resolvecache.Link{Issuer: trustIssuer, Subject: subject}) {
 			continue
-		} else if walk.refuses(resolvecache.Link{Issuer: trustIssuer, Subject: subject}) {
+		} else if refused {
 			tainted = true
+			reachedFromBelow = reachedFromBelow || belowDependent
 		} else if trustIssuer == target {
 			toCheck = []model.EntityIdentifier{trustIssuer}
 			break
@@ -629,7 +697,9 @@ func chainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 	if describe {
 		cfg.LogInfo(ctx, "dead end in path traversal", slog.String("subject", truncate.TruncateForResponse(string(subject))), slog.Int("depth", len(path)))
 	}
-	walk.record(subjectWalkKey, tainted)
+	if !reachedFromBelow {
+		walk.record(subjectWalkKey, tainted)
+	}
 	if !tainted {
 		cache.RecordDeadEnd(subjectKey)
 	}
@@ -744,6 +814,9 @@ func ResolveMetadataForEntityTypes(ctx context.Context, cfg model.Configuration,
 		}
 		response, err := entity_configuration.Validate(ctx, cfg, *parsedSub, trustChain[len(trustChain)-1])
 		if err != nil {
+			if ended := verificationInterrupted(ctx, cfg, "the last entry"); ended != nil {
+				return nil, ended
+			}
 			cfg.LogInfo(ctx, "failed to validate self-signed entity configuration", slog.String("entity", string(*parsedSub)), slog.String("error", truncate.TruncateForResponse(err.Error())))
 			return nil, suppliedEntryRefused(err, len(trustChain)-1, "entity configuration")
 		}
@@ -808,6 +881,9 @@ func ResolveMetadataForEntityTypes(ctx context.Context, cfg model.Configuration,
 		cfg.LogInfo(ctx, "validating chain step", slog.Int("step", i), slog.String("issuer", string(previousStatement.Iss)))
 		nextStep, err := subordinate_statement.Validate(ctx, cfg, previousStatement, trustChain[i])
 		if err != nil {
+			if ended := verificationInterrupted(ctx, cfg, fmt.Sprintf("entry %d", i)); ended != nil {
+				return nil, ended
+			}
 			cfg.LogInfo(ctx, "failed to validate chain step", slog.Int("step", i), slog.String("error", truncate.TruncateForResponse(err.Error())))
 			return nil, suppliedEntryRefused(err, i, "subordinate statement")
 		}
@@ -823,6 +899,9 @@ func ResolveMetadataForEntityTypes(ctx context.Context, cfg model.Configuration,
 	cfg.LogInfo(ctx, "validating subject entity configuration", slog.String("subject", string(immediateSuperiorStatement.Sub)))
 	subjectEntityConfiguration, err := entity_configuration.Validate(ctx, cfg, immediateSuperiorStatement.Sub, trustChain[0])
 	if err != nil {
+		if ended := verificationInterrupted(ctx, cfg, "the subject's entity configuration"); ended != nil {
+			return nil, ended
+		}
 		cfg.LogInfo(ctx, "failed to validate subject entity configuration", slog.String("error", truncate.TruncateForResponse(err.Error())))
 		return nil, suppliedEntryRefused(err, 0, "entity configuration")
 	}
@@ -844,6 +923,9 @@ func ResolveMetadataForEntityTypes(ctx context.Context, cfg model.Configuration,
 
 	cfg.LogInfo(ctx, "verifying subject entity configuration against the key published by its superior", slog.String("kid", *subjectKid))
 	if err = entity_statement.VerifyAgainstJwks(ctx, trustChain[0], *subjectKid, processedChain[1].JWKs, cfg.AcceptedSigningAlgorithms()); err != nil {
+		if ended := verificationInterrupted(ctx, cfg, "the subject's entity configuration"); ended != nil {
+			return nil, ended
+		}
 		cfg.LogInfo(ctx, "subject entity configuration not signed by a key published for it by its superior", slog.String("kid", truncate.TruncateForResponse(*subjectKid)), slog.String("error", truncate.TruncateForResponse(err.Error())))
 		return nil, model.NewInvalidTrustChainError("the subject's entity configuration is not signed by the key registered for it in the subordinate statement above it")
 	}

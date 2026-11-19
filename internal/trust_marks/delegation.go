@@ -230,6 +230,9 @@ func verifyDelegation(ctx context.Context, cfg model.Configuration, mark model.T
 			}
 			return []crypto.PublicKey{publicKey}, nil
 		}, nil, &josemodel.JoseOptions{UseTokenProvidedKeys: false, ClockSkewLeeway: model.ClockSkewLeeway, AllowedSigningAlgorithms: cfg.AcceptedSigningAlgorithms()}, nil); err != nil {
+			if ended := signatureCheckInterrupted(ctx, cfg, "delegation"); ended != nil {
+				return ended
+			}
 			cfg.LogInfo(ctx, "the delegation signature does not verify against an owner key", slog.String("kid", truncate.TruncateForResponse(kid)), slog.String("owner", string(owner.Sub)), slog.String("error", truncate.TruncateForResponse(err.Error())))
 			continue
 		}

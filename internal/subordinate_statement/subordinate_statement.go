@@ -136,7 +136,7 @@ func Accept(ctx context.Context, cfg model.Configuration, issuer model.EntitySta
 func Validate(ctx context.Context, cfg model.Configuration, issuer model.EntityStatement, subordinateStatementJwt string) (*model.EntityStatement, error) {
 	subordinateStatement, err := validate(ctx, cfg, issuer, subordinateStatementJwt)
 	if err != nil {
-		if errors.Is(err, model.ErrInvalidMetadata) || errors.Is(err, model.ErrInvalidTrustChain) {
+		if errors.Is(err, model.ErrInvalidMetadata) || errors.Is(err, model.ErrInvalidTrustChain) || entity_statement.VerificationInterrupted(err) {
 			return nil, err
 		}
 		return nil, model.NewInvalidTrustChainError(err.Error())
@@ -386,6 +386,9 @@ func New(ctx context.Context, subjectIdentifier model.EntityIdentifier, subordin
 	}
 
 	if err = entity_statement.VerifyIssuedSignature(ctx, *token, signerConfiguration.KeyID, signerConfiguration.Algorithm, signerConfiguration.Signer); err != nil {
+		if entity_statement.VerificationInterrupted(err) {
+			return nil, fmt.Errorf("%w%w", model.ErrTemporarilyUnavailable, err)
+		}
 		return nil, signerFault(fmt.Errorf("refusing to publish a subordinate statement this implementation would reject: %s", err.Error()))
 	}
 

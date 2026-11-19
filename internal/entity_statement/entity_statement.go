@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -293,10 +294,13 @@ func VerifyAgainstAnyKey(ctx context.Context, token string, jwks josemodel.Jwks,
 			continue
 		}
 		tried++
-		if _, _, err := jws.VerifyCompactSerialization(ctx, token, func() ([]crypto.PublicKey, error) {
+		if _, _, err = jws.VerifyCompactSerialization(ctx, token, func() ([]crypto.PublicKey, error) {
 			return []crypto.PublicKey{pubKey}, nil
 		}, &josemodel.JoseOptions{UseTokenProvidedKeys: false, AllowedSigningAlgorithms: algorithms}); err == nil {
 			return nil
+		}
+		if ctx.Err() != nil {
+			return verificationInterrupted(ctx)
 		}
 	}
 	if tried == 0 {
@@ -322,9 +326,20 @@ func VerifyAgainstJwks(ctx context.Context, token, kid string, jwks josemodel.Jw
 		}
 		return []crypto.PublicKey{pubKey}, nil
 	}, &josemodel.JoseOptions{UseTokenProvidedKeys: false, AllowedSigningAlgorithms: algorithms}); err != nil {
+		if ctx.Err() != nil {
+			return verificationInterrupted(ctx)
+		}
 		return fmt.Errorf("failed to verify JWT signature: %s", err.Error())
 	}
 	return nil
+}
+
+func verificationInterrupted(ctx context.Context) error {
+	return fmt.Errorf("the signature check did not complete: %w", ctx.Err())
+}
+
+func VerificationInterrupted(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 func describeKeyType(key map[string]any) string {

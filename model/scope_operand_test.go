@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -18,7 +19,8 @@ func TestApplyPolicy_ScopeOperandTypes(t *testing.T) {
 		reference   string
 		policy      string
 		expectErr   string
-		expectScope string
+		expectScope any
+		subject     any
 	}{
 		{
 			name:        "a space separated string value is split into tokens",
@@ -39,34 +41,48 @@ func TestApplyPolicy_ScopeOperandTypes(t *testing.T) {
 			expectScope: "openid profile",
 		},
 		{
-			name:      "a numeric value is a policy error",
-			reference: "6.1.3",
-			policy:    `{"openid_relying_party":{"scope":{"value":5}}}`,
-			expectErr: "all scope values must be strings",
+			name:        "a numeric value is left for the entity type to judge",
+			reference:   "6.1.3",
+			policy:      `{"openid_relying_party":{"scope":{"value":5}}}`,
+			expectScope: float64(5),
 		},
 		{
-			name:      "a boolean value is a policy error",
-			reference: "6.1.3",
-			policy:    `{"openid_relying_party":{"scope":{"value":true}}}`,
-			expectErr: "all scope values must be strings",
+			name:        "a boolean value is left for the entity type to judge",
+			reference:   "6.1.3",
+			policy:      `{"openid_relying_party":{"scope":{"value":true}}}`,
+			expectScope: true,
 		},
 		{
-			name:      "an object value is a policy error",
-			reference: "6.1.3",
-			policy:    `{"openid_relying_party":{"scope":{"value":{"a":1}}}}`,
-			expectErr: "all scope values must be strings",
+			name:        "an object value is left for the entity type to judge",
+			reference:   "6.1.3",
+			policy:      `{"openid_relying_party":{"scope":{"value":{"a":1}}}}`,
+			expectScope: map[string]any{"a": float64(1)},
 		},
 		{
-			name:      "a numeric default is a policy error",
-			reference: "6.1.3",
-			policy:    `{"openid_relying_party":{"scope":{"default":5}}}`,
-			expectErr: "all scope values must be strings",
+			name:        "a numeric default is left for the entity type to judge",
+			reference:   "6.1.3",
+			policy:      `{"openid_relying_party":{"scope":{"default":5}}}`,
+			expectScope: float64(5),
 		},
 		{
-			name:      "an array containing a number is a policy error",
-			reference: "6.1.3 (already enforced before this change)",
-			policy:    `{"openid_relying_party":{"scope":{"value":["openid",5]}}}`,
-			expectErr: "all scope values must be strings",
+			name:        "an array containing a number is left for the entity type to judge",
+			reference:   "6.1.3 (already enforced before this change)",
+			policy:      `{"openid_relying_party":{"scope":{"value":["openid",5]}}}`,
+			expectScope: []any{"openid", float64(5)},
+		},
+		{
+			name:        "essential leaves a scope the subject publishes as an array as it is",
+			reference:   "6.1.3.1.7",
+			policy:      `{"openid_relying_party":{"scope":{"essential":true}}}`,
+			subject:     []any{"openid", "profile"},
+			expectScope: []any{"openid", "profile"},
+		},
+		{
+			name:        "a scope the subject publishes as a string is still split and joined",
+			reference:   "6.1.3.1.8",
+			policy:      `{"openid_relying_party":{"scope":{"add":["email"]}}}`,
+			subject:     "openid  profile",
+			expectScope: "openid profile email",
 		},
 	}
 
@@ -85,7 +101,11 @@ func TestApplyPolicy_ScopeOperandTypes(t *testing.T) {
 						t.Fatalf("[%s] a scope operand panicked, which section 6.1.3 requires to be a policy error: %v", tc.reference, r)
 					}
 				}()
-				result, err = ApplyPolicy(leaf(), policy)
+				subject := leaf()
+				if tc.subject != nil {
+					(*subject.Metadata.OpenIDRelyingPartyMetadata)["scope"] = tc.subject
+				}
+				result, err = ApplyPolicy(subject, policy)
 			}()
 
 			if tc.expectErr != "" {
@@ -102,8 +122,13 @@ func TestApplyPolicy_ScopeOperandTypes(t *testing.T) {
 			}
 
 			got := (*result.Metadata.OpenIDRelyingPartyMetadata)["scope"]
-			if got != tc.expectScope {
-				t.Errorf("[%s] expected scope %q, got %v", tc.reference, tc.expectScope, got)
+			if !reflect.DeepEqual(got, tc.expectScope) {
+				t.Errorf("[%s] expected scope %#v, got %#v", tc.reference, tc.expectScope, got)
+			}
+			if _, isString := tc.expectScope.(string); !isString {
+				if err := VerifyScopeClaim(*result.Metadata.OpenIDRelyingPartyMetadata); err == nil {
+					t.Errorf("[%s] expected the resolved checks of the entity type to refuse a scope that is not a string", tc.reference)
+				}
 			}
 		})
 	}
@@ -169,30 +194,26 @@ func TestMergePolicyOperators_ScopeOperandTypesDoNotPanic(t *testing.T) {
 	}
 }
 
-func TestProcessAndExtractPolicy_ScopeOperandTypeIsCheckedWhateverTheMetadataHolds(t *testing.T) {
+func TestProcessAndExtractPolicy_ScopeOperandTypeIsLeftToTheEntityType(t *testing.T) {
 	tests := []struct {
 		name      string
 		reference string
 		policy    string
-		expectErr string
 	}{
 		{
-			name:      "a numeric default is refused even when the metadata already has a scope",
+			name:      "a numeric default is not a policy error even when the metadata already has a scope",
 			reference: "6.1.3",
 			policy:    `{"openid_relying_party":{"scope":{"default":5}}}`,
-			expectErr: "all scope values must be strings",
 		},
 		{
-			name:      "a numeric value is refused",
+			name:      "a numeric value is not a policy error",
 			reference: "6.1.3",
 			policy:    `{"openid_relying_party":{"scope":{"value":5}}}`,
-			expectErr: "all scope values must be strings",
 		},
 		{
-			name:      "a numeric element inside subset_of is refused",
+			name:      "a numeric element inside subset_of is not a policy error",
 			reference: "6.1.3",
 			policy:    `{"openid_relying_party":{"scope":{"subset_of":[5]}}}`,
-			expectErr: "all scope values must be strings",
 		},
 		{
 			name:      "essential is a boolean and is not a scope value",
@@ -221,17 +242,8 @@ func TestProcessAndExtractPolicy_ScopeOperandTypeIsCheckedWhateverTheMetadataHol
 
 			_, err := ProcessAndExtractPolicy([]EntityStatement{subordinate})
 
-			if tc.expectErr == "" {
-				if err != nil {
-					t.Fatalf("[%s] expected the policy to be accepted, got %v", tc.reference, err)
-				}
-				return
-			}
-			if err == nil {
-				t.Fatalf("[%s] section 6.1.3 requires a policy error for an unsupported operand type, got an accepted policy", tc.reference)
-			}
-			if !strings.Contains(err.Error(), tc.expectErr) {
-				t.Fatalf("[%s] expected an error naming %q, got %v", tc.reference, tc.expectErr, err)
+			if err != nil {
+				t.Fatalf("[%s] expected a scope operand of any type to be left to the resolved checks of its entity type, got %v", tc.reference, err)
 			}
 		})
 	}

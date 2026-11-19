@@ -45,6 +45,9 @@ func (d Default) ToSlice(key string) MetadataPolicyOperator {
 	}
 	if reflect.TypeOf(d.operatorValue).Kind() != reflect.Slice {
 		if key == "scope" {
+			if _, isString := d.operatorValue.(string); !isString {
+				return d
+			}
 			return Default{
 				operatorValue: scopeOperatorSlice(d.operatorValue),
 			}

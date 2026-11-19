@@ -69,25 +69,6 @@ func sortByPriority(policies []MetadataPolicyOperator) []MetadataPolicyOperator 
 	return policies
 }
 
-func verifyScopeOperand(value any) error {
-	if value == nil {
-		return nil
-	}
-	if _, ok := value.(string); ok {
-		return nil
-	}
-	if reflect.TypeOf(value).Kind() != reflect.Slice {
-		return fmt.Errorf("all scope values must be strings")
-	}
-	slice := reflect.ValueOf(value)
-	for i := range slice.Len() {
-		if _, ok := slice.Index(i).Interface().(string); !ok {
-			return fmt.Errorf("all scope values must be strings")
-		}
-	}
-	return nil
-}
-
 func tokeniseAndValidatePolicy(policy *MetadataPolicy, operandLimit int) (*MetadataPolicy, error) {
 	if policy == nil {
 		return nil, nil
@@ -100,14 +81,6 @@ func tokeniseAndValidatePolicy(policy *MetadataPolicy, operandLimit int) (*Metad
 			continue
 		}
 		scoped = true
-		for _, operator := range operators.Metadata {
-			if operator.String() == "essential" {
-				continue
-			}
-			if err := verifyScopeOperand(operator.OperatorValue()); err != nil {
-				return nil, err
-			}
-		}
 		scopeValues += scopeValueCount(operators.Metadata)
 	}
 	if scopeValues > operandLimit {
@@ -474,12 +447,11 @@ func applyPolicyToMetadata(metadata map[string]any, policy map[string]PolicyOper
 	for k, operators := range policy {
 		for _, operator := range sortByPriority(slices.Clone(operators.Metadata)) {
 			existing, ok := metadata[k]
+			scopeString := false
 			if k == "scope" {
-				if ok {
-					existingString, isString := existing.(string)
-					if !isString {
-						return fmt.Errorf("scope must be a string")
-					}
+				existingString, isString := existing.(string)
+				scopeString = !ok || isString
+				if isString {
 					existing = convertStringsToAnySlice(scopeTokens(existingString))
 				}
 				operator = operator.ToSlice(k)
@@ -491,22 +463,9 @@ func applyPolicyToMetadata(metadata map[string]any, policy map[string]PolicyOper
 			if err != nil {
 				return err
 			}
-			if k == "scope" && resolved != nil {
-				switch resolvedTyped := resolved.(type) {
-				case []string:
-					resolved = joinScopeTokens(resolvedTyped)
-				case []any:
-					stringSlice := make([]string, len(resolvedTyped))
-					for i, v := range resolvedTyped {
-						stringValue, isString := v.(string)
-						if !isString {
-							return fmt.Errorf("all scope values must be strings")
-						}
-						stringSlice[i] = stringValue
-					}
-					resolved = joinScopeTokens(stringSlice)
-				default:
-					return fmt.Errorf("scope must be a string or array of strings")
+			if scopeString {
+				if values, allStrings := MetadataStringSlice(resolved); allStrings {
+					resolved = joinScopeTokens(values)
 				}
 			}
 			if resolved == nil {

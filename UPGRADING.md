@@ -41,7 +41,7 @@ Each change you may have to act on is marked **Breaking change** in the README s
 - [Entity statements and metadata](README.md#entity-statements-and-metadata): a trust mark typed `application/trust-mark+jwt` is accepted, and every `typ` header is compared with ASCII-only case folding.
 - [Claim validators](README.md#claim-validators): a private key member inside a `jwks` value of any shape, such as a bare JWK or an array, is found. `/.well-known` and `/fetch` refuse the statement, and `/extended-list` removes the key.
 - [Metadata policy](README.md#metadata-policy): an entity type policy or a parameter policy whose value is `null` is refused.
-- [Metadata policy](README.md#metadata-policy): a merged policy whose `add` and `superset_of` operators hold more operands in total than `MaxStatementValues` is refused.
+- [Metadata policy](README.md#metadata-policy): a merged policy whose `add` and `superset_of` operators hold more operands in total than `MaxStatementValues` is refused, and so is one statement whose `scope` operands hold more scope values than that.
 - [Metadata policy](README.md#metadata-policy): a `metadata_policy` that repeats a member name at any of its three levels is refused.
 - [Metadata policy](README.md#metadata-policy): `SubordinateConfiguration` has new `Metadata` and `Constraints` fields, so a literal that sets its fields by position no longer compiles.
 - [Metadata policy](README.md#metadata-policy): a `value` operator replaces a parameter of another JSON type, so a resolved parameter can have a type the subject did not publish. Check the types in a custom entity type's `VerifyResolvedMetadata`, and in any `Extensions` type before you use it.
@@ -50,7 +50,6 @@ Each change you may have to act on is marked **Breaking change** in the README s
 - [Metadata policy](README.md#metadata-policy): a resolved `scope` that holds no scope value is refused as `invalid_metadata` for `openid_relying_party` and `oauth_client`.
 - [Metadata policy](README.md#metadata-policy): a `subset_of` that leaves no value resolves to `[]`, not `null`.
 - [Metadata policy](README.md#metadata-policy): a policy this server issues that puts `one_of` on `scope` is logged at Error on each issuance, and still issued.
-- [Metadata policy](README.md#metadata-policy): `subset_of` and `one_of` operands count towards the merged-policy bound, and one statement's `scope` operands may hold at most `MaxStatementValues` scope values.
 - [Metadata policy](README.md#metadata-policy): an array element of a `value` or `default` operand on `scope` is split into scope values, as for the other operators.
 - [Metadata policy](README.md#metadata-policy): policies merge from the trust anchor down, as section 6.1.4.1 requires, so the values of a merged `add` resolve in a different order.
 - [How operand values are compared](README.md#how-operand-values-are-compared): an operand built in Go is held in JSON shape, so `OperatorValue` returns `map[string]any` and `[]any`, not the type you passed.
@@ -70,6 +69,9 @@ Each change you may have to act on is marked **Breaking change** in the README s
 - [Errors](README.md#errors): `/resolve` answers a 500 with the fixed description `unable to resolve entities at this time` and logs its cause at error level, where the description carried the cause, such as `no http client present`.
 - [ServerConfiguration](README.md#serverconfiguration): an `EntityIdentifierResolver` error that wraps no `model.Err*` class answers 500 with the endpoint's fixed description, where its own text reached the caller, and a resolver that returns no identifier and no error answers the same, where it panicked.
 - [Claim validators](README.md#claim-validators): `model.PrivateJWKMembers` and `model.VerifyPublishableJWK` match a member name as `encoding/json` does, with Unicode simple case folding, so a key with a `D` or `K` member is refused in this server's own statements and dropped from a registrant's. The names they return are always the lowercase names RFC 7518 defines.
+- [Retriever interfaces](README.md#retriever-interfaces): a value that cannot be stored safely, such as a map that holds itself or a value whose `MarshalJSON` fails, makes `AddSubordinate` drop that record, so `/fetch` answers `server_error` for it, and makes the operator constructors return an error.
+- [Entity statements and metadata](README.md#entity-statements-and-metadata): an integer above 2^53 in metadata or a policy operand is published exactly, where v0.11.1 rounded it.
+- [Metadata policy](README.md#metadata-policy): a `scope` that is not a string no longer refuses the whole chain as a policy error. It is refused as `invalid_metadata` for `openid_relying_party` and `oauth_client`, and only when the request asks for that type.
 
 ## From v0.11.0
 

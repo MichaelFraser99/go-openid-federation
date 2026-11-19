@@ -321,6 +321,15 @@ func TestBuildTrustChain_ARouteThatFailsValidationGivesWayToAnother(t *testing.T
 			refused:   "allows at most 1 intermediates below it",
 		},
 		{
+			name:      "the anchor's statement about the first hint sets a naming constraint the subject is outside and a max_path_length the route meets",
+			reference: "6.2.2",
+			hints:     twoRoutes,
+			setup: func(f *routeFederation) {
+				f.claims["ta>a"] = map[string]any{"constraints": map[string]any{"max_path_length": 1, "naming_constraints": map[string]any{"excluded": []any{".elsewhere.example"}}}}
+			},
+			via: "b",
+		},
+		{
 			name:      "the only route sets a naming constraint the subject is outside",
 			reference: "6.2.2",
 			hints:     map[string][]string{"leaf": {"a"}, "a": {"ta"}, "ta": {}},

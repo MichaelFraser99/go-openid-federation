@@ -480,12 +480,15 @@ func newWalkMemo(refused map[resolvecache.Link][]routeRefusal) *walkMemo {
 
 func (m *walkMemo) refuses(link resolvecache.Link, path []model.EntityStatement) (refused, belowDependent bool) {
 	for _, refusal := range m.refused[link] {
-		if refusal.matches(path) {
-			refused = true
-			belowDependent = belowDependent || refusal.below != ""
+		if !refusal.matches(path) {
+			continue
 		}
+		if refusal.below == "" {
+			return true, false
+		}
+		refused = true
 	}
-	return refused, belowDependent
+	return refused, refused
 }
 
 func (m *walkMemo) count(counter *int) {

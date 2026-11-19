@@ -32,7 +32,7 @@ What changed in each release, and what you may have to do about it, is in [UPGRA
 | `server_test` | `TestServer` helper that stands up a four-entity federation over `httptest` |
 | `model_test` | Test helpers for the model package |
 
-> **Breaking change.** Helpers that were exported only for the library's own packages to share are now private or under `internal/`, where they did not depend on `model`'s private code. Some exports remain that only the library's own packages call, because `model` must export what `internal/` needs, such as the `Configuration` limit and logging methods; treat anything this README does not document as internal. Helpers that the library's own packages share, such as `model.StripUnpublishableKeys` and `Server.RespondWithError`, were exported without being documented. They are now private or under `internal/`, and [UPGRADING.md](UPGRADING.md) lists them.
+> **Breaking change.** Helpers that were exported without being documented, only for the library's own packages to share, such as `model.StripUnpublishableKeys` and `Server.RespondWithError`, are now private or under `internal/`, and [UPGRADING.md](UPGRADING.md) lists them. Some exports that only the library's own packages call remain, because `model` must export what `internal/` needs, such as the `Configuration` limit and logging methods. Treat anything this README does not document as internal.
 
 ## Quick start
 

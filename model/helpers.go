@@ -455,6 +455,9 @@ func applyPolicyToMetadata(metadata map[string]any, policy map[string]PolicyOper
 					existing = convertStringsToAnySlice(scopeTokens(existingString))
 				}
 				operator = operator.ToSlice(k)
+				if _, assigned := operator.(Value); assigned {
+					scopeString = true
+				}
 			}
 			if _, isOneOf := operator.(OneOf); isOneOf && k == "scope" && ok {
 				return fmt.Errorf("one_of cannot be applied to scope, because policy operators process scope as an array of scope values")

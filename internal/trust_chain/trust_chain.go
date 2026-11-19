@@ -157,7 +157,7 @@ func routeStatements(ctx context.Context, cfg model.Configuration, signedRoute [
 			if err != nil {
 				cfg.LogInfo(ctx, "this server did not issue its own subordinate statement", slog.String("subject", string(route[i].Sub)), slog.String("error", truncate.TruncateForResponse(err.Error())))
 				if ctx.Err() != nil {
-					return nil, nil, nil, walkNotCompleted(ctx, true)
+					return nil, nil, nil, fmt.Errorf("%w%w", resolvecache.ErrOwnIssuedFault, walkNotCompleted(ctx, true))
 				}
 				if errors.Is(err, model.ErrServerError) || errors.Is(err, model.ErrTemporarilyUnavailable) {
 					return nil, nil, link, fmt.Errorf("%w%w%w", resolvecache.ErrOwnFault, resolvecache.ErrOwnIssuedFault, err)
@@ -388,7 +388,10 @@ func ResolveTimeLimitReached(ctx context.Context) error {
 }
 
 func walkNotCompleted(ctx context.Context, own bool) error {
-	if limit := ResolveTimeLimitReached(ctx); limit != nil && !own {
+	if own {
+		return fmt.Errorf("%w%w%s: %w", resolvecache.ErrOwnFault, model.ErrTemporarilyUnavailable, "trust chain walk did not complete", ctx.Err())
+	}
+	if limit := ResolveTimeLimitReached(ctx); limit != nil {
 		return limit
 	}
 	return fmt.Errorf("%w%s: %w", model.ErrTemporarilyUnavailable, "trust chain walk did not complete", ctx.Err())

@@ -48,6 +48,7 @@ type Cache struct {
 	described      map[model.EntityIdentifier]struct{}
 	deadEnds       map[DeadEnd]struct{}
 	deadLinks      map[Link]struct{}
+	unlisted       map[Link]struct{}
 	traversed      int
 	fetched        int
 	peerBytes      int64
@@ -216,5 +217,19 @@ func (c *Cache) Describe(identifier model.EntityIdentifier) bool {
 		return false
 	}
 	c.described[identifier] = struct{}{}
+	return true
+}
+
+func (c *Cache) FirstUnlisted(link Link) bool {
+	if c == nil {
+		return true
+	}
+	if _, noted := c.unlisted[link]; noted {
+		return false
+	}
+	if c.unlisted == nil {
+		c.unlisted = map[Link]struct{}{}
+	}
+	c.unlisted[link] = struct{}{}
 	return true
 }

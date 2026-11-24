@@ -1431,7 +1431,7 @@ Section 3.2 says: "When the Entity Statement is a Subordinate Statement, the iss
 `Experimental.UnlistedSuperiors` relaxes that one requirement for the entities you name. Each key is an entity identifier, and its value is every direct superior that entity may have without listing it. Name all of them: more than one is normal, and a superior you leave out is never tried. An entity and its superiors are matched to the identifiers in the statements as exact strings, so write them as the entities publish them.
 
 ```go
-cfg := model.Configuration{HttpClient: http.DefaultClient}
+cfg := model.Configuration{HttpClient: federationHTTPClient()}
 cfg.Experimental.UnlistedSuperiors = map[model.EntityIdentifier][]model.EntityIdentifier{
 	"https://wallet.example.com": {"https://ta.example.org", "https://intermediate.example.org"},
 }

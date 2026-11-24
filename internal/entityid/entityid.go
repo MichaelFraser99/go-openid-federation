@@ -1,12 +1,16 @@
 package entityid
 
 import (
+	"fmt"
+	"maps"
 	"net"
 	"net/url"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
 	"github.com/MichaelFraser99/go-openid-federation/model"
 )
 
@@ -63,4 +67,26 @@ func isUnreserved(c byte) bool {
 	default:
 		return false
 	}
+}
+
+func UnlistedSuperiorFaults(unlisted map[model.EntityIdentifier][]model.EntityIdentifier) []error {
+	var faults []error
+	for _, entity := range slices.Sorted(maps.Keys(unlisted)) {
+		named := truncate.TruncateForResponse(string(entity))
+		if _, err := model.ValidateEntityIdentifier(string(entity)); err != nil {
+			faults = append(faults, fmt.Errorf("Experimental.UnlistedSuperiors[%q] is not an entity identifier: %s", named, err.Error()))
+		}
+		superiors := unlisted[entity]
+		if len(superiors) == 0 {
+			faults = append(faults, fmt.Errorf("Experimental.UnlistedSuperiors[%q] lists no superior", named))
+		}
+		for i, superior := range superiors {
+			if _, err := model.ValidateEntityIdentifier(string(superior)); err != nil {
+				faults = append(faults, fmt.Errorf("Experimental.UnlistedSuperiors[%q][%d] is not an entity identifier: %s", named, i, err.Error()))
+			} else if NamesTheSameEntity(superior, entity) {
+				faults = append(faults, fmt.Errorf("Experimental.UnlistedSuperiors[%q][%d] names the entity itself", named, i))
+			}
+		}
+	}
+	return faults
 }

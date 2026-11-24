@@ -2,6 +2,10 @@
 
 Each change you may have to act on is marked **Breaking change** in the README section it concerns. The lists below link to those sections.
 
+## From v0.12.0
+
+- [Superiors an entity does not list](README.md#superiors-an-entity-does-not-list): `Configuration.Experimental.UnlistedSuperiors` is new and experimental. It lets the entities you name be resolved through the superiors you list for them, although they do not list those superiors in `authority_hints`, which section 3.2 requires. Nothing changes unless you set it. It may change or be removed in any release, whatever the version number says.
+
 ## From v0.11.1
 
 - [Installation](README.md#installation): this release requires `go-jose` v0.12.0, so a module that imports `go-jose` itself is lifted to v0.12.0 too. Read go-jose's upgrade notes for its `jwt.Validate` signature and Ed25519 key types.

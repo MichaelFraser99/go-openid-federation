@@ -95,3 +95,10 @@ func TestUnlistedSuperiorFaults_BoundsTheIdentifierItQuotes(t *testing.T) {
 		t.Errorf("expected the quoted identifier cut short, got %d bytes", len(text))
 	}
 }
+
+func TestUnlistedSuperiorFaults_JudgesALongEntityByItsWholeIdentifier(t *testing.T) {
+	long := model.EntityIdentifier("https://wallet.example/" + strings.Repeat("a", 4096))
+	if faults := UnlistedSuperiorFaults(map[model.EntityIdentifier][]model.EntityIdentifier{long: {"https://ta.example"}}); len(faults) != 0 {
+		t.Errorf("expected a long entity with a superior to be accepted, got %v", faults)
+	}
+}

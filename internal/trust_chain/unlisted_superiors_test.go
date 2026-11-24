@@ -543,3 +543,27 @@ func TestUnlistedSuperiors_AMalformedConfigurationIsRefusedBeforeAnyRequest(t *t
 		}
 	}
 }
+
+func TestUnlistedSuperiors_EachSubjectsUseOfOneSuperiorIsLogged(t *testing.T) {
+	f := newUnlistedFederation(t, map[string][]string{"wallet": {}, "other": {}, "ta": {}}, map[string][]string{"ta": {"wallet", "other"}})
+	var logs bytes.Buffer
+	cfg := model.Configuration{HttpClient: f.client, Logger: slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelInfo}))}
+	cfg.Experimental.UnlistedSuperiors = unlistedSuperiors(f, map[string][]string{"wallet": {"ta"}, "other": {"ta"}})
+	cache := resolvecache.New()
+
+	for _, subject := range []string{"wallet", "other"} {
+		if _, _, _, err := BuildTrustChain(t.Context(), cfg, f.entity(subject), f.entity("ta"), cache); err != nil {
+			t.Fatalf("expected a chain for %s, got %v", subject, err)
+		}
+	}
+
+	var entities []string
+	for _, record := range logRecords(t, &logs) {
+		if strings.Contains(record["msg"].(string), "Experimental.UnlistedSuperiors") {
+			entities = append(entities, record["entity"].(string))
+		}
+	}
+	if want := []string{string(f.entity("wallet")), string(f.entity("other"))}; !reflect.DeepEqual(entities, want) {
+		t.Errorf("expected one line for each subject, got %v", entities)
+	}
+}

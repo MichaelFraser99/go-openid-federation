@@ -567,3 +567,50 @@ func TestUnlistedSuperiors_EachSubjectsUseOfOneSuperiorIsLogged(t *testing.T) {
 		t.Errorf("expected one line for each subject, got %v", entities)
 	}
 }
+
+func TestUnlistedSuperiors_AreMatchedAsExactStrings(t *testing.T) {
+	tests := []struct {
+		name     string
+		entity   func(f *routeFederation) model.EntityIdentifier
+		superior func(f *routeFederation) model.EntityIdentifier
+	}{
+		{
+			name:     "the superior with a trailing slash",
+			entity:   func(f *routeFederation) model.EntityIdentifier { return f.entity("wallet") },
+			superior: func(f *routeFederation) model.EntityIdentifier { return f.entity("ta") + "/" },
+		},
+		{
+			name:   "the superior in upper case",
+			entity: func(f *routeFederation) model.EntityIdentifier { return f.entity("wallet") },
+			superior: func(f *routeFederation) model.EntityIdentifier {
+				return model.EntityIdentifier(strings.ToUpper(string(f.entity("ta"))))
+			},
+		},
+		{
+			name:     "the entity with a trailing slash",
+			entity:   func(f *routeFederation) model.EntityIdentifier { return f.entity("wallet") + "/" },
+			superior: func(f *routeFederation) model.EntityIdentifier { return f.entity("ta") },
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newUnlistedFederation(t, map[string][]string{"wallet": {}, "ta": {}}, map[string][]string{"ta": {"wallet"}})
+			exact := model.Configuration{HttpClient: f.client}
+			exact.Experimental.UnlistedSuperiors = unlistedSuperiors(f, map[string][]string{"wallet": {"ta"}})
+			chain, _, _, err := BuildTrustChain(t.Context(), exact, f.entity("wallet"), f.entity("ta"), nil)
+			if err != nil {
+				t.Fatalf("expected the exact spelling to build a chain, got %v", err)
+			}
+			cfg := model.Configuration{HttpClient: f.client}
+			cfg.Experimental.UnlistedSuperiors = map[model.EntityIdentifier][]model.EntityIdentifier{tc.entity(f): {tc.superior(f)}}
+
+			if _, _, _, err := BuildTrustChain(t.Context(), cfg, f.entity("wallet"), f.entity("ta"), nil); !errors.Is(err, model.ErrInvalidTrustAnchor) {
+				t.Errorf("expected the walk to find no route, got %v", err)
+			}
+			if _, err := ResolveMetadata(t.Context(), cfg, "https://resolver.example", f.entity("ta"), chain, nil); !errors.Is(err, model.ErrInvalidTrustChain) {
+				t.Errorf("expected the supplied chain refused, got %v", err)
+			}
+		})
+	}
+}

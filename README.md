@@ -1428,7 +1428,7 @@ Two endpoints beyond the core specification are available. Both are disabled by 
 
 Section 3.2 says: "When the Entity Statement is a Subordinate Statement, the iss Claim Value MUST match one of the values in the authority_hints array in the Entity Configuration for the Entity whose Entity Identifier is the value of the sub Claim; otherwise, the Federation graph is not well-formed." Some entities cannot meet that. A wallet provider is registered by many ecosystems, and it cannot list all of their trust anchors and intermediates in its `authority_hints`. Without this option, no chain to such an entity can be built or resolved through a superior it does not list.
 
-`Experimental.UnlistedSuperiors` relaxes that one requirement for the entities you name. Each key is an entity identifier, and its value is every direct superior that entity may have without listing it. Name all of them: more than one is normal, and a superior you leave out is never tried.
+`Experimental.UnlistedSuperiors` relaxes that one requirement for the entities you name. Each key is an entity identifier, and its value is every direct superior that entity may have without listing it. Name all of them: more than one is normal, and a superior you leave out is never tried. An entity and its superiors are matched to the identifiers in the statements as exact strings, so write them as the entities publish them.
 
 ```go
 cfg := model.Configuration{HttpClient: http.DefaultClient}

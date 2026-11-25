@@ -60,6 +60,12 @@ type Configuration struct {
 	HostToASCII func(host string) (string, error)
 
 	SigningAlgorithms []jwa.Algorithm
+
+	Experimental Experimental
+}
+
+type Experimental struct {
+	UnlistedSuperiors map[EntityIdentifier][]EntityIdentifier
 }
 
 var defaultSigningAlgorithms = []jwa.Algorithm{

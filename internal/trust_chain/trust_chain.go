@@ -15,6 +15,7 @@ import (
 	"github.com/MichaelFraser99/go-openid-federation/internal/boundedjson"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_configuration"
 	"github.com/MichaelFraser99/go-openid-federation/internal/entity_statement"
+	"github.com/MichaelFraser99/go-openid-federation/internal/entityid"
 	"github.com/MichaelFraser99/go-openid-federation/internal/resolvecache"
 	"github.com/MichaelFraser99/go-openid-federation/internal/subordinate_statement"
 	"github.com/MichaelFraser99/go-openid-federation/internal/truncate"
@@ -67,6 +68,9 @@ func BuildTrustChain(ctx context.Context, cfg model.Configuration, targetLeafEnt
 			if err == nil {
 				if err = verifyTrustAnchor(ctx, cfg, targetTrustAnchorEntityIdentifier, trustChain[len(trustChain)-1], parsedTrustChain[len(parsedTrustChain)-1]); err != nil {
 					return nil, nil, nil, err
+				}
+				for i := 1; i < len(route); i++ {
+					noteUnlistedSuperior(ctx, cfg, route[i-1], route[i].Sub, cache)
 				}
 				return trustChain, parsedTrustChain, &exp, nil
 			}
@@ -269,6 +273,10 @@ func verifyTrustAnchorRequested(ctx context.Context, cfg model.Configuration, re
 	if err := cfg.VerifySigningAlgorithms(); err != nil {
 		cfg.LogError(ctx, "the configured signing algorithms are unusable", slog.String("error", err.Error()))
 		return err
+	}
+	if faults := entityid.UnlistedSuperiorFaults(cfg.Experimental.UnlistedSuperiors); len(faults) > 0 {
+		cfg.LogError(ctx, "the configured unlisted superiors are unusable", slog.String("error", faults[0].Error()))
+		return model.NewServerError(faults[0].Error())
 	}
 	if requested == "" {
 		cfg.LogInfo(ctx, "no trust anchor was named, so a chain cannot be anchored")
@@ -672,7 +680,7 @@ func chainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 	outerDependsOn := walk.dependsOn
 	walk.dependsOn = independentOfPath
 	var toCheck []model.EntityIdentifier
-	for _, trustIssuer := range subjectEntityStatement.AuthorityHints {
+	for _, trustIssuer := range superiorsToTry(cfg, *subjectEntityStatement) {
 		refused, dependsOn := walk.refuses(resolvecache.Link{Issuer: trustIssuer, Subject: subject}, path)
 		if cache.IsDeadLink(resolvecache.Link{Issuer: trustIssuer, Subject: subject}) {
 			continue
@@ -728,6 +736,31 @@ func chainUpOne(ctx context.Context, cfg model.Configuration, subject, target mo
 		return signedPath[:len(signedPath)-1], path[:len(path)-1], true, depthReached()
 	}
 	return signedPath[:len(signedPath)-1], path[:len(path)-1], tainted, model.NewInvalidTrustAnchorError("unable to build trust chain from specified 'sub' to specified 'trust_anchor'")
+}
+
+func superiorsToTry(cfg model.Configuration, subject model.EntityStatement) []model.EntityIdentifier {
+	configured := cfg.Experimental.UnlistedSuperiors[subject.Sub]
+	if len(configured) == 0 {
+		return subject.AuthorityHints
+	}
+	superiors := slices.Clone(subject.AuthorityHints)
+	for _, superior := range configured {
+		if !slices.Contains(superiors, superior) {
+			superiors = append(superiors, superior)
+		}
+	}
+	return superiors
+}
+
+func listsOrIsConfiguredFor(cfg model.Configuration, subject model.EntityStatement, superior model.EntityIdentifier) bool {
+	return slices.Contains(subject.AuthorityHints, superior) || slices.Contains(cfg.Experimental.UnlistedSuperiors[subject.Sub], superior)
+}
+
+func noteUnlistedSuperior(ctx context.Context, cfg model.Configuration, subject model.EntityStatement, superior model.EntityIdentifier, cache *resolvecache.Cache) {
+	if slices.Contains(subject.AuthorityHints, superior) || !cache.FirstUnlisted(resolvecache.Link{Issuer: superior, Subject: subject.Sub}) {
+		return
+	}
+	cfg.LogInfo(ctx, "the trust chain uses a superior its subject does not list in authority_hints, which Experimental.UnlistedSuperiors allows for this subject", slog.String("entity", string(subject.Sub)), slog.String("superior", string(superior)))
 }
 
 func resolvedMetadata(metadata *model.Metadata) *model.Metadata {
@@ -926,11 +959,12 @@ func ResolveMetadataForEntityTypes(ctx context.Context, cfg model.Configuration,
 		cfg.LogInfo(ctx, "failed to validate subject entity configuration", slog.String("error", truncate.TruncateForResponse(err.Error())))
 		return nil, suppliedEntryRefused(err, 0, "entity configuration")
 	}
-	if !slices.Contains(subjectEntityConfiguration.AuthorityHints, immediateSuperiorStatement.Iss) {
+	if !listsOrIsConfiguredFor(cfg, *subjectEntityConfiguration, immediateSuperiorStatement.Iss) {
 		cfg.LogInfo(ctx, "subordinate statement issuer is not listed in the subject's authority_hints", slog.String("issuer", string(immediateSuperiorStatement.Iss)), slog.Any("authority_hints", subjectEntityConfiguration.AuthorityHints))
 		return nil, model.NewInvalidTrustChainError(fmt.Sprintf("subordinate statement issuer %s is not listed in the authority_hints of subject %s", immediateSuperiorStatement.Iss, subjectEntityConfiguration.Sub))
 	}
 
+	noteUnlistedSuperior(ctx, cfg, *subjectEntityConfiguration, immediateSuperiorStatement.Iss, cache)
 	processedChain = append(processedChain, *subjectEntityConfiguration)
 
 	slices.Reverse(processedChain)

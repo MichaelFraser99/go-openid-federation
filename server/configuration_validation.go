@@ -64,6 +64,7 @@ func validateConfiguration(cfg model.ServerConfiguration) error {
 			fault("AuthorityHints[%d] names this server's own EntityIdentifier", i)
 		}
 	}
+	faults = append(faults, entityid.UnlistedSuperiorFaults(cfg.Experimental.UnlistedSuperiors)...)
 	for _, trustMarkType := range slices.Sorted(maps.Keys(cfg.EntityConfiguration.TrustMarkOwners)) {
 		owner := cfg.EntityConfiguration.TrustMarkOwners[trustMarkType]
 		if owner.Sub == "" {

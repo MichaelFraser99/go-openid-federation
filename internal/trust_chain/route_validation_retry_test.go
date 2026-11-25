@@ -27,6 +27,7 @@ type routeFederation struct {
 	key            *rsa.PrivateKey
 	rogue          *rsa.PrivateKey
 	hints          map[string][]string
+	registers      map[string][]string
 	claims         map[string]map[string]any
 	rogueSigned    map[string]bool
 	publishesRogue map[string]bool
@@ -118,7 +119,7 @@ func (f *routeFederation) serve(w http.ResponseWriter, r *http.Request) {
 	} else if node, fetch := strings.CutSuffix(path, "/fetch"); fetch && f.hints[node] != nil {
 		asked := r.URL.Query().Get("sub")
 		subject := asked[strings.LastIndex(asked, "/")+1:]
-		if f.entity(subject) != model.EntityIdentifier(asked) || !slices.Contains(f.hints[subject], node) {
+		if f.entity(subject) != model.EntityIdentifier(asked) || (!slices.Contains(f.hints[subject], node) && !slices.Contains(f.registers[node], subject)) {
 			http.NotFound(w, r)
 			return
 		}

@@ -694,7 +694,7 @@ The library refuses a redirect to a URL that does not use `https` on every fetch
 | `Configuration.MaxTrustMarks` | `model.DefaultMaxTrustMarks`, 64 | Trust marks one resolve verifies for its subject, in the order the subject lists them. Only a mark whose type the trust anchor lists in `trust_mark_issuers` counts, whether or not it then verifies. A mark of any other type is left out without any cost, for example a mark from another federation. Trusted marks past the limit are left out of the response without being verified. If you raise it above `MaxTrustMarkIssuers`, a subject whose marks name more issuers than that is refused with 404 `invalid_subject` |
 | `Configuration.MaxResolveTime` | `model.DefaultMaxResolveTime`, 30s | How long one `/resolve` request, or one `Client.BuildTrustChain` or `Client.ResolveMetadata` call, may take, trust mark issuer walks included. Reaching it answers 404 `invalid_trust_anchor` with `model.ErrLimitReached` |
 | `Configuration.MaxStatementValues` | `model.DefaultMaxStatementValues`, 10,000 | JSON values in the header or body of one peer statement, trust mark or delegation, or of one entry in a chain passed to `Client.ResolveMetadata`. Separately, JSON values in the headers and bodies of all the trust marks one statement carries, and of their delegations. Also the operands that the `add` and `superset_of` operators of a merged policy hold in total, and the scope values in one statement's `scope` operands |
-| `Configuration.MaxAuthorityHints` | `model.DefaultMaxAuthorityHints`, 64 | `authority_hints` an entity configuration may list when the walk is to follow them |
+| `Configuration.MaxAuthorityHints` | `model.DefaultMaxAuthorityHints`, 64 | `authority_hints` an entity configuration may list when the walk is to follow them. Superiors named in [`Experimental.UnlistedSuperiors`](#superiors-an-entity-does-not-list) do not count |
 
 > **Breaking change.** These bounds now apply by default, to both `Server` and `Client`.
 >
@@ -1419,6 +1419,33 @@ Two endpoints beyond the core specification are available. Both are disabled by 
 `ResponseLifetime` sets the response's `exp` to its `iat` plus the lifetime. Leave it nil for a response with no `exp`, which section 2.3.2 of the Subordinate Events draft makes optional. A value under one second, including zero, can only sign a response that has already expired. Such a value answers 500 `server_error` with the endpoint's fixed description, and the value is logged at error level. Unlike the other lifetimes, zero does not select a default here, because nil already means "no `exp`".
 
 > **Breaking change.** In v0.11.1, the response was signed with any `ResponseLifetime`, so a zero or negative value produced an `exp` at or before `iat`. Set a lifetime of at least one second, or leave it nil.
+
+## Experimental
+
+`Configuration.Experimental` holds options that are not settled. Any of them may change or be removed in any release, whatever the version number says, so semantic versioning does not cover them. Each is off when left unset, and an unset option changes nothing.
+
+### Superiors an entity does not list
+
+Section 3.2 says: "When the Entity Statement is a Subordinate Statement, the iss Claim Value MUST match one of the values in the authority_hints array in the Entity Configuration for the Entity whose Entity Identifier is the value of the sub Claim; otherwise, the Federation graph is not well-formed." Some entities cannot meet that. A wallet provider is registered by many ecosystems, and it cannot list all of their trust anchors and intermediates in its `authority_hints`. Without this option, no chain to such an entity can be built or resolved through a superior it does not list.
+
+`Experimental.UnlistedSuperiors` relaxes that one requirement for the entities you name. Each key is an entity identifier, and its value is every direct superior that entity may have without listing it. Name all of them: more than one is normal, and a superior you leave out is never tried. An entity and its superiors are matched to the identifiers in the statements as exact strings, so write them as the entities publish them.
+
+```go
+cfg := model.Configuration{HttpClient: federationHTTPClient()}
+cfg.Experimental.UnlistedSuperiors = map[model.EntityIdentifier][]model.EntityIdentifier{
+	"https://wallet.example.com": {"https://ta.example.org", "https://intermediate.example.org"},
+}
+```
+
+For a named entity, the configured superiors are added to its `authority_hints`, and the walk treats the result as one list. Nothing the entity lists is removed or overridden. The walk treats the combined list as it treats any `authority_hints`: if one entry is the trust anchor, the walk uses that entry at once, so a configured trust anchor gives a shorter chain than a listed intermediate, as a listed trust anchor does. A configured superior must still be reachable in the normal way, through its own entity configuration and its own `authority_hints`, or its own entry here. No trust anchor is tried unless you name it. A link from an entity to a superior it does not list is accepted only when the entity is named here and the superior is in its list. This applies to the subject and to an intermediate, in `/resolve`, in the trust mark issuer walks of `/resolve`, in `Client.BuildTrustChain`, and in a chain you pass to `Client.ResolveMetadata`, where the subject's superior is the link that is checked. Any other link whose issuer the entity does not list is refused as before.
+
+Nothing else is relaxed. The superior must register the key the entity signs its entity configuration with. Signatures, `typ`, `alg` and `kid`, expiry, constraints, metadata, metadata policy, the trust anchor and every limit apply as they do to any other link. Configured superiors count against `MaxEntitiesTraversed`, `MaxTrustChainDepth` and `MaxResolveTime`. They do not count against `MaxAuthorityHints`, which bounds the list the entity chose, and an entity whose own `authority_hints` are over that limit is still refused.
+
+With this option set, the library is knowingly not conformant to section 3.2 for the entities you name. A superior can impose metadata, a metadata policy and constraints on its subordinate, so a superior that the subject does not acknowledge would otherwise be able to change what the subject resolves to. That is why each superior must be named here, and why no other superior is accepted.
+
+A chain that uses an unlisted superior does not satisfy section 3.2, so another verifier can refuse it. This includes the `trust_chain` in a `/resolve` response for a named entity. To accept such a chain, a verifier needs the same entry. For this library, that is the same `Experimental.UnlistedSuperiors` entry on the configuration that `Client.ResolveMetadata` receives.
+
+`NewServer` refuses a configuration that names an entity or a superior that is not an entity identifier, an entity with no superiors, or a superior that is the entity itself. `Client.BuildTrustChain` and `Client.ResolveMetadata` refuse the same configuration with `model.ErrServerError` before they send a request. A superior named twice is accepted. Each time a chain uses a superior its subject does not list, one Info line names the entity and the superior, once for each request.
 
 ## Testing
 
